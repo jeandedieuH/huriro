@@ -1,0 +1,25 @@
+{
+	"name": "@huriro/contracts",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Wire format: TypeBox schemas, DTOs, error codes, event payloads (§7.2)",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"types": "./src/*.ts",
+			"default": "./src/*.ts"
+		}
+	},
+	"dependencies": {
+		"typebox": "1.4.7"
+	},
+	"scripts": {
+		"lint": "biome check .",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test"
+	}
+}

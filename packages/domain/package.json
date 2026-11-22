@@ -1,0 +1,22 @@
+{
+	"name": "@huriro/domain",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Pure domain logic — permissions, policy decisions, ordering. No I/O (§7.2)",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"types": "./src/*.ts",
+			"default": "./src/*.ts"
+		}
+	},
+	"scripts": {
+		"lint": "biome check .",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test"
+	}
+}

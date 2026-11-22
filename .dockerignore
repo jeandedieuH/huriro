@@ -1,0 +1,17 @@
+node_modules
+**/node_modules
+.turbo
+dist
+**/dist
+.git
+.github
+docs
+backups
+data
+secrets
+infra/compose/secrets
+*.tsbuildinfo
+coverage
+.env
+.env.*
+!.env.example

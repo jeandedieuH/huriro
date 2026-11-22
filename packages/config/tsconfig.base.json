@@ -1,0 +1,29 @@
+{
+	"$schema": "https://json.schemastore.org/tsconfig",
+	"compilerOptions": {
+		// Language & runtime — Bun-first, bundler resolution (§6.1)
+		"target": "ES2023",
+		"lib": ["ES2023"],
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"moduleDetection": "force",
+		"resolveJsonModule": true,
+		"allowImportingTsExtensions": true,
+		"verbatimModuleSyntax": true,
+		"erasableSyntaxOnly": true,
+
+		// Strictness (§6.1 — non-negotiable flags)
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"exactOptionalPropertyTypes": true,
+		"noImplicitOverride": true,
+		"noFallthroughCasesInSwitch": true,
+		"noPropertyAccessFromIndexSignature": true,
+		"forceConsistentCasingInFileNames": true,
+		"skipLibCheck": true,
+
+		// Emit — typecheck-only repo; Bun runs the TS
+		"noEmit": true,
+		"isolatedDeclarations": false
+	}
+}

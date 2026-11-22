@@ -1,0 +1,194 @@
+# 19. Infrastructure, Environments & Delivery
+
+## 19.1 Environments
+
+| Environment          | Purpose                                                                                                                    | Data                          | Access             |
+| :------------------- | :------------------------------------------------------------------------------------------------------------------------- | :---------------------------- | :----------------- |
+| **Local**            | `bun dev` + `docker compose --profile dev up` (Postgres, Mailpit, Garage, optional Valkey) — the same images as production | Seeded fixtures               | Developer + agents |
+| **Preview (per PR)** | Ephemeral stack, migrated, seeded with a demo workspace                                                                    | Ephemeral, destroyed on merge | Team + reviewers   |
+| **Staging**          | Prod-shaped, synthetic tenants, load tests                                                                                 | Synthetic only                | Team               |
+| **Production**       | Customer data                                                                                                              | Real                          | Least privilege    |
+
+## 19.2 Self-host reference stacks
+
+Self-hosting is a product, not a deployment detail. Three supported shapes, **same images, same compose file** (profiles switch between them):
+
+| Shape                 | Who                          | Containers                                                                                              | Minimum host              |
+| :-------------------- | :--------------------------- | :------------------------------------------------------------------------------------------------------ | :------------------------ |
+| **Minimal** (default) | 2–50 users, one VPS          | `caddy` · `huriro` (`--role=all`, also serves the web build) · `postgres`                               | 2 vCPU / 4 GB / 40 GB SSD |
+| **Standard**          | 50–500 users, one bigger VPS | Minimal + profiles `valkey`, `clamav`, `s3` (Garage), roles split into `api` ×2 · `worker` · `realtime` | 4 vCPU / 8 GB             |
+| **Scaled / cloud**    | Beyond one host              | Same images on Kubernetes (Helm, post-GA) or a PaaS, managed Postgres + S3                              | —                         |
+
+```yaml
+# infra/compose/compose.yml (abridged) — `docker compose up -d` is the whole install
+services:
+  caddy: # automatic HTTPS for ONE hostname; skipped when Dokploy/Traefik fronts the stack
+    image: caddy:2@sha256:...
+    ports: ["80:80", "443:443"]
+    volumes: [./Caddyfile:/etc/caddy/Caddyfile:ro, caddy_data:/data]
+    networks: [edge]
+
+  huriro: # one image: api + worker + realtime + static web build
+    image: ghcr.io/huriro/huriro:1.0.0@sha256:...
+    command: ["serve", "--role=all"]
+    environment:
+      HURIRO_URL: https://${HURIRO_DOMAIN}
+      DATABASE_URL_FILE: /run/secrets/database_url
+      HURIRO_SECRET_KEY_FILE: /run/secrets/secret_key # root key; per-purpose keys derived via HKDF
+      BLOB_STORE: fs # or s3 (profile `s3`)
+    secrets: [database_url, secret_key]
+    volumes: [huriro_files:/var/lib/huriro/files]
+    read_only: true
+    tmpfs: [/tmp]
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck: { test: ["CMD", "/huriro", "health"], interval: 10s }
+    depends_on: { postgres: { condition: service_healthy } }
+    networks: [edge, data]
+
+  postgres: # our published image = postgres:18.7 + pgvector + pgBackRest (the official image has no pgvector)
+    image: ghcr.io/huriro/postgres:18.7-pgvector0.8-pgbackrest2@sha256:...
+    environment: { POSTGRES_PASSWORD_FILE: /run/secrets/pg_password }
+    secrets: [pg_password]
+    command: >
+      postgres -c wal_level=logical -c archive_mode=on -c archive_timeout=60
+               -c archive_command='pgbackrest --stanza=huriro archive-push %p'
+               -c shared_buffers=512MB -c max_connections=60
+    volumes: [pg_data:/var/lib/postgresql/data, pg_backups:/var/lib/pgbackrest]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U huriro"], interval: 5s }
+    networks: [data] # NEVER on the edge network
+
+  # --- optional profiles -------------------------------------------------------
+  valkey: { profiles: ["valkey"], image: "valkey/valkey:9@sha256:...", networks: [data] }
+  clamav: { profiles: ["clamav"], image: "clamav/clamav:1@sha256:...", networks: [data] } # ~1.5 GB RAM
+  garage: { profiles: ["s3"], image: "dxflrs/garage:v2@sha256:...", networks: [data] }
+  otel: { profiles: ["otel"], image: "otel/opentelemetry-collector-contrib@sha256:...", networks: [data] }
+  stalwart:
+    {
+      profiles: ["embedded-mail"],
+      image: "stalwartlabs/stalwart:v1.1@sha256:...",
+      ports: ["25:25", "465:465", "993:993"],
+      networks: [edge, mail],
+    }
+
+secrets: # generated by `huriro init` (or the install script) into ./secrets with 0600 permissions
+  database_url: { file: ./secrets/database_url }
+  secret_key: { file: ./secrets/secret_key }
+  pg_password: { file: ./secrets/pg_password }
+```
+
+**Operator experience requirements (these are acceptance criteria, not nice-to-haves):**
+
+| Concern       | Requirement                                                                                                                                                                                                                                                                                                          |
+| :------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Install       | `curl -fsSL https://get.huriro.app/compose.yml -o compose.yml && docker compose run --rm huriro init && docker compose up -d` — `init` asks for the domain, generates secrets, writes the Caddyfile and `.env`, and prints the one-time setup URL. A Dokploy template ships the same stack behind Dokploy's Traefik. |
+| Migrations    | Applied automatically on start under a Postgres advisory lock, **expand-phase only**; contract migrations run one release later. The server refuses to start against a schema _newer_ than itself (no silent downgrades).                                                                                            |
+| Upgrades      | `docker compose pull && docker compose up -d`. Any release from the previous 12 months upgrades directly (chained migrations tested in CI from every supported version). An automatic **pre-upgrade backup** runs before migrations. Release notes flag any manual step, and there should almost never be one.       |
+| Backups       | `huriro backup` / `huriro restore` wrap pgBackRest + the file store into one consistent, encrypted bundle, to a local volume by default and to any S3 target when configured. Scheduled daily by the worker; the admin UI shows last backup time, size, and the last verified restore.                               |
+| Diagnostics   | `huriro doctor` (CLI and admin UI) checks DNS/TLS, clock skew, DB version/extensions, disk space, mail sending, blob store, backup freshness, and pending migrations, each with a fix hint.                                                                                                                          |
+| Configuration | Everything set at runtime by env/secrets or the admin UI; no rebuild, ever. `.env.example` is generated from the config schema.                                                                                                                                                                                      |
+| Footprint     | Minimal shape idles under **1 GB RAM** total; measured in CI on every release.                                                                                                                                                                                                                                       |
+| Air-gapped    | Images and a static docs bundle can be mirrored; AI features work against a local Ollama/vLLM endpoint; no runtime call to huriro.app.                                                                                                                                                                               |
+
+Rules:
+
+- **Never** expose Postgres, Valkey, or the admin panel to the internet.
+- **Object storage:** local filesystem driver by default (on a backed-up volume), Garage (bundled profile) or any external S3-compatible service; **MinIO is not an option** (its community edition is archived).
+- Every image is pinned by **digest**; Renovate proposes updates with a cooldown. We publish multi-arch (amd64/arm64), signed images with SBOMs.
+- Secrets via Docker secrets / platform secret store, never baked into images or committed `.env` files; `_FILE` env indirection so secrets never appear in `docker inspect`.
+
+## 19.3 Dokploy / panel hardening (if using a control panel)
+
+A panel that mounts the Docker socket is a **host-root–equivalent** component and has a real advisory history (multiple critical issues in 2026, including a member-to-root escalation). Non-negotiables:
+
+1. **Never expose the panel port publicly.** Reach it over Tailscale/Cloudflare Tunnel/VPN only.
+2. Keep it patched; enforce 2FA on panel accounts; limit members.
+3. Isolated Docker networks per stack; `no-new-privileges` on every service; no TCP Docker socket exposure.
+4. **Do not use panel-level volume backups for the Postgres data directory** — they are not crash-consistent. Use WAL archiving + `pgBackRest` (§19.5).
+5. Host firewall with a Docker-aware ruleset (published ports bypass plain `ufw`).
+6. Treat the panel as privileged infrastructure in the threat model and in access reviews.
+
+If those constraints are unacceptable for a given deployment, ship a plain `docker compose` + systemd path documented as the supported alternative.
+
+## 19.4 Data services
+
+| Service        | Choice                                                                                                                                                                                                                         | Notes                                                                        |
+| :------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------- |
+| Postgres       | 18.x, `wal_level=logical` from day one                                                                                                                                                                                         | Enables CDC, search replicas, and zero-downtime major upgrades later         |
+| Pooling        | In-process pools on the minimal shape; **PgBouncer** (transaction mode, `max_prepared_statements` set so driver-prepared statements work) once API replicas > 2; direct session connection for LISTEN/NOTIFY and the job queue | `set_config(…, true)` is pooler-safe; session `SET`/`LISTEN` is not          |
+| Cache/pub-sub  | **Valkey** (BSD) — **optional** on a single node (in-process bus), required for multi-node realtime                                                                                                                            | Not Redis (license churn); NATS JetStream only if durable streams are needed |
+| Jobs           | **Postgres-backed queue** (pg-boss) with an inbound-webhook staging table                                                                                                                                                      | Enqueue in the same transaction as the write; raise batch size from defaults |
+| Object storage | `BlobStore`: local filesystem (minimal) · Garage (bundled profile) · any S3-compatible API                                                                                                                                     | Presigned/signed uploads, quarantine prefix, lifecycle rules                 |
+| Search         | Postgres FTS + `pg_trgm` + `pgvector` (HNSW)                                                                                                                                                                                   | Optional BM25 extension later; never a hard dependency                       |
+| Vectors        | `halfvec` with `hnsw.iterative_scan = relaxed_order`                                                                                                                                                                           | Filters are applied post-scan; iterative scan prevents recall collapse       |
+
+## 19.5 Backup, restore, and disaster recovery
+
+| Item               | Target                                                                                                                                                                                                                                                                                  |
+| :----------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RPO                | ≤ 5 minutes (WAL archiving with ~60 s `archive_timeout`)                                                                                                                                                                                                                                |
+| RTO                | ≤ 1 hour for a full restore                                                                                                                                                                                                                                                             |
+| Full backup        | Nightly `pgBackRest` full; differential every 6 h; WAL continuous                                                                                                                                                                                                                       |
+| Retention          | 7 d full, 30 d differential/WAL, monthly full for 12 months                                                                                                                                                                                                                             |
+| Encryption         | Backup repo encrypted; keys **not** stored with the backups                                                                                                                                                                                                                             |
+| Verification       | **Automated monthly restore drill** into an isolated environment + row-count/checksum assertions. Self-host: `huriro backup verify` (scheduled weekly) restores the latest backup into a scratch database inside the Postgres container and reports the result on the admin health page |
+| Self-host defaults | Local backup repo on a separate volume **plus** a prominent setup step for an off-site S3 target; the admin UI warns while no off-site target is configured                                                                                                                             |
+| Key escrow         | Backups are useless without `HURIRO_SECRET_KEY` (it unwraps mail/OAuth tokens). Setup forces the operator to download or acknowledge an escrow copy; `huriro restore` checks the key before starting                                                                                    |
+| Object storage     | Versioning + lifecycle on the bucket; separate credentials; restore documented                                                                                                                                                                                                          |
+| Config             | Compose files, panel config, and secrets inventory in a private repo (secrets in the secret store)                                                                                                                                                                                      |
+| Runbook            | `docs/runbooks/restore-postgres.md` with exact commands, tested quarterly                                                                                                                                                                                                               |
+
+**A backup that has never been restored is a hypothesis.** The drill is a scheduled task with an owner, not an aspiration.
+
+## 19.6 CI/CD pipeline
+
+```text
+PR opened
+ ├─ lint + format check (Biome)
+ ├─ typecheck (all packages)
+ ├─ unit tests (parallel per package)
+ ├─ integration tests (Testcontainers Postgres, RLS matrix)
+ ├─ contract test (OpenAPI snapshot vs generated)
+ ├─ migration lint (Squawk) + down-migration sanity
+ ├─ security: gitleaks, dependency audit (OSV/bun audit), Semgrep/CodeQL, Trivy image scan
+ ├─ a11y (axe on stories + key routes) and visual regression (Playwright)
+ ├─ build all images (multi-arch) + SBOM + cosign sign
+ └─ deploy preview environment for UI-heavy PRs only (migrate, seed, smoke test) — optional for a solo pipeline
+
+Merge to main
+ ├─ build & push images tagged with commit SHA
+ └─ deploy staging → run E2E suite against staging → promote to production (manual gate)
+
+Production deploy (rolling)
+ ├─ migrations job (expand phase) with lock_timeout + retries
+ ├─ rolling restart, health-gated (readiness = DB + migrations applied + cache reachable)
+ ├─ smoke tests (login, delta pull, create issue, socket connect)
+ └─ auto-rollback if smoke fails or error rate spikes in the first 10 minutes
+```
+
+**Supply-chain rules:** commit `bun.lock` and install `--frozen-lockfile`; pin GitHub Actions by **full SHA** (GitHub now supports workflow dependency lockfiles — use them); configure a **3–7 day minimum release age** in `bunfig.toml` and Renovate (`minimumReleaseAge`) so a compromised fresh release doesn't reach us first; sign images and publish attestations; never `curl | bash` in CI.
+
+## 19.7 Scaling path
+
+| Stage | Trigger                      | Change                                                                                                          |
+| :---- | :--------------------------- | :-------------------------------------------------------------------------------------------------------------- |
+| **0** | < 200 workspaces             | Single VPS, everything in one compose stack                                                                     |
+| **1** | API CPU saturated            | Add API replicas behind the edge; move Valkey to its own instance; PgBouncer                                    |
+| **2** | Postgres write/read pressure | Read replica for heavy reads (search, analytics); partition `change_log`/`chat_messages` by month; `pg_partman` |
+| **3** | Realtime fan-out             | Dedicated realtime nodes with document leases; Redis cluster                                                    |
+| **4** | Single-DB limits             | Logical sharding by `workspace_id` (the schema is already tenant-keyed, and every query is scoped)              |
+| **5** | Enterprise needs             | Multi-region read replicas, per-tenant isolation options, K8s/managed services                                  |
+
+**Design invariants that make this path possible:** `workspace_id` on every row; cursors and jobs scoped per workspace; no cross-tenant joins; no reliance on a single connection for correctness; stateless API.
+
+## 19.8 Cost envelope (self-host, single VPS)
+
+| Item                      | Minimal shape (monthly)       | Standard shape (monthly)                                   |
+| :------------------------ | :---------------------------- | :--------------------------------------------------------- |
+| VPS                       | 2 vCPU / 4 GB: $6–20          | 4 vCPU / 8 GB: $25–45                                      |
+| Files                     | On the VPS disk ($0)          | Object storage 100 GB + egress: $5–15                      |
+| Off-site backup bucket    | $1–5                          | $2–5                                                       |
+| Transactional email relay | usage-based (often free tier) | usage-based                                                |
+| Observability             | $0 (logs + `/metrics`)        | $0–20                                                      |
+| **Total**                 | **~$10–30**                   | **~$35–90** — the self-host promise must actually be cheap |

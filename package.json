@@ -1,0 +1,37 @@
+{
+	"name": "huriro",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Huriro — a secure, scalable, modular workspace platform (server + apps: AGPL-3.0, SDK/CLI: MIT)",
+	"type": "module",
+	"workspaces": [
+		"apps/*",
+		"packages/*"
+	],
+	"engines": {
+		"bun": ">=1.4.5",
+		"node": ">=22.12.0"
+	},
+	"scripts": {
+		"dev": "turbo dev",
+		"build": "turbo build",
+		"lint": "turbo lint",
+		"typecheck": "turbo typecheck",
+		"test": "turbo test",
+		"gen": "turbo run gen",
+		"gen:check": "turbo run gen:check",
+		"check:boundaries": "dependency-cruiser apps packages --config packages/config/dependency-cruiser.cjs",
+		"check:licenses": "bun scripts/check-licenses.ts",
+		"verify": "turbo lint typecheck test build gen:check && bun run check:boundaries && bun run check:licenses",
+		"migrate": "bun apps/server/src/index.ts migrate",
+		"doctor": "bun apps/server/src/index.ts doctor"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.6.8",
+		"@types/bun": "1.4.4",
+		"dependency-cruiser": "18.8.0",
+		"turbo": "2.11.11",
+		"typescript": "5.9.3"
+	},
+	"packageManager": "bun@1.4.5"
+}

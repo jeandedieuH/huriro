@@ -1,0 +1,18 @@
+# Bun workspace configuration.
+# Supply-chain posture (§19.6): frozen lockfile in CI, dependency release-age cooldown,
+# and no install scripts without review.
+
+[install]
+# Refuse dependencies published < 5 days ago unless explicitly excluded.
+# (Renovate proposes upgrades; the cooldown keeps compromised fresh releases out — §24 R9.)
+minimumReleaseAge = 432000 # 5 days, in seconds
+# Packages that genuinely must run install scripts go here after review, e.g.:
+# trustedDependencies = ["esbuild"]
+
+[install.lockfile]
+# Text-based lockfile is committed; CI installs with --frozen-lockfile.
+save = true
+
+[test]
+# bun test defaults; integration tests that need Docker gate on HURIRO_TESTCONTAINERS.
+coverage = false

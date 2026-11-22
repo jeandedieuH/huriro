@@ -1,0 +1,140 @@
+# Minimal self-host stack (ADR-0018): Caddy → huriro → postgres.
+# Optional profiles: `valkey`, `clamav`, `storage` (Garage) — never required.
+#
+#   huriro init --domain app.example.com   # writes secrets/, .env, Caddyfile
+#   docker compose -f infra/compose/compose.yml up -d
+#
+# Postgres lives ONLY on the `data` network — never on the edge (§19.4).
+
+name: huriro
+
+networks:
+  edge:
+  data:
+
+volumes:
+  pgdata:
+  huriro_files:
+  caddy_data:
+  clamav_db:
+  garage_data:
+
+secrets:
+  pg_password:
+    file: ../../secrets/pg_password
+  app_db_password:
+    file: ../../secrets/app_db_password
+  maint_db_password:
+    file: ../../secrets/maint_db_password
+  database_url:
+    file: ../../secrets/database_url
+  database_admin_url:
+    file: ../../secrets/database_admin_url
+  secret_key:
+    file: ../../secrets/secret_key
+  setup_token_hash:
+    file: ../../secrets/setup_token_hash
+
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    networks: [edge]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ../../Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      huriro:
+        condition: service_started
+
+  huriro:
+    build:
+      context: ../..
+      dockerfile: apps/server/Dockerfile
+    image: huriro/app:local
+    restart: unless-stopped
+    command: ["serve", "--role=all"]
+    networks: [edge, data]
+    env_file: ../../.env
+    environment:
+      DATABASE_URL_FILE: /run/secrets/database_url
+      DATABASE_ADMIN_URL_FILE: /run/secrets/database_admin_url
+      HURIRO_SECRET_KEY_FILE: /run/secrets/secret_key
+    secrets: [database_url, database_admin_url, secret_key]
+    volumes:
+      - huriro_files:/var/lib/huriro/files
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bun", "src/index.ts", "health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    # §19.4: non-root (image USER), read-only fs, no privilege escalation.
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    tmpfs: [/tmp]
+
+  postgres:
+    build:
+      context: ../postgres
+      dockerfile: Dockerfile
+    image: huriro/postgres:18-local
+    restart: unless-stopped
+    networks: [data]
+    environment:
+      POSTGRES_DB: huriro
+      POSTGRES_USER: huriro
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
+      HURIRO_APP_DB_PASSWORD_FILE: /run/secrets/app_db_password
+      HURIRO_MAINT_DB_PASSWORD_FILE: /run/secrets/maint_db_password
+      HURIRO_SETUP_TOKEN_HASH_FILE: /run/secrets/setup_token_hash
+    secrets: [pg_password, app_db_password, maint_db_password, setup_token_hash]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U huriro -d huriro"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    tmpfs: [/tmp, /var/run/postgresql]
+
+  # ---------- optional profiles (§19.2) ----------
+
+  valkey:
+    image: valkey/valkey:8.1.4-alpine
+    profiles: [valkey]
+    networks: [data]
+    restart: unless-stopped
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    tmpfs: [/tmp, /data]
+
+  clamav:
+    image: clamav/clamav:1.4.3-1
+    profiles: [clamav]
+    networks: [data]
+    restart: unless-stopped
+    volumes:
+      - clamav_db:/var/lib/clamav
+
+  garage:
+    image: dxflrs/garage:v2.1.0
+    profiles: [storage]
+    networks: [data]
+    restart: unless-stopped
+    volumes:
+      - garage_data:/var/lib/garage
+      - ../garage/garage.toml:/etc/garage.toml:ro

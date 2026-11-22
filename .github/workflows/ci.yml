@@ -1,0 +1,89 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# All actions pinned by full SHA (§4.2 supply-chain gate).
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.5"
+      - run: bun install --frozen-lockfile
+      - name: lint + format
+        run: bun run lint
+      - name: typecheck
+        run: bun run typecheck
+      - name: unit tests (no database)
+        run: bun run test
+      - name: module boundaries
+        run: bun run check:boundaries
+      - name: license allowlist
+        run: bun run check:licenses
+      - name: generated-file drift
+        run: bun run gen:check
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: huriro_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/huriro_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.5"
+      - run: bun install --frozen-lockfile
+      - name: migrations + RLS coverage + two-tenant isolation
+        run: bun test packages/test-utils
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+
+  compose-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.5"
+      - run: bun install --frozen-lockfile
+      - name: init a throwaway instance
+        run: bun apps/server/src/index.ts init --domain localhost --dir /tmp/huriro-smoke
+      - name: build + up
+        working-directory: /tmp/huriro-smoke
+        run: |
+          cp -r "$GITHUB_WORKSPACE/infra" ./infra
+          docker compose -f infra/compose/compose.yml up -d --build
+      - name: api becomes healthy
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3000/health; then exit 0; fi
+            sleep 2
+          done
+          docker compose -f /tmp/huriro-smoke/infra/compose/compose.yml logs
+          exit 1
+      - name: stack state
+        run: docker compose -f /tmp/huriro-smoke/infra/compose/compose.yml ps

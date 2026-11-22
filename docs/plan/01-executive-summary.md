@@ -1,0 +1,48 @@
+# 1. Executive Summary
+
+## 1.1 What we are building
+
+**Huriro** is a self-hostable, cloud-ready workspace that consolidates the four tools most teams pay for separately — **issues/projects**, **documents/wiki**, **chat**, and a **shared team inbox** — plus a **first-class AI/MCP surface** so agents can operate inside the same workspace with the same permissions as people.
+
+The market gap is not "another Notion clone". It is the combination of:
+
+1. **One permission model** spanning tasks, docs, chat, mail, and agents.
+2. **Local-first speed** — the app responds in single-digit milliseconds for reads and writes because the client owns a replica.
+3. **A real inbox** — customer email attached to the same work items software teams already use (the Front/Missive insight applied to engineering tooling).
+4. **Agent-native** — a scoped, auditable, human-in-the-loop MCP server rather than a bolt-on chatbot.
+5. **Deploy-anywhere** — a single-node self-host path that a two-person company can run, and a horizontal cloud path that a 5,000-seat tenant can trust.
+
+## 1.2 Strategic decisions (the short version)
+
+| Decision           | Choice                                                                                                                                                                                                 | Why                                                                                                                                                                                          |
+| :----------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Delivery shape     | **Modular monolith shipped as one image with three roles** (`api`, `worker`, `realtime`), runnable as separate processes _or_ as one `all-in-one` process for small self-hosts                         | A microservice mesh at v1 would cost months and buy nothing at <10k tenants. Module boundaries + an outbox give us the future split lines for free; one image keeps self-host and CI simple. |
+| Source of truth    | **PostgreSQL**, single logical database, tenant-scoped + RLS                                                                                                                                           | One engine covers relational, `ltree`, JSONB, full-text, vectors, queues, and pub/sub. Fewer moving parts = fewer failure modes on a 4-vCPU box.                                             |
+| Client data model  | **Local replica first**: our server change feed (§9) feeding **TanStack DB** collections persisted to SQLite (OPFS on web, native SQLite on mobile) with its durable offline outbox                    | This is what makes Linear feel instant. We own the server protocol and authorization; we do _not_ hand-roll the client reactive store, persistence, or offline queue.                        |
+| Realtime transport | **WebSocket for signals only**; HTTP for data                                                                                                                                                          | Broadcasts carry an opaque change cursor, never payloads. Permission filtering happens on read, every time.                                                                                  |
+| Sync correctness   | **Monotonic change log with commit-safe ordering** (not raw `BIGSERIAL` cursors)                                                                                                                       | Raw sequence cursors silently drop rows under concurrent commits. See §9.2.                                                                                                                  |
+| Collaborative docs | **Yjs CRDT** (via a proven Yjs server, not a hand-rolled Rust gateway at v1) with snapshot compaction                                                                                                  | CRDT correctness is a solved problem — do not re-solve it in v1.                                                                                                                             |
+| Mail               | **Connected inbox first** (IMAP/Graph/Gmail + inbound routing), **embedded Stalwart as an optional self-host module**                                                                                  | Outbound deliverability is the hardest part of email and is not a product differentiator.                                                                                                    |
+| Desktop            | **PWA first → Tauri 2.x thin shell** reusing the web client                                                                                                                                            | See §18. A bespoke GPU-rendered UI was in the original sketch and is not justified (Appendix A.9).                                                                                           |
+| Auth               | **Better Auth for identity only** (users, sessions, passkeys, 2FA, OAuth/MCP provider, API keys). **Huriro owns tenancy** (workspaces, memberships, roles, ACLs) — the organization plugin is not used | Battle-tested session plumbing, while the tables RLS, the change feed, and custom roles depend on stay in our schema with one source of truth.                                               |
+| Authorization      | **RBAC roles + relational resource ACLs** (private channels, docs, projects) behind a single policy layer, enforced by **RLS as defense-in-depth**                                                     | Zanzibar-scale graph authorization is the right _later_ answer; relational ACLs are the right _v1_ answer.                                                                                   |
+| AI                 | Provider-agnostic gateway, **retrieval scoped per workspace and per user**, **read/write tool scopes**, **writes require confirmation**                                                                | Email and docs are attacker-controlled text. Treat retrieved content as untrusted input forever.                                                                                             |
+| UI system          | **shadcn/ui (Base UI) on the shadcn token contract**, extended with OKLCH semantic tokens; keyboard-first, optimistic, WCAG 2.2 AA, INP ≤ 200 ms budget                                                | Craft is a feature. The design system is versioned code, not a Figma artifact; staying on the shadcn contract keeps registry components drop-in.                                             |
+| Agents             | **One tool registry** powers the MCP server, the in-app assistant, the CLI, and the public API; agents are first-class _principals_ (assignable, attributable, revocable)                              | "Works well with agents" is an architecture property, not an endpoint. Anything a human can do in the UI is reachable by a scoped agent through the same policy layer.                       |
+| Distribution       | **Fully open source (AGPL-3.0)**, one feature set for self-host and cloud; no license-key gating                                                                                                       | Self-host is a first-class citizen; the cloud sells operations, not features.                                                                                                                |
+
+## 1.3 What "done" looks like at v1
+
+- A team can sign up, create a workspace, invite members with roles, and use **Tasks + Docs + Chat + Inbox** end-to-end.
+- Two people can co-edit a document with live cursors; a container restart loses zero keystrokes.
+- A task moved in one browser appears in another profile in **< 1 s**, without raw payloads crossing the socket.
+- The mobile app opens **offline** and shows the last-known workspace instantly, then reconciles.
+- Claude Desktop or Cursor can authenticate via OAuth 2.1 and **read** linked customer email + tasks, and **propose** a task creation that a human approves.
+- A single VPS deployment survives a restore drill from S3 backups with a documented RTO.
+- Every write path is idempotent, auditable, and permission-checked at the data layer, not just the controller.
+- A self-hoster goes from a fresh 2 vCPU / 4 GB VPS to a working workspace in **≤ 10 minutes** with `curl` of one compose file + `docker compose up`, a first-run setup wizard, and no manual migration step; upgrading is `docker compose pull && docker compose up -d`.
+- An agent can be **assigned an issue**, work on it through MCP or the CLI, and every action it takes is attributed to it in the activity timeline.
+
+## 1.4 Timeline at a glance
+
+The build is sequenced for **one engineer working with AI coding agents**: six milestones over roughly **48 working weeks**, each ending in a **shippable, self-hostable release** (alpha → beta → GA) rather than a big-bang launch. Tasks, Docs and the agent surface come first (they are the core loop and let Huriro be dogfooded to build itself); Chat, the Inbox and mobile follow. A hard **security-spine gate** closes the first milestone. See §23. The original 16-week plan was optimistic even for a team because it treated auth, authorization, sync correctness, testing, and design as free.
