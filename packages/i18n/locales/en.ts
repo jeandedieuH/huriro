@@ -210,6 +210,8 @@ export const en = {
 	'docs.slash.divider': 'Divider',
 	'docs.slash.reference': 'Reference card',
 	'docs.slash.embed': 'Safe embed',
+	'docs.slash.empty': 'No matching blocks',
+	'docs.slash.callout-note': 'Note',
 	'docs.panel.comments': 'Comments',
 	'docs.panel.versions': 'History',
 	'docs.panel.toc': 'Outline',

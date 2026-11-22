@@ -1,4 +1,7 @@
 // @huriro/editor public surface (§10).
+// Re-exported so web surfaces (e.g. slash suggestion) can suppress popups on
+// remote-collab transactions without taking a direct dependency.
+export { isChangeOrigin } from '@tiptap/extension-collaboration'
 export {
 	type EncodedAnchor,
 	encodeProseMirrorAnchor,

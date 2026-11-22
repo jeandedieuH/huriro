@@ -203,6 +203,8 @@ export const pseudo = {
 	'docs.slash.divider': '⟪Díívíídéér⟫ ~~',
 	'docs.slash.reference': '⟪Rééféérééncéé cààrd⟫ ~~~~~',
 	'docs.slash.embed': '⟪Sààféé éémbééd⟫ ~~~~',
+	'docs.slash.empty': '⟪Nóó mààtchííng blóócks⟫ ~~~~~~',
+	'docs.slash.callout-note': '⟪Nóótéé⟫ ~',
 	'docs.panel.comments': '⟪Cóómméénts⟫ ~~~',
 	'docs.panel.versions': '⟪Híístóórýý⟫ ~~',
 	'docs.panel.toc': '⟪Óóúútlíínéé⟫ ~~',

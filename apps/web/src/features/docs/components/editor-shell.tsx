@@ -28,6 +28,7 @@ import { Input } from '@/components/ui/input'
 import type { TaskApiBridge } from '@/lib/sync-bootstrap'
 import { type DocSidePanel, useUiStore } from '@/stores/ui-store'
 import { FloatingToolbar } from './floating-toolbar'
+import { createSlashCommandExtension } from './slash-command-menu'
 import { SlashMenu } from './slash-menu'
 
 export interface EditorShellProps {
@@ -136,8 +137,8 @@ export function EditorShell({
 	}, [onHeadingsChange, ydoc])
 
 	const extensions = useMemo(
-		() =>
-			createHuriroExtensions({
+		() => [
+			...createHuriroExtensions({
 				collaborative: true,
 				ydoc,
 				field: 'default',
@@ -145,6 +146,9 @@ export function EditorShell({
 				user: provider ? { name: userDisplayName, color: 'var(--primary)' } : undefined,
 				placeholder: t('docs.editor.placeholder')
 			}),
+			// "/" block picker lives in the app layer — the shared schema stays headless.
+			createSlashCommandExtension()
+		],
 		[provider, userDisplayName, ydoc]
 	)
 
