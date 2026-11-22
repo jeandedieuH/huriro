@@ -2,6 +2,15 @@
 	"root": false,
 	"extends": ["../../packages/config/biome.base.json"],
 	"files": {
-		"includes": ["src", ".storybook", "vite.config.ts", "!dist", "!storybook-static", "!src/styles"]
+		"includes": [
+			"src",
+			".storybook",
+			"visual",
+			"vite.config.ts",
+			"playwright.config.ts",
+			"!dist",
+			"!storybook-static",
+			"!src/styles"
+		]
 	}
 }

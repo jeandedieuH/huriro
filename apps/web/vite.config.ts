@@ -9,6 +9,8 @@ export default defineConfig({
 	test: {
 		environment: 'jsdom',
 		globals: true,
-		setupFiles: './src/lib/test-setup.ts'
+		setupFiles: './src/lib/test-setup.ts',
+		// visual/** is Playwright, not vitest — runs via `bun run test:visual`
+		exclude: ['visual/**', 'node_modules/**']
 	}
 })

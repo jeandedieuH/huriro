@@ -10,5 +10,5 @@
 		"baseUrl": ".",
 		"paths": { "@/*": ["src/*"] }
 	},
-	"include": ["src", ".storybook", "vite.config.ts"]
+	"include": ["src", ".storybook", "visual", "vite.config.ts", "playwright.config.ts"]
 }

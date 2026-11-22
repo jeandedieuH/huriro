@@ -63,7 +63,11 @@ services:
     restart: unless-stopped
     command: ["serve", "--role=all"]
     networks: [edge, data]
-    env_file: ../../.env
+    # Non-secret config only (HURIRO_URL, flags); secrets arrive via /run/secrets.
+    # required:false keeps `compose config` usable before `huriro init` runs.
+    env_file:
+      - path: ../../.env
+        required: false
     environment:
       DATABASE_URL_FILE: /run/secrets/database_url
       DATABASE_ADMIN_URL_FILE: /run/secrets/database_admin_url
