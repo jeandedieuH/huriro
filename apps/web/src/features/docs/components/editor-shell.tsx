@@ -144,7 +144,8 @@ export function EditorShell({
 				field: 'default',
 				provider: provider ?? undefined,
 				user: provider ? { name: userDisplayName, color: 'var(--primary)' } : undefined,
-				placeholder: t('docs.editor.placeholder')
+				placeholder: t('docs.editor.placeholder'),
+				toggleLabels: { arrow: t('docs.editor.toggle-arrow'), summary: t('docs.editor.toggle-summary') }
 			}),
 			// "/" block picker lives in the app layer — the shared schema stays headless.
 			createSlashCommandExtension()

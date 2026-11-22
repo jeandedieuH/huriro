@@ -33,6 +33,8 @@ export interface HuriroExtensionsOptions {
 	readonly provider?: unknown | undefined
 	readonly user?: { readonly name: string; readonly color: string; readonly userId?: string } | undefined
 	readonly placeholder?: string | undefined
+	/** Localized node-view labels for the collapsible toggle (§17.8). */
+	readonly toggleLabels?: { readonly arrow: string; readonly summary: string } | undefined
 }
 
 export function createHuriroExtensions(options: HuriroExtensionsOptions = {}): Extensions {
@@ -69,7 +71,10 @@ export function createHuriroExtensions(options: HuriroExtensionsOptions = {}): E
 		}),
 		BlockIdExtension,
 		CalloutExtension,
-		ToggleExtension,
+		ToggleExtension.configure({
+			arrowLabel: options.toggleLabels?.arrow ?? 'Toggle collapsible section',
+			summaryLabel: options.toggleLabels?.summary ?? 'Collapsible section title'
+		}),
 		EntityMentionExtension,
 		EmbedExtension,
 		ReferenceBlockExtension,

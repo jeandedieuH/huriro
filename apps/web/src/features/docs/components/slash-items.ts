@@ -106,7 +106,8 @@ export function getSlashItems(): SlashItem[] {
 			label: t('docs.slash.toggle'),
 			keywords: ['toggle', 'collapsible', 'details', 'expand'],
 			icon: ChevronRight,
-			apply: (editor, range) => applyBlock(editor, range, (chain) => chain.setToggle())
+			apply: (editor, range) =>
+				applyBlock(editor, range, (chain) => chain.setToggle({ summary: t('docs.slash.toggle-summary') }))
 		},
 		{
 			id: 'table',

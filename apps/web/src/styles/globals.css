@@ -58,6 +58,38 @@
 	margin: 0.75rem 0 0.3rem;
 }
 
+.huriro-editor .ProseMirror a {
+	color: var(--primary);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.huriro-editor .ProseMirror code {
+	background: var(--surface-2);
+	border-radius: var(--radius-sm);
+	font-family: var(--font-family-mono);
+	font-size: 0.9em;
+	padding: 0.1rem 0.3rem;
+}
+
+.huriro-editor .ProseMirror pre code {
+	background: transparent;
+	padding: 0;
+}
+
+.huriro-editor .ProseMirror hr {
+	border: none;
+	border-top: 1px solid var(--border);
+	margin: 1rem 0;
+}
+
+.huriro-editor .ProseMirror blockquote {
+	border-left: 3px solid var(--border);
+	color: var(--muted-foreground);
+	margin: 0.5rem 0;
+	padding-left: 0.75rem;
+}
+
 .huriro-editor .ProseMirror pre {
 	background: var(--surface-2);
 	border: 1px solid var(--border);
@@ -67,6 +99,31 @@
 	padding: 0.75rem 1rem;
 	overflow-x: auto;
 	margin: 0.5rem 0;
+}
+
+/* Tailwind preflight strips list markers — restore them inside the editor. */
+.huriro-editor .ProseMirror ul:not([data-type='taskList']) {
+	list-style: disc;
+	padding-left: 1.5rem;
+	margin: 0.25rem 0;
+}
+
+.huriro-editor .ProseMirror ul:not([data-type='taskList']) ul {
+	list-style: circle;
+}
+
+.huriro-editor .ProseMirror ol {
+	list-style: decimal;
+	padding-left: 1.5rem;
+	margin: 0.25rem 0;
+}
+
+.huriro-editor .ProseMirror ol ol {
+	list-style: lower-alpha;
+}
+
+.huriro-editor .ProseMirror li {
+	margin: 0.125rem 0;
 }
 
 .huriro-editor .ProseMirror ul[data-type='taskList'] {
@@ -98,7 +155,7 @@
 	font-weight: 600;
 }
 
-.huriro-editor .ProseMirror div[data-type='callout'] {
+.huriro-editor .ProseMirror div[data-callout] {
 	border-left: 3px solid var(--info);
 	background: var(--surface-2);
 	border-radius: var(--radius-md);
@@ -106,26 +163,80 @@
 	margin: 0.65rem 0;
 }
 
-.huriro-editor .ProseMirror div[data-type='callout'][data-tone='warning'] {
+.huriro-editor .ProseMirror div[data-callout][data-callout-tone='warning'] {
 	border-left-color: var(--warning);
 }
 
-.huriro-editor .ProseMirror div[data-type='callout'][data-tone='success'] {
+.huriro-editor .ProseMirror div[data-callout][data-callout-tone='success'] {
 	border-left-color: var(--success);
 }
 
-.huriro-editor .ProseMirror div[data-type='callout'][data-tone='danger'] {
+.huriro-editor .ProseMirror div[data-callout][data-callout-tone='danger'] {
 	border-left-color: var(--destructive);
 }
 
-.huriro-editor .ProseMirror details[data-type='toggle'] {
+/* Collapsible toggle — node view renders a header row + content region. */
+.huriro-editor .ProseMirror div[data-toggle] {
 	border: 1px solid var(--border);
 	border-radius: var(--radius-md);
-	padding: 0.5rem 0.75rem;
+	padding: 0.45rem 0.65rem;
 	margin: 0.5rem 0;
 }
 
-.huriro-editor .ProseMirror span[data-type='entity-mention'] {
+.huriro-editor .ProseMirror [data-toggle-header] {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+}
+
+.huriro-editor .ProseMirror [data-toggle-arrow] {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.25rem;
+	height: 1.25rem;
+	flex-shrink: 0;
+	border: none;
+	background: transparent;
+	color: var(--ink-tertiary);
+	cursor: pointer;
+	border-radius: var(--radius-sm);
+	padding: 0;
+}
+
+.huriro-editor .ProseMirror [data-toggle-arrow]:hover {
+	background: var(--accent);
+	color: var(--accent-foreground);
+}
+
+.huriro-editor .ProseMirror [data-toggle-arrow]::before {
+	content: '▸';
+	transition: transform 120ms ease;
+}
+
+.huriro-editor .ProseMirror div[data-toggle][data-open='true'] > [data-toggle-header] [data-toggle-arrow]::before {
+	transform: rotate(90deg);
+}
+
+.huriro-editor .ProseMirror [data-toggle-summary-input] {
+	flex: 1;
+	min-width: 0;
+	background: transparent;
+	border: none;
+	font: inherit;
+	font-weight: 600;
+	padding: 0;
+}
+
+.huriro-editor .ProseMirror div[data-toggle][data-open='false'] > [data-toggle-content] {
+	display: none;
+}
+
+.huriro-editor .ProseMirror [data-toggle-content] {
+	margin: 0.35rem 0 0 1.6rem;
+}
+
+.huriro-editor .ProseMirror span[data-entity-mention] {
 	background: color-mix(in oklch, var(--primary) 12%, transparent);
 	color: var(--primary);
 	border-radius: var(--radius-sm);
