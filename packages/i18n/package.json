@@ -1,0 +1,28 @@
+{
+	"name": "@huriro/i18n",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Lingui catalogs + i18n setup + pseudo-locale (§17.8)",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./locales/*": {
+			"types": "./locales/*.ts",
+			"default": "./locales/*.ts"
+		}
+	},
+	"dependencies": {
+		"@lingui/core": "5.8.0",
+		"@lingui/react": "5.8.0"
+	},
+	"scripts": {
+		"gen": "bun src/pseudo-gen.ts",
+		"gen:check": "bun src/pseudo-gen.ts --check",
+		"lint": "biome check .",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test"
+	}
+}

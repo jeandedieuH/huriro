@@ -1,0 +1,29 @@
+{
+	"name": "@huriro/design-tokens",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Design tokens (DTCG) → css vars, tailwind @theme, RN theme, docs (§17.4)",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./rn-theme": {
+			"types": "./dist/rn/theme.ts",
+			"default": "./dist/rn/theme.ts"
+		}
+	},
+	"files": [
+		"src",
+		"tokens",
+		"dist"
+	],
+	"scripts": {
+		"gen": "bun src/compile.ts",
+		"gen:check": "bun src/compile.ts --check",
+		"lint": "biome check .",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test"
+	}
+}

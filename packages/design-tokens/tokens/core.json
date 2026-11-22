@@ -1,0 +1,59 @@
+{
+	"radius": {
+		"sm": { "$type": "dimension", "$value": "4px" },
+		"md": { "$type": "dimension", "$value": "6px" },
+		"lg": { "$type": "dimension", "$value": "8px" },
+		"xl": { "$type": "dimension", "$value": "12px" },
+		"full": { "$type": "dimension", "$value": "9999px" }
+	},
+	"font": {
+		"size": {
+			"xs": { "$type": "dimension", "$value": "12px" },
+			"sm": { "$type": "dimension", "$value": "13px" },
+			"base": { "$type": "dimension", "$value": "14px" },
+			"md": { "$type": "dimension", "$value": "16px" },
+			"lg": { "$type": "dimension", "$value": "20px" },
+			"xl": { "$type": "dimension", "$value": "24px" },
+			"2xl": { "$type": "dimension", "$value": "32px" }
+		},
+		"family": {
+			"sans": { "$type": "fontFamily", "$value": "InterVariable, Inter, system-ui, sans-serif" },
+			"mono": { "$type": "fontFamily", "$value": "ui-monospace, SFMono-Regular, Menlo, monospace" }
+		},
+		"leading": {
+			"ui": { "$type": "number", "$value": "1.25" },
+			"prose": { "$type": "number", "$value": "1.5" }
+		}
+	},
+	"motion": {
+		"duration": {
+			"fast": { "$type": "duration", "$value": "120ms" },
+			"base": { "$type": "duration", "$value": "180ms" },
+			"slow": { "$type": "duration", "$value": "240ms" }
+		},
+		"easing": {
+			"standard": { "$type": "cubicBezier", "$value": "cubic-bezier(0.2, 0, 0, 1)" },
+			"enter": { "$type": "cubicBezier", "$value": "cubic-bezier(0, 0, 0, 1)" },
+			"exit": { "$type": "cubicBezier", "$value": "cubic-bezier(0.4, 0, 1, 1)" }
+		}
+	},
+	"elevation": {
+		"0": { "$type": "shadow", "$value": "none" },
+		"1": { "$type": "shadow", "$value": "0 1px 2px rgb(0 0 0 / 0.04), 0 1px 1px rgb(0 0 0 / 0.02)" },
+		"2": { "$type": "shadow", "$value": "0 2px 6px rgb(0 0 0 / 0.06), 0 1px 2px rgb(0 0 0 / 0.04)" },
+		"3": { "$type": "shadow", "$value": "0 8px 24px rgb(0 0 0 / 0.10), 0 2px 6px rgb(0 0 0 / 0.05)" }
+	},
+	"z": {
+		"base": { "$type": "number", "$value": "0" },
+		"raised": { "$type": "number", "$value": "10" },
+		"sticky": { "$type": "number", "$value": "20" },
+		"overlay": { "$type": "number", "$value": "40" },
+		"modal": { "$type": "number", "$value": "100" },
+		"toast": { "$type": "number", "$value": "1000" }
+	},
+	"density": {
+		"comfortable": { "$type": "dimension", "$value": "36px" },
+		"compact": { "$type": "dimension", "$value": "32px" },
+		"dense": { "$type": "dimension", "$value": "28px" }
+	}
+}

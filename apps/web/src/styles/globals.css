@@ -1,0 +1,25 @@
+/* Generated token layer (css vars) + tailwind theme mapping — shadcn contract. */
+@import 'tailwindcss';
+@import '../../../../packages/design-tokens/dist/css/tokens.css';
+@import '../../../../packages/design-tokens/dist/tailwind/theme.css';
+
+@layer base {
+	* {
+		@apply border-border;
+	}
+	body {
+		@apply bg-background text-foreground font-sans antialiased;
+		font-feature-settings: 'cv05', 'ss01';
+	}
+	/* IDs, counts, timestamps use tabular figures (§17.5) */
+	.tnum,
+	time,
+	data {
+		font-variant-numeric: tabular-nums;
+	}
+	/* 2px outline + 2px offset focus ring, ≥3:1 vs adjacent colors */
+	:focus-visible {
+		outline: 2px solid var(--ring);
+		outline-offset: 2px;
+	}
+}

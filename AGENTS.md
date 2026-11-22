@@ -20,7 +20,10 @@ A secure, self-hostable, modular workspace platform. Monorepo: Bun workspaces
 ## Layout
 
 - `apps/server` — one image, three roles (api/worker/realtime) + `huriro` CLI.
+- `apps/web` — Vite + React 19 + Tailwind v4 app; `components/ui` shadcn-contract set, app shell, Storybook.
 - `packages/config` — shared tsconfig/biome/boundary rules.
+- `packages/design-tokens` — DTCG token JSON → css/tailwind/rn/docs; `gen` + `gen:check`.
+- `packages/i18n` — Lingui catalogs + typed `t()` + generated pseudo-locale.
 - `packages/contracts` — wire schemas (TypeBox): problem+json, pagination.
 - `packages/domain` — PURE core: permission catalog, roles, `can()` policy.
 - `packages/db` — Drizzle schema + raw SQL migrations + `withWorkspace` + runner.
