@@ -15,26 +15,21 @@ const NAV: { id: AppDestination; label: MessageId; icon: typeof Inbox }[] = [
 
 export interface SidebarProps {
 	readonly active?: string
-	readonly workspaceName?: string | undefined
 	readonly inboxUnreadCount?: number | undefined
 	readonly onSelect?: ((dest: AppDestination) => void) | undefined
 	readonly onOpenShortcuts?: (() => void) | undefined
 }
 
-export function Sidebar({
-	active,
-	workspaceName,
-	inboxUnreadCount = 0,
-	onSelect,
-	onOpenShortcuts
-}: SidebarProps) {
+export function Sidebar({ active, inboxUnreadCount = 0, onSelect, onOpenShortcuts }: SidebarProps) {
 	return (
 		<nav
 			aria-label="Primary"
 			className="flex h-full w-56 flex-col gap-1 border-r border-sidebar-border bg-sidebar px-2 py-3 text-sidebar-foreground"
 		>
-			<div className="flex items-center justify-between px-2 pb-3">
-				<span className="truncate text-sm font-semibold">{workspaceName ?? t('app.name')}</span>
+			{/* Brand lockup: logo.png on light, logo-white.png under .dark (§17.4) */}
+			<div className="flex items-center px-2 pb-3">
+				<img src="/images/logo.png" alt={t('app.name')} className="h-12 w-auto dark:hidden" />
+				<img src="/images/logo-white.png" alt={t('app.name')} className="hidden h-12 w-auto dark:block" />
 			</div>
 
 			{NAV.map((item) => {

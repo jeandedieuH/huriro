@@ -44,6 +44,7 @@ import {
 	MemoryReplicaStorage
 } from '@huriro/sync-client'
 import * as Y from 'yjs'
+import type { SocialProviderId } from './auth'
 import { env } from './env'
 
 // Validated client env — unset means same-origin (dev proxy / single ingress).
@@ -115,7 +116,36 @@ export interface BootstrappedWorkspace {
 	readonly api: TaskApiBridge
 	readonly workspaceName: string
 	readonly currentUserId: string
+	readonly userDisplayName: string
 	readonly isPreview: boolean
+}
+
+/** Gate rendered instead of a workspace when the api requires a session first. */
+export interface AuthRequired {
+	readonly kind: 'auth'
+	readonly needsSetup: boolean
+	readonly socialProviders: readonly SocialProviderId[]
+}
+
+/** Gate rendered when a signed-in user does not belong to any workspace yet. */
+export interface OnboardingRequired {
+	readonly kind: 'onboarding'
+	readonly needsSetup: boolean
+	readonly user: {
+		readonly id: string
+		readonly email: string
+		readonly name: string
+	}
+}
+
+export type BootResult = BootstrappedWorkspace | AuthRequired | OnboardingRequired
+
+export function isAuthRequired(result: BootResult): result is AuthRequired {
+	return (result as AuthRequired).kind === 'auth'
+}
+
+export function isOnboardingRequired(result: BootResult): result is OnboardingRequired {
+	return (result as OnboardingRequired).kind === 'onboarding'
 }
 
 function createLiveApiBridge(workspaceId: string): TaskApiBridge {
@@ -1346,63 +1376,118 @@ export async function createPreviewWorkspace(
 		api: createPreviewApiBridge(engine),
 		workspaceName: 'Huriro Preview',
 		currentUserId: PREVIEW_USER_ID,
+		userDisplayName: 'Hagen (Owner)',
 		isPreview: true
 	}
 }
 
+async function fetchSetupRequired(): Promise<boolean> {
+	try {
+		const statusRes = await fetch(`${API_BASE}/api/v1/setup/status`, {
+			credentials: 'include'
+		})
+		if (statusRes.ok) {
+			const status = (await statusRes.json()) as { configured?: boolean }
+			return status.configured === false
+		}
+	} catch {
+		// Status probe failed — sign-in remains the safer fallback.
+	}
+	return false
+}
+
+async function fetchSocialProviders(): Promise<readonly SocialProviderId[]> {
+	try {
+		const res = await fetch(`${API_BASE}/api/v1/auth/providers`, {
+			credentials: 'include'
+		})
+		if (res.ok) {
+			const json = (await res.json()) as { providers?: readonly SocialProviderId[] }
+			return Array.isArray(json.providers) ? json.providers : []
+		}
+	} catch {
+		// Discovery failure falls back cleanly to email/password only.
+	}
+	return []
+}
+
 /**
- * Connect to live `/api/v1/workspaces/current` if authenticated; otherwise fall back
- * immediately to the offline-first preview workspace without blocking.
+ * Connect to live `/api/v1/workspaces/current` if authenticated. A 401 means
+ * the api is reachable but has no session for us → hand the shell an auth
+ * gate (first-run setup vs sign-in decided by setup/status + enabled OAuth
+ * providers). A 200 with zero workspaces lands on onboarding instead of falling
+ * into offline preview. Any network failure falls back to the offline-first
+ * preview workspace without blocking.
  */
-export async function bootstrapWorkspace(): Promise<BootstrappedWorkspace> {
+export async function bootstrapWorkspace(opts?: { readonly preferPreview?: boolean }): Promise<BootResult> {
+	if (opts?.preferPreview) return createPreviewWorkspace()
 	try {
 		const res = await fetch(`${API_BASE}/api/v1/workspaces/current`, {
 			credentials: 'include',
 			headers: { 'x-huriro-client': 'huriro-web' }
 		})
+		if (res.status === 401) {
+			const [needsSetup, socialProviders] = await Promise.all([fetchSetupRequired(), fetchSocialProviders()])
+			return { kind: 'auth', needsSetup, socialProviders }
+		}
 		if (res.ok) {
 			const payload = (await res.json()) as {
 				data: { id: string; slug: string; name: string; roleKey: string }[]
 			}
-			const workspace = payload.data[0]
-			if (workspace) {
-				let userId = PREVIEW_USER_ID
-				try {
-					const sessionRes = await fetch(`${API_BASE}/api/auth/get-session`, {
-						credentials: 'include'
-					})
-					if (sessionRes.ok) {
-						const sessionJson = (await sessionRes.json()) as { user?: { id?: string } }
-						if (sessionJson.user?.id) userId = sessionJson.user.id
-					}
-				} catch {
-					// Keep fallback id
-				}
-
-				const api = createLiveApiBridge(workspace.id)
-				if (userId === PREVIEW_USER_ID) {
-					const members = await api.listMembers().catch(() => [])
-					if (members[0]?.userId) userId = members[0].userId
-				}
-
-				const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-				const wsUrl = env.VITE_WS_URL ?? `${proto}//${window.location.host}/ws`
-				const transport = new HttpSyncTransport({ workspaceId: workspace.id })
-				const engine = new HuriroSyncEngine({
-					workspaceId: workspace.id,
-					currentUserId: userId,
-					transport,
-					wsUrl,
-					useRealtimeTicket: true
+			let userId = PREVIEW_USER_ID
+			let userEmail = ''
+			let userDisplayName = 'User'
+			try {
+				const sessionRes = await fetch(`${API_BASE}/api/auth/get-session`, {
+					credentials: 'include'
 				})
-				await engine.bootstrap()
-				return {
-					engine,
-					api,
-					workspaceName: workspace.name,
-					currentUserId: userId,
-					isPreview: false
+				if (sessionRes.ok) {
+					const sessionJson = (await sessionRes.json()) as {
+						user?: { id?: string; email?: string; name?: string }
+					}
+					if (sessionJson.user?.id) userId = sessionJson.user.id
+					if (sessionJson.user?.email) userEmail = sessionJson.user.email
+					if (sessionJson.user?.name) userDisplayName = sessionJson.user.name
 				}
+			} catch {
+				// Keep fallbacks
+			}
+
+			const workspace = payload.data[0]
+			if (!workspace) {
+				const needsSetup = await fetchSetupRequired()
+				return {
+					kind: 'onboarding',
+					needsSetup,
+					user: { id: userId, email: userEmail, name: userDisplayName }
+				}
+			}
+
+			const api = createLiveApiBridge(workspace.id)
+			if (userId === PREVIEW_USER_ID) {
+				const members = await api.listMembers().catch(() => [])
+				if (members[0]?.userId) userId = members[0].userId
+				if (members[0]?.displayName) userDisplayName = members[0].displayName
+			}
+
+			const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+			const wsUrl = env.VITE_WS_URL ?? `${proto}//${window.location.host}/ws`
+			const transport = new HttpSyncTransport({ workspaceId: workspace.id })
+			const engine = new HuriroSyncEngine({
+				workspaceId: workspace.id,
+				currentUserId: userId,
+				transport,
+				wsUrl,
+				useRealtimeTicket: true
+			})
+			await engine.bootstrap()
+			return {
+				engine,
+				api,
+				workspaceName: workspace.name,
+				currentUserId: userId,
+				userDisplayName,
+				isPreview: false
 			}
 		}
 	} catch {

@@ -25,6 +25,9 @@ export interface Config extends Env {
 	readonly databaseAuthUrl: string
 	readonly secretKey: string | undefined
 	readonly betterAuthSecret: string | undefined
+	readonly googleClientSecret: string | undefined
+	readonly githubClientSecret: string | undefined
+	readonly appleClientSecret: string | undefined
 }
 
 let cached: Config | null = null
@@ -48,6 +51,9 @@ export async function loadEnv(source: Record<string, string | undefined> = proce
 		env.DATABASE_AUTH_URL ?? (await readSecretFile(env.DATABASE_AUTH_URL_FILE)) ?? databaseUrl // dev fallback: session lookups through the app role's own URL
 	const secretKey = env.HURIRO_SECRET_KEY ?? (await readSecretFile(env.HURIRO_SECRET_KEY_FILE))
 	const betterAuthSecret = env.BETTER_AUTH_SECRET ?? (await readSecretFile(env.BETTER_AUTH_SECRET_FILE))
+	const googleClientSecret = env.GOOGLE_CLIENT_SECRET ?? (await readSecretFile(env.GOOGLE_CLIENT_SECRET_FILE))
+	const githubClientSecret = env.GITHUB_CLIENT_SECRET ?? (await readSecretFile(env.GITHUB_CLIENT_SECRET_FILE))
+	const appleClientSecret = env.APPLE_CLIENT_SECRET ?? (await readSecretFile(env.APPLE_CLIENT_SECRET_FILE))
 
 	if (!databaseUrl) problems.push('DATABASE_URL or DATABASE_URL_FILE is required')
 	if (env.HURIRO_ENV === 'production' && !secretKey) {
@@ -55,6 +61,21 @@ export async function loadEnv(source: Record<string, string | undefined> = proce
 	}
 	if (env.BLOB_STORE === 's3' && (!env.S3_ENDPOINT || !env.S3_BUCKET)) {
 		problems.push('S3_ENDPOINT and S3_BUCKET are required when BLOB_STORE=s3')
+	}
+	if (Boolean(env.GOOGLE_CLIENT_ID) !== Boolean(googleClientSecret)) {
+		problems.push(
+			'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET (or GOOGLE_CLIENT_SECRET_FILE) must be set together'
+		)
+	}
+	if (Boolean(env.GITHUB_CLIENT_ID) !== Boolean(githubClientSecret)) {
+		problems.push(
+			'GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET (or GITHUB_CLIENT_SECRET_FILE) must be set together'
+		)
+	}
+	if (Boolean(env.APPLE_CLIENT_ID) !== Boolean(appleClientSecret)) {
+		problems.push(
+			'APPLE_CLIENT_ID and APPLE_CLIENT_SECRET (or APPLE_CLIENT_SECRET_FILE) must be set together'
+		)
 	}
 
 	if (problems.length > 0) {
@@ -69,7 +90,10 @@ export async function loadEnv(source: Record<string, string | undefined> = proce
 		databaseAdminUrl: databaseAdminUrl!,
 		databaseAuthUrl: databaseAuthUrl!,
 		secretKey,
-		betterAuthSecret
+		betterAuthSecret,
+		googleClientSecret,
+		githubClientSecret,
+		appleClientSecret
 	}
 	return cached
 }

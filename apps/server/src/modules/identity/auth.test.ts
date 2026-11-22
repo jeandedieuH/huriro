@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test'
 import type { Config } from '../../env'
-import { createAuth } from './auth'
+import { createAuth, getEnabledSocialProviders } from './auth'
 
 const fakeConfig = {
 	HURIRO_URL: 'https://app.test.huriro.dev',
@@ -30,6 +30,8 @@ describe('createAuth', () => {
 		expect(typeof auth.handler).toBe('function')
 		expect(typeof auth.api.getSession).toBe('function')
 		expect(typeof auth.api.signUpEmail).toBe('function')
+		expect(getEnabledSocialProviders(auth)).toEqual([])
+		expect(getEnabledSocialProviders(null)).toEqual([])
 	})
 
 	test('derives passkey rpID from HURIRO_URL when unset', () => {
@@ -38,5 +40,31 @@ describe('createAuth', () => {
 		// endpoints on the api surface is the observable contract.
 		expect(auth.options.plugins.map((p) => p.id)).toContain('passkey')
 		expect(auth.options.plugins.map((p) => p.id)).toContain('two-factor')
+	})
+
+	test('registers Google, GitHub, and Apple social providers and adds Apple origin only when Apple is enabled', () => {
+		const googleOnly = createAuth({
+			...fakeConfig,
+			GOOGLE_CLIENT_ID: 'google-client-id',
+			googleClientSecret: 'google-client-secret'
+		})
+		expect(getEnabledSocialProviders(googleOnly)).toEqual(['google'])
+		expect(googleOnly.options.trustedOrigins).toEqual(['https://app.test.huriro.dev'])
+
+		const allSocial = createAuth({
+			...fakeConfig,
+			GOOGLE_CLIENT_ID: 'google-client-id',
+			googleClientSecret: 'google-client-secret',
+			GITHUB_CLIENT_ID: 'github-client-id',
+			githubClientSecret: 'github-client-secret',
+			APPLE_CLIENT_ID: 'apple-client-id',
+			appleClientSecret: 'apple-client-secret',
+			APPLE_APP_BUNDLE_IDENTIFIER: 'dev.huriro.app'
+		})
+		expect(getEnabledSocialProviders(allSocial)).toEqual(['google', 'github', 'apple'])
+		expect(allSocial.options.trustedOrigins).toEqual([
+			'https://app.test.huriro.dev',
+			'https://appleid.apple.com'
+		])
 	})
 })

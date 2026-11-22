@@ -9,11 +9,28 @@
  * put into app.user_id / app.user_email — the RLS link between auth and tenancy.
  */
 
+import { Elysia } from 'elysia'
+import { Type } from 'typebox'
 import { HttpError } from '../../api/error'
-import type { Auth } from './auth'
+import { type Auth, getEnabledSocialProviders, type SocialProviderId } from './auth'
 
-export type { Auth } from './auth'
-export { createAuth } from './auth'
+export type { Auth, SocialProviderId } from './auth'
+export { createAuth, getEnabledSocialProviders, SOCIAL_PROVIDER_IDS } from './auth'
+
+const ProvidersResponse = Type.Object({
+	providers: Type.Array(Type.Union([Type.Literal('google'), Type.Literal('github'), Type.Literal('apple')]))
+})
+
+/** Public auth capability discovery so the client only enables configured OAuth flows. */
+export function identityModule(auth: Auth | null) {
+	return new Elysia({ name: 'huriro.identity' }).get(
+		'/auth/providers',
+		{ response: ProvidersResponse },
+		(): { providers: SocialProviderId[] } => ({
+			providers: getEnabledSocialProviders(auth)
+		})
+	)
+}
 
 export interface AuthSession {
 	readonly userId: string

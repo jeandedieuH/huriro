@@ -59,7 +59,10 @@ export const authPasskeys = authSchema.table('passkey', {
 		.references(() => users.id, { onDelete: 'cascade' }),
 	name: text('name'),
 	publicKey: text('public_key').notNull(),
-	credentialId: text('credential_id').notNull(),
+	// better-auth 1.7 names this model field `credentialID` (capital D); the
+	// drizzle property must match — the adapter schema check resolves by
+	// property name, not column name.
+	credentialID: text('credential_id').notNull(),
 	counter: integer('counter').notNull().default(0),
 	deviceType: text('device_type').notNull(),
 	backedUp: boolean('backed_up').notNull().default(false),
@@ -74,7 +77,11 @@ export const authTwoFactors = authSchema.table('two_factor', {
 		.notNull()
 		.references(() => users.id, { onDelete: 'cascade' }),
 	secret: text('secret').notNull(),
-	backupCodes: text('backup_codes').notNull()
+	backupCodes: text('backup_codes').notNull(),
+	// better-auth 1.7 lockout bookkeeping (migration 0008).
+	verified: boolean('verified').notNull().default(true),
+	failedVerificationCount: integer('failed_verification_count').notNull().default(0),
+	lockedUntil: timestamp('locked_until', { withTimezone: true })
 })
 
 // Adapter mapping bundle — consumed by identity/auth.ts only.

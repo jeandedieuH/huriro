@@ -12,29 +12,31 @@ import { Topbar } from './topbar'
 export interface AppShellProps {
 	children: ReactNode
 	activeNav?: string
-	workspaceName?: string | undefined
 	inboxUnreadCount?: number | undefined
 	isPreview?: boolean | undefined
 	theme?: 'light' | 'dark' | undefined
+	userName?: string | undefined
 	onSelectNav?: ((dest: AppDestination) => void) | undefined
 	onOpenCommandPalette?: (() => void) | undefined
 	onCreateNew?: (() => void) | undefined
 	onToggleTheme?: (() => void) | undefined
 	onOpenShortcuts?: (() => void) | undefined
+	onSignOut?: (() => void) | undefined
 }
 
 export function AppShell({
 	children,
 	activeNav,
-	workspaceName,
 	inboxUnreadCount,
 	isPreview,
 	theme,
+	userName,
 	onSelectNav,
 	onOpenCommandPalette,
 	onCreateNew,
 	onToggleTheme,
-	onOpenShortcuts
+	onOpenShortcuts,
+	onSignOut
 }: AppShellProps) {
 	return (
 		<div className="grid h-dvh grid-cols-[auto_1fr] grid-rows-[auto_1fr] bg-background">
@@ -47,7 +49,6 @@ export function AppShell({
 			<div className="row-span-2">
 				<Sidebar
 					active={activeNav ?? ''}
-					workspaceName={workspaceName}
 					inboxUnreadCount={inboxUnreadCount}
 					onSelect={onSelectNav}
 					onOpenShortcuts={onOpenShortcuts}
@@ -56,9 +57,11 @@ export function AppShell({
 			<Topbar
 				isPreview={isPreview}
 				theme={theme}
+				userName={userName}
 				onOpenCommandPalette={onOpenCommandPalette}
 				onCreateNew={onCreateNew}
 				onToggleTheme={onToggleTheme}
+				onSignOut={onSignOut}
 			/>
 			<main id="content" className="flex min-h-0 flex-col overflow-hidden">
 				{children}

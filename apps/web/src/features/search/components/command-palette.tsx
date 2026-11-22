@@ -296,6 +296,8 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 
 				<div className="flex items-center border-b border-border px-3">
 					<Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+					{/* Borderless input: suppress the global :focus-visible ring (globals.css)
+					    — the caret signals focus. pr-8 keeps text clear of the close button. */}
 					<Input
 						value={query}
 						onChange={(ev) => {
@@ -306,7 +308,7 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 						placeholder={t('palette.placeholder')}
 						aria-label={t('palette.title')}
 						autoFocus
-						className="h-11 border-0 shadow-none focus-visible:border-0"
+						className="h-11 border-0 pr-8 shadow-none focus-visible:border-0 focus-visible:outline-none"
 					/>
 				</div>
 

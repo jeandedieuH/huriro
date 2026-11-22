@@ -1,23 +1,35 @@
 import { t } from '@huriro/i18n'
-import { Moon, Plus, Sun } from 'lucide-react'
+import { LogOut, Moon, Plus, Sun } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { Kbd } from '@/components/ui/kbd'
 
 export interface TopbarProps {
 	readonly isPreview?: boolean | undefined
 	readonly theme?: 'light' | 'dark' | undefined
+	readonly userName?: string | undefined
 	readonly onOpenCommandPalette?: (() => void) | undefined
 	readonly onCreateNew?: (() => void) | undefined
 	readonly onToggleTheme?: (() => void) | undefined
+	readonly onSignOut?: (() => void) | undefined
 }
 
 export function Topbar({
 	isPreview,
 	theme = 'light',
+	userName,
 	onOpenCommandPalette,
 	onCreateNew,
-	onToggleTheme
+	onToggleTheme,
+	onSignOut
 }: TopbarProps) {
 	return (
 		<header className="flex h-12 items-center gap-3 border-b border-border bg-surface-2 px-4">
@@ -57,7 +69,32 @@ export function Topbar({
 						)}
 					</Button>
 				) : null}
-				<div className="size-7 rounded-full bg-primary/20 text-center text-xs leading-7 text-primary">H</div>
+				{onSignOut ? (
+					<DropdownMenu>
+						<DropdownMenuTrigger
+							className="size-7 rounded-full bg-primary/20 text-xs font-medium text-primary hover:bg-primary/30"
+							aria-label={t('shell.user-menu')}
+						>
+							{(userName ?? '?').slice(0, 1).toUpperCase()}
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="end">
+							{userName ? (
+								<>
+									<DropdownMenuLabel>{userName}</DropdownMenuLabel>
+									<DropdownMenuSeparator />
+								</>
+							) : null}
+							<DropdownMenuItem onSelect={() => void onSignOut()}>
+								<LogOut className="size-3.5" aria-hidden />
+								{t('auth.sign-out')}
+							</DropdownMenuItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
+				) : (
+					<div className="size-7 rounded-full bg-primary/20 text-center text-xs leading-7 text-primary">
+						{(userName ?? 'H').slice(0, 1).toUpperCase()}
+					</div>
+				)}
 			</div>
 		</header>
 	)

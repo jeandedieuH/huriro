@@ -17,6 +17,26 @@ export const DESTINATION_PATHS = {
 	settings: '/settings'
 } as const satisfies Record<AppDestination, string>
 
+export const AUTH_PATHS = ['/sign-in', '/sign-up', '/setup', '/onboarding'] as const
+export type AuthPath = (typeof AUTH_PATHS)[number]
+
+export function isAuthPathname(pathname: string): boolean {
+	return AUTH_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))
+}
+
+/**
+ * Validate a post-auth redirect target so external URLs (`//evil.com`, `https://...`)
+ * and auth-page loops are never followed.
+ */
+export function sanitizeRedirectPath(raw: string | undefined): string {
+	if (!raw) return '/tasks'
+	const trimmed = raw.trim()
+	if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return '/tasks'
+	const pathname = trimmed.split('?')[0] ?? '/'
+	if (pathname === '/' || isAuthPathname(pathname)) return '/tasks'
+	return trimmed
+}
+
 export function destinationFromPathname(pathname: string): AppDestination {
 	const seg = pathname.split('/')[1]
 	if (seg === 'inbox' || seg === 'docs' || seg === 'chat' || seg === 'settings') return seg

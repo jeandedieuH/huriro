@@ -113,6 +113,7 @@ async function serve(args: string[]) {
 			auth,
 			pubsub,
 			collabTicketSecret,
+			allowedOrigins: [new URL(env.HURIRO_URL).origin],
 			...(collab ? { collabBridge: collab.bridge } : {})
 		}).listen(env.PORT)
 		log.info({ port: env.PORT }, 'api listening')

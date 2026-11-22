@@ -55,6 +55,39 @@ export const serverSchemas = {
 		.optional()
 		.describe('Allowed passkey origin(s), comma-separated — defaults to HURIRO_URL'),
 
+	// ---- social OAuth providers (optional — configured per provider pair) ----
+	GOOGLE_CLIENT_ID: z
+		.string()
+		.optional()
+		.describe('Google OAuth client ID (enables Sign in with Google when paired with secret)'),
+	GOOGLE_CLIENT_SECRET: z.string().optional().describe('Google OAuth client secret (or use _FILE)'),
+	GOOGLE_CLIENT_SECRET_FILE: z
+		.string()
+		.optional()
+		.describe('Path to file containing GOOGLE_CLIENT_SECRET (Docker secret)'),
+	GITHUB_CLIENT_ID: z
+		.string()
+		.optional()
+		.describe('GitHub OAuth app client ID (enables Sign in with GitHub when paired with secret)'),
+	GITHUB_CLIENT_SECRET: z.string().optional().describe('GitHub OAuth app client secret (or use _FILE)'),
+	GITHUB_CLIENT_SECRET_FILE: z
+		.string()
+		.optional()
+		.describe('Path to file containing GITHUB_CLIENT_SECRET (Docker secret)'),
+	APPLE_CLIENT_ID: z
+		.string()
+		.optional()
+		.describe('Apple Services ID (enables Sign in with Apple when paired with secret)'),
+	APPLE_CLIENT_SECRET: z.string().optional().describe('Apple client secret JWT (or use _FILE)'),
+	APPLE_CLIENT_SECRET_FILE: z
+		.string()
+		.optional()
+		.describe('Path to file containing APPLE_CLIENT_SECRET (Docker secret)'),
+	APPLE_APP_BUNDLE_IDENTIFIER: z
+		.string()
+		.optional()
+		.describe('Optional iOS/macOS bundle ID for native Sign in with Apple'),
+
 	HURIRO_SECRET_KEY: z.string().min(32).optional().describe('Root key; per-purpose keys derived via HKDF'),
 	HURIRO_SECRET_KEY_FILE: z.string().optional(),
 

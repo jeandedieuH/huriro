@@ -3,7 +3,7 @@
  * withWorkspace/withSystem — never a raw pool — so queries can't escape tenant
  * scoping (§12.4).
  */
-import type { Queryable } from '@huriro/db'
+import { type Queryable, uuid7 } from '@huriro/db'
 
 export interface WorkspaceRow {
 	id: string
@@ -15,8 +15,16 @@ export async function insertWorkspace(
 	tx: Queryable,
 	args: { slug: string; name: string }
 ): Promise<WorkspaceRow> {
+	// Bootstrap ordering: the tenant context must exist BEFORE the insert.
+	// `INSERT ... RETURNING` re-reads the row under the SELECT policy, and
+	// workspaces_member_visibility only admits `id = app.workspace_id` (or a
+	// workspace the user already belongs to — impossible for a brand-new one).
+	// Pre-generating the uuidv7 lets us set the context first, so the row
+	// passes both the INSERT WITH CHECK and the RETURNING re-read.
+	const id = uuid7()
+	await tx`SELECT set_config('app.workspace_id', ${id}, true)`
 	const [row] = await tx<WorkspaceRow[]>`
-		INSERT INTO workspaces (slug, name) VALUES (${args.slug}, ${args.name})
+		INSERT INTO workspaces (id, slug, name) VALUES (${id}, ${args.slug}, ${args.name})
 		RETURNING id, slug, name
 	`
 	return row!

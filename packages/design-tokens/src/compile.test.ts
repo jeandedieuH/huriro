@@ -15,6 +15,15 @@ describe('token outputs', () => {
 		expect(css).toContain('--accent: oklch(0.96 0.003 265)')
 	})
 
+	test('vars referenced via `x-(--*)` syntax exist on :root', () => {
+		// Components write `z-(--z-popover)` / `shadow-(--shadow-N)` — raw var()
+		// pass-throughs that silently no-op when the var is missing from tokens.css
+		const css = readFileSync(join(DIST, 'css/tokens.css'), 'utf8')
+		for (const v of ['--z-popover:', '--z-modal:', '--shadow-1:', '--shadow-2:', '--shadow-3:']) {
+			expect(css).toContain(v)
+		}
+	})
+
 	test('tailwind theme uses @theme inline var mapping', () => {
 		const tw = readFileSync(join(DIST, 'tailwind/theme.css'), 'utf8')
 		expect(tw).toContain('@custom-variant dark')

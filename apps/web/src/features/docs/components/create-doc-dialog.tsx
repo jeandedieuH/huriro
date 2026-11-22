@@ -124,7 +124,8 @@ export function CreateDocDialog({ pages, defaultParentId = null, onCreated }: Cr
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value="blank">{t('docs.create.blank-template')}</SelectItem>
-								{BUILTIN_DOC_TEMPLATES.map((tpl) => (
+								{/* 'blank' is covered by the i18n'd item above — render it again and Radix treats both as selected, concatenating their labels in the trigger */}
+								{BUILTIN_DOC_TEMPLATES.filter((tpl) => tpl.id !== 'blank').map((tpl) => (
 									<SelectItem key={tpl.id} value={tpl.id}>
 										{tpl.title}
 									</SelectItem>

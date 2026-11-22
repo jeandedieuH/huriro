@@ -68,10 +68,15 @@
 	--z-sticky: 20;
 	--z-overlay: 40;
 	--z-modal: 100;
+	--z-popover: 200;
 	--z-toast: 1000;
 	--density-comfortable: 36px;
 	--density-compact: 32px;
 	--density-dense: 28px;
+	--shadow-0: var(--elevation-0);
+	--shadow-1: var(--elevation-1);
+	--shadow-2: var(--elevation-2);
+	--shadow-3: var(--elevation-3);
 }
 
 /* Dark mode rides shadcn's .dark class — never a data-theme attribute (§17.4). */

@@ -1,8 +1,8 @@
-import type { InputHTMLAttributes } from 'react'
+import type { ComponentProps } from 'react'
 import { cn } from '@/lib/utils'
 
-export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
-	invalid?: boolean
+export interface InputProps extends ComponentProps<'input'> {
+	invalid?: boolean | undefined
 }
 
 export function Input({ className, invalid, ...props }: InputProps) {

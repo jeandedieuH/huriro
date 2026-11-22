@@ -25,6 +25,17 @@ export const CompleteSetupResponse = Type.Object({
 	slug: Type.String()
 })
 
+export const CreateWorkspaceBody = Type.Object({
+	name: Type.String({ minLength: 1, maxLength: 80 }),
+	slug: Type.String({ minLength: 2, maxLength: 48, pattern: '^[a-z0-9][a-z0-9-]*$' })
+})
+
+export const CreateWorkspaceResponse = Type.Object({
+	id: Type.String({ format: 'uuid' }),
+	slug: Type.String(),
+	name: Type.String()
+})
+
 export const HealthResponse = Type.Object({ status: Type.Literal('ok') })
 
 export const ReadyResponse = Type.Object({

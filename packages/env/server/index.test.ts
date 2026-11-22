@@ -35,6 +35,20 @@ describe('createServerEnv', () => {
 		const env = createServerEnv({ SKIP_ENV_VALIDATION: '1', HURIRO_ENV: 'staging' })
 		expect(env).toMatchObject({ HURIRO_ENV: 'staging' })
 	})
+
+	test('OAuth provider vars are optional and empty strings collapse to undefined', () => {
+		const env = createServerEnv({
+			...REQUIRED_SOURCE,
+			GOOGLE_CLIENT_ID: 'google-id',
+			GOOGLE_CLIENT_SECRET: '',
+			GITHUB_CLIENT_ID: '',
+			APPLE_CLIENT_ID: 'apple-id'
+		})
+		expect(env.GOOGLE_CLIENT_ID).toBe('google-id')
+		expect(env.GOOGLE_CLIENT_SECRET).toBeUndefined()
+		expect(env.GITHUB_CLIENT_ID).toBeUndefined()
+		expect(env.APPLE_CLIENT_ID).toBe('apple-id')
+	})
 })
 
 describe('describeEnvSchemas', () => {
@@ -66,5 +80,9 @@ describe('renderEnvExample', () => {
 		})
 		expect(out).toContain('# Public base URL, e.g. https://app.example.com\nHURIRO_URL=http://localhost:3000')
 		expect(out).toContain('HURIRO_DOMAIN=\n')
+		expect(out).toContain('# Google OAuth client ID')
+		expect(out).toContain('GOOGLE_CLIENT_ID=\n')
+		expect(out).toContain('GITHUB_CLIENT_ID=\n')
+		expect(out).toContain('APPLE_CLIENT_ID=\n')
 	})
 })

@@ -15,8 +15,36 @@ export interface WorkspaceRequestContext {
 }
 
 /**
- * Validate auth session, credential exclusivity, CSRF headers (for cookie auth),
- * and the `X-Workspace-Id` header.
+ * Enforce CSRF origin + custom-header guards on cookie-authenticated mutations (§12.6).
+ *
+ * Registered once as a beforeHandle on the /api/v1 group (see api/app.ts). The
+ * Origin check cannot rely on `request.url` alone: behind a reverse proxy the
+ * request URL is the internal listener, not the page the browser is on — the
+ * Nitro dev proxy rewrites Host to 127.0.0.1:3001, and Caddy terminates TLS so
+ * https pages arrive as http requests. `allowedOrigins` carries the configured
+ * public origin (HURIRO_URL), matching the realtime upgrade check and
+ * better-auth's trustedOrigins.
+ */
+export function assertCookieCsrf(request: Request, allowedOrigins: readonly string[] = []): void {
+	if (!request.headers.has('cookie') || SAFE_METHODS.has(request.method.toUpperCase())) return
+	const reqOrigin = new URL(request.url).origin
+	const origin = request.headers.get('origin')
+	const fetchSite = request.headers.get('sec-fetch-site')
+	if (origin && origin !== reqOrigin && !allowedOrigins.includes(origin)) {
+		throw new HttpError(403, 'forbidden', 'Cross-origin state-changing request rejected')
+	}
+	if (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'same-site' && fetchSite !== 'none') {
+		throw new HttpError(403, 'forbidden', 'Cross-site request rejected')
+	}
+	if (!request.headers.get('x-huriro-client')) {
+		throw new HttpError(403, 'forbidden', 'Missing X-Huriro-Client CSRF header')
+	}
+}
+
+/**
+ * Validate auth session, credential exclusivity, and the `X-Workspace-Id`
+ * header. CSRF checks are enforced once for all /api/v1 routes by the
+ * beforeHandle gate in api/app.ts.
  */
 export async function requireWorkspaceRequest(
 	auth: Auth | null,
@@ -36,22 +64,6 @@ export async function requireWorkspaceRequest(
 	}
 
 	const session = await requireSession(auth, request)
-
-	// CSRF protection for cookie-authenticated state-changing requests (§12.6).
-	if (hasCookie && !SAFE_METHODS.has(request.method.toUpperCase())) {
-		const reqOrigin = new URL(request.url).origin
-		const origin = request.headers.get('origin')
-		const fetchSite = request.headers.get('sec-fetch-site')
-		if (origin && origin !== reqOrigin) {
-			throw new HttpError(403, 'forbidden', 'Cross-origin state-changing request rejected')
-		}
-		if (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'same-site' && fetchSite !== 'none') {
-			throw new HttpError(403, 'forbidden', 'Cross-site request rejected')
-		}
-		if (!request.headers.get('x-huriro-client')) {
-			throw new HttpError(403, 'forbidden', 'Missing X-Huriro-Client CSRF header')
-		}
-	}
 
 	const workspaceId = request.headers.get('x-workspace-id')?.trim()
 	if (!workspaceId || !isUuid(workspaceId)) {

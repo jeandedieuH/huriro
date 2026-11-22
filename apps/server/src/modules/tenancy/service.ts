@@ -54,10 +54,9 @@ export async function createWorkspace(
 	tx: Queryable,
 	args: { slug: string; name: string; ownerUserId: string }
 ): Promise<CreatedWorkspace> {
+	// insertWorkspace pre-generates the id and sets app.workspace_id before
+	// inserting — see its comment for why the context must precede the row.
 	const ws = await insertWorkspace(tx, { slug: args.slug, name: args.name })
-	// The workspace didn't exist when the tx began, so no tenant context is set;
-	// establish it now (same tx) so tenant-scoped writes satisfy FORCE RLS.
-	await tx`SELECT set_config('app.workspace_id', ${ws.id}, true)`
 	return seedWorkspace(tx, ws, args.ownerUserId)
 }
 

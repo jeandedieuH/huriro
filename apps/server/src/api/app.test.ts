@@ -51,8 +51,40 @@ describe('api contract', () => {
 
 	// ---- session-gated routes: auth null → 501 not_implemented (never 500) ----
 
+	test('GET /api/v1/auth/providers returns empty list without auth', async () => {
+		const res = await app.handle(new Request('http://t/api/v1/auth/providers'))
+		expect(res.status).toBe(200)
+		expect(await res.json()).toEqual({ providers: [] })
+	})
+
 	test('GET /workspaces/current without auth → 501 problem+json', async () => {
 		const res = await app.handle(new Request('http://t/api/v1/workspaces/current'))
+		expect(res.status).toBe(501)
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('not_implemented')
+	})
+
+	test('POST /workspaces rejects invalid slug → 422 problem+json', async () => {
+		const res = await app.handle(
+			new Request('http://t/api/v1/workspaces', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ name: 'Acme', slug: 'INVALID SLUG' })
+			})
+		)
+		expect(res.status).toBe(422)
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('validation_failed')
+	})
+
+	test('POST /workspaces without auth → 501 problem+json', async () => {
+		const res = await app.handle(
+			new Request('http://t/api/v1/workspaces', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ name: 'Acme', slug: 'acme' })
+			})
+		)
 		expect(res.status).toBe(501)
 		const body = (await res.json()) as { code?: string }
 		expect(body.code).toBe('not_implemented')
@@ -86,6 +118,83 @@ describe('api contract', () => {
 		expect(res.status).toBe(422)
 		const body = (await res.json()) as { code?: string }
 		expect(body.code).toBe('validation_failed')
+	})
+
+	// ---- CSRF gate (§12.6): cookie-authed mutations under /api/v1 ----
+
+	test('POST /workspaces behind the dev proxy accepts the public origin', async () => {
+		// Nitro devProxy rewrites Host → 127.0.0.1:3001 but the browser Origin
+		// stays :3000. HURIRO_URL in allowedOrigins lets it through; the request
+		// then reaches the handler, which 501s only because auth is null here.
+		const proxyApp = createApp({
+			sql: stubSql as never,
+			migrationsDir: '.',
+			mode: 'selfhost',
+			auth: null,
+			allowedOrigins: ['http://localhost:3000']
+		})
+		const res = await proxyApp.handle(
+			new Request('http://127.0.0.1:3001/api/v1/workspaces', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					cookie: 'better-auth.session_token=x',
+					origin: 'http://localhost:3000',
+					'x-huriro-client': 'huriro-web'
+				},
+				body: JSON.stringify({ name: 'Acme', slug: 'acme' })
+			})
+		)
+		expect(res.status).toBe(501)
+	})
+
+	test('POST /workspaces cross-origin without allowedOrigins → 403', async () => {
+		// Strict default: the browser origin is not the request origin and no
+		// public origin is configured — stays forbidden.
+		const res = await app.handle(
+			new Request('http://127.0.0.1:3001/api/v1/workspaces', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					cookie: 's=1',
+					origin: 'http://localhost:3000',
+					'x-huriro-client': 'huriro-web'
+				},
+				body: JSON.stringify({ name: 'Acme', slug: 'acme' })
+			})
+		)
+		expect(res.status).toBe(403)
+	})
+
+	test('POST /workspaces with a foreign Origin → 403 problem+json', async () => {
+		const res = await app.handle(
+			new Request('http://127.0.0.1:3001/api/v1/workspaces', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					cookie: 's=1',
+					origin: 'https://evil.example',
+					'x-huriro-client': 'huriro-web'
+				},
+				body: JSON.stringify({ name: 'Acme', slug: 'acme' })
+			})
+		)
+		expect(res.status).toBe(403)
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('forbidden')
+	})
+
+	test('cookie-authed POST without X-Huriro-Client → 403 problem+json', async () => {
+		const res = await app.handle(
+			new Request('http://t/api/v1/workspaces', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', cookie: 's=1', origin: 'http://t' },
+				body: JSON.stringify({ name: 'Acme', slug: 'acme' })
+			})
+		)
+		expect(res.status).toBe(403)
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('forbidden')
 	})
 
 	// ---- M1 route contracts & security headers ----

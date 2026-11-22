@@ -20,6 +20,9 @@ import { twoFactor } from 'better-auth/plugins'
 import { log } from '../../api/observability'
 import type { Config } from '../../env'
 
+export const SOCIAL_PROVIDER_IDS = ['google', 'github', 'apple'] as const
+export type SocialProviderId = (typeof SOCIAL_PROVIDER_IDS)[number]
+
 export function createAuth(config: Config) {
 	// The adapter's pool: huriro_auth in production, DATABASE_URL fallback in
 	// dev (where the URL typically points at the superuser anyway).
@@ -29,6 +32,28 @@ export function createAuth(config: Config) {
 	const baseUrl = config.HURIRO_URL
 	const rpID = config.PASSKEY_RP_ID ?? new URL(baseUrl).hostname
 	const origin = (config.PASSKEY_ORIGIN ?? baseUrl).split(',').map((o) => o.trim())
+
+	const socialProviders: {
+		google?: { clientId: string; clientSecret: string }
+		github?: { clientId: string; clientSecret: string }
+		apple?: { clientId: string; clientSecret: string; appBundleIdentifier?: string }
+	} = {}
+
+	if (config.GOOGLE_CLIENT_ID && config.googleClientSecret) {
+		socialProviders.google = { clientId: config.GOOGLE_CLIENT_ID, clientSecret: config.googleClientSecret }
+	}
+	if (config.GITHUB_CLIENT_ID && config.githubClientSecret) {
+		socialProviders.github = { clientId: config.GITHUB_CLIENT_ID, clientSecret: config.githubClientSecret }
+	}
+	if (config.APPLE_CLIENT_ID && config.appleClientSecret) {
+		socialProviders.apple = {
+			clientId: config.APPLE_CLIENT_ID,
+			clientSecret: config.appleClientSecret,
+			...(config.APPLE_APP_BUNDLE_IDENTIFIER
+				? { appBundleIdentifier: config.APPLE_APP_BUNDLE_IDENTIFIER }
+				: {})
+		}
+	}
 
 	return betterAuth({
 		appName: config.PASSKEY_RP_NAME,
@@ -43,11 +68,13 @@ export function createAuth(config: Config) {
 		user: {
 			// Field mapping: better-auth model field → drizzle property name on
 			// public.users (schema bundle key stays `user` — see schema/auth.ts).
+			// NOTE: this map only reaches core user fields — plugin-contributed
+			// fields (twoFactorEnabled) must be remapped via the plugin's own
+			// `schema` option below.
 			fields: {
 				name: 'displayName',
 				image: 'avatarUrl',
-				emailVerified: 'emailVerified',
-				twoFactorEnabled: 'mfaEnabled'
+				emailVerified: 'emailVerified'
 			}
 		},
 		advanced: {
@@ -66,9 +93,21 @@ export function createAuth(config: Config) {
 				void url
 			}
 		},
+		socialProviders,
+		account: {
+			accountLinking: {
+				enabled: true,
+				trustedProviders: ['google', 'github', 'apple']
+			}
+		},
 		plugins: [
 			passkey({ rpID, rpName: config.PASSKEY_RP_NAME, origin }),
-			twoFactor({ issuer: config.PASSKEY_RP_NAME })
+			twoFactor({
+				issuer: config.PASSKEY_RP_NAME,
+				// Plugin-added user fields bypass options.user.fields — map
+				// twoFactorEnabled onto the existing mfa_enabled column here.
+				schema: { user: { fields: { twoFactorEnabled: 'mfaEnabled' } } }
+			})
 		],
 		session: {
 			expiresIn: 60 * 60 * 24 * 7, // 7 days
@@ -82,9 +121,17 @@ export function createAuth(config: Config) {
 			enabled: true,
 			storage: 'memory'
 		},
-		trustedOrigins: [baseUrl],
+		// Apple posts form_post callbacks from https://appleid.apple.com — allow that origin only when enabled.
+		trustedOrigins: [baseUrl, ...(socialProviders.apple ? ['https://appleid.apple.com'] : [])],
 		logger: { level: 'warn' }
 	})
 }
 
 export type Auth = ReturnType<typeof createAuth>
+
+/** Return the ordered list of OAuth providers currently configured on this auth instance. */
+export function getEnabledSocialProviders(auth: Auth | null): SocialProviderId[] {
+	const configured = auth?.options.socialProviders
+	if (!configured) return []
+	return SOCIAL_PROVIDER_IDS.filter((id) => Boolean(configured[id]))
+}

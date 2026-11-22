@@ -9,7 +9,7 @@
  * parent hooks reach children via `.use()`.
  */
 
-import type { Sql } from '@huriro/db'
+import { type Sql, withSystem } from '@huriro/db'
 import type { AclResourceType } from '@huriro/domain'
 import { Elysia } from 'elysia'
 import { HttpError } from '../../api/error'
@@ -23,6 +23,8 @@ import {
 	AclListQuery,
 	CompleteSetupBody,
 	CompleteSetupResponse,
+	CreateWorkspaceBody,
+	CreateWorkspaceResponse,
 	GrantAclBody,
 	InviteBody,
 	SetupStatusResponse
@@ -30,6 +32,7 @@ import {
 import {
 	acceptInvitation,
 	createInvitation,
+	createWorkspace,
 	grantAcl,
 	InvitationError,
 	listAclEntriesForResource,
@@ -92,6 +95,38 @@ export function tenancyModule(
 					return { data: await listUserWorkspaces(tx, session.userId) }
 				})
 			})
+			.post(
+				'/workspaces',
+				{ body: CreateWorkspaceBody, response: CreateWorkspaceResponse },
+				async ({ body, request }) => {
+					if (!auth) throw new HttpError(501, 'not_implemented', 'Auth not configured')
+					const session = await requireSession(auth, request)
+					const { configured } = await setupStatus(sql)
+					if (!configured) {
+						throw new HttpError(
+							403,
+							'setup_required',
+							'Instance setup must be completed before creating workspaces'
+						)
+					}
+					try {
+						const created = await withSystem(sql, async (tx) => {
+							await tx`SELECT set_config('app.user_id', ${session.userId}, true)`
+							return createWorkspace(tx, {
+								slug: body.slug,
+								name: body.name,
+								ownerUserId: session.userId
+							})
+						})
+						return { id: created.id, slug: created.slug, name: body.name }
+					} catch (err) {
+						if (err instanceof Error && err.message.includes('workspaces_slug_key')) {
+							throw new HttpError(409, 'conflict', 'That workspace slug is already in use')
+						}
+						throw err
+					}
+				}
+			)
 			.post('/invitations', { body: InviteBody }, async ({ body, request }) => {
 				if (!auth) throw new HttpError(501, 'not_implemented', 'Auth not configured')
 				const session = await requireSession(auth, request)

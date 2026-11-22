@@ -75,6 +75,11 @@ const css = [
 	...lightVars.map(([k, v]) => `\t--${k}: ${v};`),
 	// non-color tokens share across themes
 	...[...core].map(([k, v]) => `\t--${k.replaceAll('.', '-')}: ${v.$value};`),
+	// `--shadow-*` aliases for `shadow-(--shadow-N)` usage — must live on :root because
+	// @theme inline vars are never emitted; var() keeps the .dark elevation overrides
+	...[...core]
+		.filter(([k]) => k.startsWith('elevation.'))
+		.map(([k]) => `\t--shadow-${k.slice(10)}: var(--elevation-${k.slice(10)});`),
 	'}',
 	'',
 	"/* Dark mode rides shadcn's .dark class — never a data-theme attribute (§17.4). */",

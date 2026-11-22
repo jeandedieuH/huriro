@@ -13,7 +13,11 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as InboxRouteImport } from './routes/inbox'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SetupRouteImport } from './routes/setup'
+import { Route as SignInRouteImport } from './routes/sign-in'
+import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as DocsIndexRouteImport } from './routes/docs.index'
 import { Route as DocsSlugRouteImport } from './routes/docs.$slug'
@@ -38,9 +42,29 @@ const InboxRoute = InboxRouteImport.update({
   path: '/inbox',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SetupRoute = SetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignInRoute = SignInRouteImport.update({
+  id: '/sign-in',
+  path: '/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignUpRoute = SignUpRouteImport.update({
+  id: '/sign-up',
+  path: '/sign-up',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TasksRoute = TasksRouteImport.update({
@@ -64,7 +88,11 @@ export interface FileRoutesByFullPath {
   '/chat': typeof ChatRoute
   '/docs': typeof DocsRouteWithChildren
   '/inbox': typeof InboxRoute
+  '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
+  '/setup': typeof SetupRoute
+  '/sign-in': typeof SignInRoute
+  '/sign-up': typeof SignUpRoute
   '/tasks': typeof TasksRoute
   '/docs/$slug': typeof DocsSlugRoute
   '/docs/': typeof DocsIndexRoute
@@ -73,7 +101,11 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/chat': typeof ChatRoute
   '/inbox': typeof InboxRoute
+  '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
+  '/setup': typeof SetupRoute
+  '/sign-in': typeof SignInRoute
+  '/sign-up': typeof SignUpRoute
   '/tasks': typeof TasksRoute
   '/docs/$slug': typeof DocsSlugRoute
   '/docs': typeof DocsIndexRoute
@@ -84,7 +116,11 @@ export interface FileRoutesById {
   '/chat': typeof ChatRoute
   '/docs': typeof DocsRouteWithChildren
   '/inbox': typeof InboxRoute
+  '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
+  '/setup': typeof SetupRoute
+  '/sign-in': typeof SignInRoute
+  '/sign-up': typeof SignUpRoute
   '/tasks': typeof TasksRoute
   '/docs/$slug': typeof DocsSlugRoute
   '/docs/': typeof DocsIndexRoute
@@ -96,20 +132,38 @@ export interface FileRouteTypes {
     | '/chat'
     | '/docs'
     | '/inbox'
+    | '/onboarding'
     | '/settings'
+    | '/setup'
+    | '/sign-in'
+    | '/sign-up'
     | '/tasks'
     | '/docs/$slug'
     | '/docs/'
   fileRoutesByTo: FileRoutesByTo
   to:
-    '/' | '/chat' | '/inbox' | '/settings' | '/tasks' | '/docs/$slug' | '/docs'
+    | '/'
+    | '/chat'
+    | '/inbox'
+    | '/onboarding'
+    | '/settings'
+    | '/setup'
+    | '/sign-in'
+    | '/sign-up'
+    | '/tasks'
+    | '/docs/$slug'
+    | '/docs'
   id:
     | '__root__'
     | '/'
     | '/chat'
     | '/docs'
     | '/inbox'
+    | '/onboarding'
     | '/settings'
+    | '/setup'
+    | '/sign-in'
+    | '/sign-up'
     | '/tasks'
     | '/docs/$slug'
     | '/docs/'
@@ -120,7 +174,11 @@ export interface RootRouteChildren {
   ChatRoute: typeof ChatRoute
   DocsRoute: typeof DocsRouteWithChildren
   InboxRoute: typeof InboxRoute
+  OnboardingRoute: typeof OnboardingRoute
   SettingsRoute: typeof SettingsRoute
+  SetupRoute: typeof SetupRoute
+  SignInRoute: typeof SignInRoute
+  SignUpRoute: typeof SignUpRoute
   TasksRoute: typeof TasksRoute
 }
 
@@ -154,11 +212,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InboxRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/setup': {
+      id: '/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof SetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sign-in': {
+      id: '/sign-in'
+      path: '/sign-in'
+      fullPath: '/sign-in'
+      preLoaderRoute: typeof SignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sign-up': {
+      id: '/sign-up'
+      path: '/sign-up'
+      fullPath: '/sign-up'
+      preLoaderRoute: typeof SignUpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/tasks': {
@@ -202,7 +288,11 @@ const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRoute,
   DocsRoute: DocsRouteWithChildren,
   InboxRoute: InboxRoute,
+  OnboardingRoute: OnboardingRoute,
   SettingsRoute: SettingsRoute,
+  SetupRoute: SetupRoute,
+  SignInRoute: SignInRoute,
+  SignUpRoute: SignUpRoute,
   TasksRoute: TasksRoute,
 }
 export const routeTree = rootRouteImport

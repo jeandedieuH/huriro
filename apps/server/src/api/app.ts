@@ -7,7 +7,7 @@ import { openapi } from '@elysia/openapi'
 import { pendingMigrations, type Sql, withSystem } from '@huriro/db'
 import { Elysia } from 'elysia'
 import { type CollabDirectBridge, docsModule } from '../modules/docs'
-import type { Auth } from '../modules/identity'
+import { type Auth, identityModule } from '../modules/identity'
 import { importsModule } from '../modules/imports'
 import { notificationsModule } from '../modules/notifications'
 import { searchModule } from '../modules/search'
@@ -15,6 +15,7 @@ import { syncModule } from '../modules/sync'
 import { tasksModule } from '../modules/tasks'
 import { tenancyModule } from '../modules/tenancy'
 import type { RealtimePubSub } from '../realtime/pubsub'
+import { assertCookieCsrf } from './context'
 import { HttpError, toProblem } from './error'
 import { log, metrics, observability } from './observability'
 
@@ -26,6 +27,8 @@ export interface AppDeps {
 	readonly pubsub?: RealtimePubSub
 	readonly collabBridge?: CollabDirectBridge
 	readonly collabTicketSecret?: string
+	/** Public origins allowed to call cookie-authed mutations — [HURIRO_URL]. */
+	readonly allowedOrigins?: readonly string[]
 }
 
 export function createApp(deps: AppDeps) {
@@ -58,6 +61,7 @@ export function createApp(deps: AppDeps) {
 				documentation: {
 					info: { title: 'Huriro API', version: '0.1.0', description: 'Workspace platform API (v1)' },
 					tags: [
+						{ name: 'identity', description: 'Authentication providers and sessions' },
 						{ name: 'tenancy', description: 'Workspaces, membership, bootstrap, ACLs' },
 						{ name: 'tasks', description: 'Projects, statuses, labels, cycles, issues, views' },
 						{
@@ -107,6 +111,11 @@ export function createApp(deps: AppDeps) {
 		// each module derives its workspace context via `workspaceDerive`.
 		.group('/api/v1', (api) =>
 			api
+				// Single CSRF gate for the whole API surface (§12.6): cookie-authed
+				// mutations need a trusted Origin, sane Sec-Fetch-Site, and
+				// X-Huriro-Client — enforced once here so a route can't forget it.
+				.onBeforeHandle(({ request }) => assertCookieCsrf(request, deps.allowedOrigins))
+				.use(identityModule(auth))
 				.use(tenancyModule(sql, mode, auth, pubsub))
 				.use(tasksModule(sql, auth, pubsub))
 				.use(docsModule(sql, auth, pubsub, collabBridge, collabTicketSecret))
@@ -118,7 +127,9 @@ export function createApp(deps: AppDeps) {
 
 	// better-auth mounts its own router at /api/auth/* when configured — it
 	// owns its response shapes there; /api/v1 keeps the problem+json contract.
-	return auth ? base.mount('/api/auth', auth.handler) : base
+	// Mount at root: Elysia .mount strips the mount prefix from the forwarded
+	// path, while better-auth's router matches its own basePath (/api/auth).
+	return auth ? base.mount(auth.handler) : base
 }
 
 export type ApiApp = ReturnType<typeof createApp>

@@ -2,17 +2,25 @@
  * Instance bootstrap (§12.2): a one-time setup token provisions the first
  * user + workspace + owner membership, then burns itself.
  *
- * Bootstrap ordering subtlety: the workspace row is inserted BEFORE
- * `app.workspace_id` is set (workspaces is an instance table with a
- * member-visibility SELECT policy and no INSERT check); the tenant context is
- * then established inside the same transaction so subsequent tenant-scoped
- * writes satisfy FORCE RLS WITH CHECK.
+ * Bootstrap ordering subtlety: `app.workspace_id` is set BEFORE the workspace
+ * row is inserted (insertWorkspace pre-generates the uuidv7) — Postgres checks
+ * SELECT policies on `INSERT ... RETURNING` rows, and the member-visibility
+ * policy only admits `id = app.workspace_id`. The tenant context then carries
+ * every subsequent tenant-scoped write in the same transaction (FORCE RLS).
  */
 import { createHash } from 'node:crypto'
 import { type Sql, withSystem } from '@huriro/db'
 import type { Auth } from '../identity'
 import { TENANCY_EVENTS } from './events'
-import { audit, emitEvent, findUserByEmail, getSetting, insertUser, putSetting } from './repo'
+import {
+	audit,
+	emitEvent,
+	findUserByEmail,
+	getSetting,
+	insertUser,
+	insertWorkspace,
+	putSetting
+} from './repo'
 import { seedWorkspace } from './service'
 
 const TOKEN_KEY = 'setup_token_hash'
@@ -65,10 +73,20 @@ async function provisionFirstUser(
 			})
 			return res.user.id
 		} catch (err) {
-			throw new SetupError(
-				'auth_failed',
-				`Could not create the admin credential: ${err instanceof Error ? err.message : 'unknown error'}`
-			)
+			// Idempotent retry: a crashed setup leaves the credential behind on
+			// the auth pool (it commits independently of this tx), and RLS hides
+			// that user row from findUserByEmail — signUpEmail then reports the
+			// email taken. When the presented password verifies, reusing the same
+			// user is the intent; a wrong password still fails here.
+			try {
+				const res = await auth.api.signInEmail({ body: { email, password: args.password } })
+				return res.user.id
+			} catch {
+				throw new SetupError(
+					'auth_failed',
+					`Could not create the admin credential: ${err instanceof Error ? err.message : 'unknown error'}`
+				)
+			}
 		}
 	}
 	return insertUser(tx, { email, displayName: args.displayName })
@@ -109,13 +127,10 @@ export async function completeSetup(
 
 		let ws: Awaited<ReturnType<typeof seedWorkspace>>
 		try {
-			// Establish the tenant context in-transaction before tenant writes (see header).
-			const [w] = await tx<{ id: string; slug: string }[]>`
-				INSERT INTO workspaces (slug, name) VALUES (${args.slug}, ${args.workspaceName})
-				RETURNING id, slug
-			`
-			await tx`SELECT set_config('app.workspace_id', ${w!.id}, true)`
-			ws = await seedWorkspace(tx, { id: w!.id, slug: w!.slug }, userId)
+			// insertWorkspace establishes the tenant context itself (pre-generated
+			// id + set_config before the row exists — required for RLS).
+			const w = await insertWorkspace(tx, { slug: args.slug, name: args.workspaceName })
+			ws = await seedWorkspace(tx, { id: w.id, slug: w.slug }, userId)
 		} catch (err) {
 			if (err instanceof Error && err.message.includes('workspaces_slug_key')) {
 				throw new SetupError('slug_taken', 'That workspace slug is already in use')

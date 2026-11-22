@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createPreviewWorkspace } from '@/lib/sync-bootstrap'
 import { expectNoViolations } from '@/lib/test-setup'
 import { useUiStore } from '@/stores/ui-store'
+import { CreateDocDialog } from './components/create-doc-dialog'
 import { DocsWorkspace } from './components/docs-workspace'
 
 activateI18n('en')
@@ -161,6 +162,26 @@ describe('DocsWorkspace', () => {
 
 			await waitFor(() => {
 				expect(screen.getAllByText('Release Checklist').length).toBeGreaterThan(0)
+			})
+		} finally {
+			boot.engine.dispose()
+		}
+	})
+
+	it('shows a single template label when the blank option is selected', async () => {
+		const boot = await createPreviewWorkspace()
+		try {
+			useUiStore.setState({ createDocOpen: true })
+			render(
+				<SyncProvider engine={boot.engine}>
+					<CreateDocDialog pages={[]} />
+				</SyncProvider>
+			)
+			const templateTrigger = await screen.findByRole('combobox', { name: 'Template' })
+			// Regression: two items sharing value="blank" are both "selected", so Radix
+			// concatenated their labels in the trigger ("Blank documentBlank page")
+			await waitFor(() => {
+				expect(templateTrigger.textContent).toBe('Blank document')
 			})
 		} finally {
 			boot.engine.dispose()
