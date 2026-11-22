@@ -8,6 +8,9 @@
 		"moduleResolution": "bundler",
 		"moduleDetection": "force",
 		"resolveJsonModule": true,
+		// TS7 (tsgo) no longer auto-includes @types — name Bun explicitly.
+		// DOM-using packages (apps/web) override this list.
+		"types": ["bun"],
 		"allowImportingTsExtensions": true,
 		"verbatimModuleSyntax": true,
 		"erasableSyntaxOnly": true,

@@ -3,12 +3,12 @@
 	"compilerOptions": {
 		"jsx": "react-jsx",
 		"lib": ["ES2023", "DOM", "DOM.Iterable"],
-		"types": ["vite/client"],
+		"types": ["vite/client", "bun"],
 		"moduleResolution": "bundler",
 		"allowImportingTsExtensions": true,
 		"noEmit": true,
-		"baseUrl": ".",
-		"paths": { "@/*": ["src/*"] }
+		// TS7 removed baseUrl — paths must be relative to this file.
+		"paths": { "@/*": ["./src/*"] }
 	},
 	"include": ["src", ".storybook", "visual", "vite.config.ts", "playwright.config.ts"]
 }
