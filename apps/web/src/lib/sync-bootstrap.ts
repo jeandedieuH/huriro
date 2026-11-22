@@ -6,6 +6,15 @@
  * local preview replica so all M1 workflows operate without blocking spinners (§9.5).
  */
 import type {
+	CollabTicketResponse,
+	CreateDocCommentBody,
+	DocCommentDto,
+	DocExportMarkdownResponse,
+	DocImportMarkdownBody,
+	DocPageDetailDto,
+	DocPageDto,
+	DocVersionDetailDto,
+	DocVersionDto,
 	ImportDryRunBody,
 	ImportDryRunPreviewDto,
 	ImportExecuteBody,
@@ -17,15 +26,24 @@ import type {
 	ProjectStatusDto,
 	RelationKind,
 	SearchHitDto,
-	SearchResponse
+	SearchResponse,
+	UpdateDocCommentBody
 } from '@huriro/contracts'
 import { parseSearchQuery } from '@huriro/domain'
+import {
+	diffVersionText,
+	extractDocumentContent,
+	markdownToProseMirrorJson,
+	prosemirrorJsonToYDoc,
+	ydocToMarkdown
+} from '@huriro/editor'
 import {
 	generateUuidV7,
 	HttpSyncTransport,
 	HuriroSyncEngine,
 	MemoryReplicaStorage
 } from '@huriro/sync-client'
+import * as Y from 'yjs'
 import { env } from './env'
 
 // Validated client env — unset means same-origin (dev proxy / single ingress).
@@ -43,6 +61,13 @@ export interface WorkspaceMemberSummary {
 	readonly role: string
 }
 
+export interface ResourceAclItemDto {
+	readonly id: string
+	readonly principalType: 'user' | 'role' | 'workspace'
+	readonly principalId: string | null
+	readonly permission: 'read' | 'comment' | 'write' | 'manage'
+}
+
 export interface TaskApiBridge {
 	listMembers(): Promise<WorkspaceMemberSummary[]>
 	listComments(issueId: string): Promise<IssueCommentDto[]>
@@ -54,6 +79,35 @@ export interface TaskApiBridge {
 	archiveNotification(notificationId: string): Promise<void>
 	importDryRun(body: ImportDryRunBody): Promise<ImportDryRunPreviewDto>
 	importExecute(body: ImportExecuteBody): Promise<ImportJobDto>
+	// Docs & ACLs
+	getDocBySlug(slug: string): Promise<DocPageDetailDto>
+	getDocDetail(pageId: string): Promise<DocPageDetailDto>
+	issueCollabTicket(pageId: string): Promise<CollabTicketResponse>
+	setDocFavorite(pageId: string, favorite: boolean): Promise<DocPageDto>
+	splitDocPage(pageId: string, title: string, headingBlockId?: string, markdown?: string): Promise<DocPageDto>
+	exportDocMarkdown(pageId: string): Promise<DocExportMarkdownResponse>
+	importDocMarkdown(body: DocImportMarkdownBody): Promise<DocPageDto>
+	listDocVersions(pageId: string): Promise<DocVersionDto[]>
+	createDocVersion(pageId: string, label: string): Promise<DocVersionDto>
+	getDocVersionDetail(pageId: string, versionId: string): Promise<DocVersionDetailDto>
+	restoreDocVersion(
+		pageId: string,
+		versionId: string,
+		label?: string
+	): Promise<{ readonly detail: DocPageDetailDto; readonly checkpointVersion: DocVersionDto }>
+	createDocComment(pageId: string, body: CreateDocCommentBody): Promise<DocCommentDto>
+	updateDocComment(pageId: string, commentId: string, body: UpdateDocCommentBody): Promise<DocCommentDto>
+	resolveDocComment(pageId: string, commentId: string, resolved: boolean): Promise<DocCommentDto>
+	deleteDocComment(pageId: string, commentId: string): Promise<void>
+	listResourceAcls(resourceType: 'project' | 'doc_page', resourceId: string): Promise<ResourceAclItemDto[]>
+	grantResourceAcl(input: {
+		readonly resourceType: 'project' | 'doc_page'
+		readonly resourceId: string
+		readonly principalType: 'user' | 'role' | 'workspace'
+		readonly principalId: string | null
+		readonly permission: 'read' | 'comment' | 'write' | 'manage'
+	}): Promise<ResourceAclItemDto>
+	revokeResourceAcl(aclId: string): Promise<void>
 }
 
 export interface BootstrappedWorkspace {
@@ -148,6 +202,119 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 				headers: { 'idempotency-key': generateUuidV7() },
 				body: JSON.stringify(body)
 			})
+		},
+		async getDocBySlug(slug) {
+			return apiFetch<DocPageDetailDto>(`/api/v1/docs/by-slug/${encodeURIComponent(slug)}`)
+		},
+		async getDocDetail(pageId) {
+			return apiFetch<DocPageDetailDto>(`/api/v1/docs/${encodeURIComponent(pageId)}`)
+		},
+		async issueCollabTicket(pageId) {
+			return apiFetch<CollabTicketResponse>(`/api/v1/docs/${encodeURIComponent(pageId)}/collab-ticket`, {
+				method: 'POST',
+				headers: { 'idempotency-key': generateUuidV7() }
+			})
+		},
+		async setDocFavorite(pageId, favorite) {
+			const res = await apiFetch<{ data: DocPageDto }>(
+				`/api/v1/docs/${encodeURIComponent(pageId)}/favorite`,
+				{
+					method: favorite ? 'POST' : 'DELETE',
+					headers: { 'idempotency-key': generateUuidV7() }
+				}
+			)
+			return res.data
+		},
+		async splitDocPage(pageId, title, headingBlockId, markdown) {
+			return apiFetch<DocPageDto>(`/api/v1/docs/${encodeURIComponent(pageId)}/split`, {
+				method: 'POST',
+				headers: { 'idempotency-key': generateUuidV7() },
+				body: JSON.stringify({
+					title,
+					...(headingBlockId ? { headingBlockId } : {}),
+					...(markdown ? { markdown } : {})
+				})
+			})
+		},
+		async exportDocMarkdown(pageId) {
+			return apiFetch<DocExportMarkdownResponse>(
+				`/api/v1/docs/${encodeURIComponent(pageId)}/export?format=markdown`
+			)
+		},
+		async importDocMarkdown(body) {
+			return apiFetch<DocPageDto>('/api/v1/docs/import/markdown', {
+				method: 'POST',
+				headers: { 'idempotency-key': generateUuidV7() },
+				body: JSON.stringify(body)
+			})
+		},
+		async listDocVersions(pageId) {
+			const res = await apiFetch<{ data: DocVersionDto[] }>(
+				`/api/v1/docs/${encodeURIComponent(pageId)}/versions`
+			)
+			return res.data
+		},
+		async createDocVersion(pageId, label) {
+			return apiFetch<DocVersionDto>(`/api/v1/docs/${encodeURIComponent(pageId)}/versions`, {
+				method: 'POST',
+				headers: { 'idempotency-key': generateUuidV7() },
+				body: JSON.stringify({ label })
+			})
+		},
+		async getDocVersionDetail(pageId, versionId) {
+			return apiFetch<DocVersionDetailDto>(
+				`/api/v1/docs/${encodeURIComponent(pageId)}/versions/${encodeURIComponent(versionId)}`
+			)
+		},
+		async restoreDocVersion(pageId, versionId, label) {
+			return apiFetch<{ readonly detail: DocPageDetailDto; readonly checkpointVersion: DocVersionDto }>(
+				`/api/v1/docs/${encodeURIComponent(pageId)}/versions/${encodeURIComponent(versionId)}/restore`,
+				{
+					method: 'POST',
+					headers: { 'idempotency-key': generateUuidV7() },
+					body: JSON.stringify(label ? { label } : {})
+				}
+			)
+		},
+		async createDocComment(pageId, body) {
+			return apiFetch<DocCommentDto>(`/api/v1/docs/${encodeURIComponent(pageId)}/comments`, {
+				method: 'POST',
+				headers: { 'idempotency-key': generateUuidV7() },
+				body: JSON.stringify(body)
+			})
+		},
+		async updateDocComment(pageId, commentId, body) {
+			return apiFetch<DocCommentDto>(
+				`/api/v1/docs/${encodeURIComponent(pageId)}/comments/${encodeURIComponent(commentId)}`,
+				{ method: 'PATCH', body: JSON.stringify(body) }
+			)
+		},
+		async resolveDocComment(pageId, commentId, resolved) {
+			return apiFetch<DocCommentDto>(
+				`/api/v1/docs/${encodeURIComponent(pageId)}/comments/${encodeURIComponent(commentId)}/resolve`,
+				{ method: 'POST', body: JSON.stringify({ resolved }) }
+			)
+		},
+		async deleteDocComment(pageId, commentId) {
+			await apiFetch(`/api/v1/docs/${encodeURIComponent(pageId)}/comments/${encodeURIComponent(commentId)}`, {
+				method: 'DELETE'
+			})
+		},
+		async listResourceAcls(resourceType, resourceId) {
+			const res = await apiFetch<{ data: ResourceAclItemDto[] }>(
+				`/api/v1/acl?resourceType=${encodeURIComponent(resourceType)}&resourceId=${encodeURIComponent(resourceId)}`
+			)
+			return res.data
+		},
+		async grantResourceAcl(input) {
+			return apiFetch<ResourceAclItemDto>('/api/v1/acl', {
+				method: 'POST',
+				headers: { 'idempotency-key': generateUuidV7() },
+				body: JSON.stringify(input)
+			})
+		},
+		async revokeResourceAcl(aclId) {
+			await apiFetch(`/api/v1/acl/${encodeURIComponent(aclId)}`, { method: 'DELETE' })
 		}
 	}
 }
@@ -407,6 +574,72 @@ export function createPreviewSeedSnapshot() {
 		}
 	]
 
+	const docRootId = '0190a0b1-0000-7000-8000-000000000601'
+	const docRfcId = '0190a0b1-0000-7000-8000-000000000602'
+	const docSecId = '0190a0b1-0000-7000-8000-000000000603'
+	const docPages: DocPageDto[] = [
+		{
+			id: docRootId,
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			parentId: null,
+			path: docRootId,
+			depth: 0,
+			slug: 'engineering-handbook',
+			title: 'Engineering Handbook',
+			icon: '📘',
+			visibility: 'workspace',
+			isTemplate: false,
+			isFavorite: true,
+			position: 'F',
+			createdBy: PREVIEW_USER_ID,
+			archivedAt: null,
+			createdAt: now,
+			updatedAt: now,
+			version: 1,
+			byteSize: 512
+		},
+		{
+			id: docRfcId,
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			parentId: docRootId,
+			path: `${docRootId}/${docRfcId}`,
+			depth: 1,
+			slug: 'rfc-crdt-collab',
+			title: 'RFC-008: CRDT Collaboration Architecture',
+			icon: '⚡',
+			visibility: 'workspace',
+			isTemplate: false,
+			isFavorite: false,
+			position: 'F',
+			createdBy: PREVIEW_USER_ID,
+			archivedAt: null,
+			createdAt: now,
+			updatedAt: now,
+			version: 1,
+			byteSize: 768
+		},
+		{
+			id: docSecId,
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			parentId: null,
+			path: docSecId,
+			depth: 0,
+			slug: 'incident-runbook',
+			title: 'Incident Response Runbook',
+			icon: '🛡️',
+			visibility: 'private',
+			isTemplate: false,
+			isFavorite: false,
+			position: 'V',
+			createdBy: PREVIEW_USER_ID,
+			archivedAt: null,
+			createdAt: now,
+			updatedAt: now,
+			version: 1,
+			byteSize: 384
+		}
+	]
+
 	return {
 		cursor: 1,
 		serverTime: now,
@@ -442,13 +675,140 @@ export function createPreviewSeedSnapshot() {
 				version: 1
 			}
 		],
-		notifications
+		notifications,
+		docPages
 	}
+}
+
+function buildPreviewYDocState(markdown: string, seed: string) {
+	const json = markdownToProseMirrorJson(markdown, seed)
+	const ydoc = prosemirrorJsonToYDoc(json)
+	const state = Y.encodeStateAsUpdate(ydoc)
+	const stateVector = Y.encodeStateVector(ydoc)
+	const extracted = extractDocumentContent(ydoc)
+	return { state, stateVector, extracted }
+}
+
+const PREVIEW_DOC_MARKDOWN: Record<string, string> = {
+	'engineering-handbook': [
+		'# Engineering Handbook',
+		'',
+		'Welcome to the **Huriro** workspace knowledge base. All documents are backed by CRDTs and offline persistence.',
+		'',
+		'## Core Principles',
+		'',
+		'- Local-first writes via TanStack DB & Yjs',
+		'- [x] Strict PostgreSQL FORCE RLS multi-tenancy',
+		'- [ ] Continuous WebSocket soak testing',
+		'',
+		'## Architecture Overview',
+		'',
+		'Use `/` to insert structured blocks (callouts, toggles, tables, or code fences).'
+	].join('\n'),
+	'rfc-crdt-collab': [
+		'# RFC-008: CRDT Collaboration Architecture',
+		'',
+		'## Summary',
+		'',
+		'Documents synchronize peer edits via `HocuspocusProvider` over `/collab` with single-use HKDF tickets.',
+		'',
+		'## Fencing & Crash Recovery',
+		'',
+		'Each active document room acquires a PostgreSQL lease in `doc_room_leases` to prevent split-brain writes.'
+	].join('\n'),
+	'incident-runbook': [
+		'# Incident Response Runbook',
+		'',
+		'1. Page on-call responder in Chat',
+		'2. Capture diagnostic logs & `/metrics` snapshot',
+		'3. Coordinate mitigation in this private doc'
+	].join('\n')
 }
 
 export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge {
 	const commentsByIssue = new Map<string, IssueCommentDto[]>()
 	const relationsByIssue = new Map<string, IssueRelationDto[]>()
+	const docStatesByPage = new Map<
+		string,
+		{ state: Uint8Array; stateVector: Uint8Array; plainText: string; headings: DocPageDetailDto['headings'] }
+	>()
+	function bytesToBase64(bytes: Uint8Array): string {
+		let bin = ''
+		for (let i = 0; i < bytes.length; i++) {
+			bin += String.fromCharCode(bytes[i] ?? 0)
+		}
+		return btoa(bin)
+	}
+	const docCommentsByPage = new Map<string, DocCommentDto[]>()
+	const docVersionsByPage = new Map<string, Array<DocVersionDto & { state: Uint8Array }>>()
+	const docAclsByResource = new Map<string, ResourceAclItemDto[]>()
+
+	// Seed preview document states, comments, and versions on first access.
+	for (const p of engine.collections.docPages.toArray) {
+		const md = PREVIEW_DOC_MARKDOWN[p.slug] ?? `# ${p.title}\n\nStart writing…`
+		const built = buildPreviewYDocState(md, p.id)
+		docStatesByPage.set(p.id, {
+			state: built.state,
+			stateVector: built.stateVector,
+			plainText: built.extracted.plainText,
+			headings: built.extracted.headings
+		})
+		docVersionsByPage.set(p.id, [
+			{
+				id: `0190a0b1-0000-7000-8000-${p.id.slice(-12)}`,
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				pageId: p.id,
+				kind: 'named',
+				label: 'Initial baseline',
+				byteSize: built.state.byteLength,
+				plainText: built.extracted.plainText,
+				authors: [PREVIEW_USER_ID],
+				createdBy: PREVIEW_USER_ID,
+				createdAt: '2026-11-22T12:00:00Z',
+				state: built.state
+			}
+		])
+		if (p.slug === 'engineering-handbook') {
+			docCommentsByPage.set(p.id, [
+				{
+					id: '0190a0b1-0000-7000-8000-000000000701',
+					workspaceId: PREVIEW_WORKSPACE_ID,
+					pageId: p.id,
+					parentId: null,
+					authorType: 'user',
+					authorId: PREVIEW_USER_ID,
+					anchorFrom: null,
+					anchorTo: null,
+					anchorQuote: 'Local-first writes via TanStack DB & Yjs',
+					anchorBlockId: built.extracted.headings[0]?.blockId ?? null,
+					anchorOrphaned: false,
+					body: { type: 'text', text: 'Let us keep latency under 50ms p95.' },
+					bodyText: 'Let us keep latency under 50ms p95.',
+					resolvedAt: null,
+					resolvedBy: null,
+					createdAt: '2026-11-22T12:05:00Z',
+					updatedAt: '2026-11-22T12:05:00Z',
+					deletedAt: null,
+					version: 1
+				}
+			])
+		}
+	}
+
+	function ensurePreviewDocState(page: DocPageDto) {
+		let entry = docStatesByPage.get(page.id)
+		if (!entry) {
+			const built = buildPreviewYDocState(`# ${page.title}\n\n`, page.id)
+			entry = {
+				state: built.state,
+				stateVector: built.stateVector,
+				plainText: built.extracted.plainText,
+				headings: built.extracted.headings
+			}
+			docStatesByPage.set(page.id, entry)
+		}
+		return entry
+	}
 
 	return {
 		async listMembers() {
@@ -504,32 +864,67 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 				? `${parsed.issueIdentifier.projectKey}-${parsed.issueIdentifier.number}`
 				: null
 
-			return engine.collections.issues.toArray
-				.filter((issue) => {
-					if (targetIdentifier && issue.identifier !== targetIdentifier) return false
-					if (parsed.projectKey && issue.projectKey !== parsed.projectKey) return false
-					if (parsed.priority !== null && issue.priority !== parsed.priority) return false
-					if (q.length > 0) {
-						const matchesText =
-							issue.title.toLowerCase().includes(q) ||
-							issue.identifier.toLowerCase().includes(q) ||
-							issue.descriptionText.toLowerCase().includes(q)
-						if (!matchesText) return false
-					}
-					return true
-				})
-				.slice(0, 20)
-				.map((issue) => ({
-					entityType: 'issue' as const,
-					entityId: issue.id,
-					projectId: issue.projectId,
-					identifier: issue.identifier,
-					title: issue.title,
-					snippet: issue.descriptionText.slice(0, 120),
-					score: targetIdentifier === issue.identifier ? 1 : 0.8,
-					deepLink: `/issues/${issue.identifier}`,
-					updatedAt: issue.updatedAt
-				}))
+			const issueHits: SearchHitDto[] =
+				parsed.entityType && parsed.entityType !== 'issue'
+					? []
+					: engine.collections.issues.toArray
+							.filter((issue) => {
+								if (targetIdentifier && issue.identifier !== targetIdentifier) return false
+								if (parsed.projectKey && issue.projectKey !== parsed.projectKey) return false
+								if (parsed.priority !== null && issue.priority !== parsed.priority) return false
+								if (q.length > 0) {
+									const matchesText =
+										issue.title.toLowerCase().includes(q) ||
+										issue.identifier.toLowerCase().includes(q) ||
+										issue.descriptionText.toLowerCase().includes(q)
+									if (!matchesText) return false
+								}
+								return true
+							})
+							.slice(0, 12)
+							.map((issue) => ({
+								entityType: 'issue' as const,
+								entityId: issue.id,
+								projectId: issue.projectId,
+								identifier: issue.identifier,
+								title: issue.title,
+								snippet: issue.descriptionText.slice(0, 120),
+								score: targetIdentifier === issue.identifier ? 1 : 0.8,
+								deepLink: `/tasks/issues/${issue.identifier}`,
+								updatedAt: issue.updatedAt
+							}))
+
+			const docHits: SearchHitDto[] =
+				parsed.entityType && parsed.entityType !== 'doc_page'
+					? []
+					: engine.collections.docPages.toArray
+							.filter((doc) => {
+								if (doc.archivedAt !== null) return false
+								if (q.length === 0) return true
+								const st = docStatesByPage.get(doc.id)
+								return (
+									doc.title.toLowerCase().includes(q) ||
+									doc.slug.toLowerCase().includes(q) ||
+									Boolean(st?.plainText.toLowerCase().includes(q))
+								)
+							})
+							.slice(0, 8)
+							.map((doc) => {
+								const st = docStatesByPage.get(doc.id)
+								return {
+									entityType: 'doc_page' as const,
+									entityId: doc.id,
+									projectId: null,
+									identifier: doc.slug,
+									title: doc.title,
+									snippet: (st?.plainText ?? doc.title).slice(0, 120),
+									score: 0.75,
+									deepLink: `/docs/${doc.slug}`,
+									updatedAt: doc.updatedAt
+								}
+							})
+
+			return [...issueHits, ...docHits]
 		},
 		async markAllNotificationsRead() {
 			const nowIso = new Date().toISOString()
@@ -547,6 +942,25 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 			await engine.persistReplica()
 		},
 		async importDryRun(body) {
+			if (body.source === 'notion' || body.source === 'markdown') {
+				const pagesCount =
+					body.source === 'notion' ? (body.notion?.pages.length ?? 0) : (body.markdown?.files.length ?? 0)
+				return {
+					jobId: generateUuidV7(),
+					source: body.source,
+					projectKey: 'DOCS',
+					projectName: body.source === 'notion' ? 'Notion Import' : 'Markdown Import',
+					counts: {
+						issues: 0,
+						comments: 0,
+						labels: 0,
+						skippedExisting: 0,
+						pages: pagesCount
+					},
+					userMappings: [],
+					unmappedFields: []
+				}
+			}
 			const payload = body.source === 'linear' ? body.linear : body.github
 			const issues = payload?.issues ?? []
 			const comments = issues.reduce((acc, i) => acc + (i.comments?.length ?? 0), 0)
@@ -570,7 +984,48 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 			}
 		},
 		async importExecute(body) {
-			const src = body.source ?? (body.linear ? 'linear' : 'github')
+			const now = new Date().toISOString()
+			const src =
+				body.source ??
+				(body.notion ? 'notion' : body.markdown ? 'markdown' : body.linear ? 'linear' : 'github')
+			if (src === 'notion' || src === 'markdown') {
+				const items =
+					src === 'notion'
+						? (body.notion?.pages ?? []).map((p) => ({
+								title: p.title ?? p.remotePath.replace(/\.md$/i, ''),
+								markdown: p.markdown
+							}))
+						: (body.markdown?.files ?? []).map((f) => ({
+								title: f.title ?? f.path.replace(/\.md$/i, ''),
+								markdown: f.markdown
+							}))
+				for (const item of items) {
+					const created = await engine.createDocPage({
+						title: item.title.slice(0, 200) || 'Imported Doc',
+						markdown: item.markdown
+					})
+					const built = buildPreviewYDocState(item.markdown, created.id)
+					docStatesByPage.set(created.id, {
+						state: built.state,
+						stateVector: built.stateVector,
+						plainText: built.extracted.plainText,
+						headings: built.extracted.headings
+					})
+				}
+				return {
+					id: generateUuidV7(),
+					workspaceId: PREVIEW_WORKSPACE_ID,
+					source: src,
+					status: 'completed',
+					targetProjectId: null,
+					preview: { pages: items.length },
+					report: { importedPages: items.length, skippedPages: 0 },
+					createdAt: now,
+					updatedAt: now,
+					completedAt: now,
+					version: 1
+				}
+			}
 			const payload = src === 'linear' ? body.linear : body.github
 			const projectKey = payload?.projectKey ?? 'IMP'
 			const project = await engine.createProject({
@@ -578,7 +1033,6 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 				name: payload?.projectName ?? projectKey,
 				visibility: 'workspace'
 			})
-			const now = new Date().toISOString()
 			const issues = payload?.issues ?? []
 			let importedIssues = 0
 			let importedComments = 0
@@ -611,6 +1065,266 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 				updatedAt: now,
 				completedAt: now,
 				version: 1
+			}
+		},
+		async getDocBySlug(slug) {
+			const page = engine.collections.docPages.toArray.find((p) => p.slug === slug && p.archivedAt === null)
+			if (!page) throw new Error(`Document "${slug}" not found`)
+			const st = ensurePreviewDocState(page)
+			return {
+				page,
+				stateBase64: bytesToBase64(st.state),
+				stateVectorBase64: bytesToBase64(st.stateVector),
+				byteSize: st.state.byteLength,
+				plainText: st.plainText,
+				headings: st.headings,
+				comments: docCommentsByPage.get(page.id) ?? [],
+				canWrite: true,
+				canShare: true
+			}
+		},
+		async getDocDetail(pageId) {
+			const page = engine.collections.docPages.get(pageId)
+			if (!page || page.archivedAt !== null) throw new Error('Document not found')
+			const st = ensurePreviewDocState(page)
+			return {
+				page,
+				stateBase64: bytesToBase64(st.state),
+				stateVectorBase64: bytesToBase64(st.stateVector),
+				byteSize: st.state.byteLength,
+				plainText: st.plainText,
+				headings: st.headings,
+				comments: docCommentsByPage.get(page.id) ?? [],
+				canWrite: true,
+				canShare: true
+			}
+		},
+		async issueCollabTicket(pageId) {
+			return {
+				ticket: `preview-${pageId}`,
+				documentName: `${PREVIEW_WORKSPACE_ID}:${pageId}`,
+				permission: 'write',
+				expiresAt: new Date(Date.now() + 60_000).toISOString(),
+				collabUrl: '/collab'
+			}
+		},
+		async setDocFavorite(pageId, favorite) {
+			const current = engine.collections.docPages.get(pageId)
+			if (!current) throw new Error('Document not found')
+			const next = { ...current, isFavorite: favorite }
+			engine.collections.docPagesManaged.upsertMany([next])
+			await engine.persistReplica()
+			return next
+		},
+		async splitDocPage(pageId, title, _headingBlockId, markdown) {
+			const parent = engine.collections.docPages.get(pageId)
+			const created = await engine.createDocPage({
+				parentId: parent ? pageId : null,
+				title,
+				...(markdown ? { markdown } : {})
+			})
+			const built = buildPreviewYDocState(markdown ?? `# ${title}\n`, created.id)
+			docStatesByPage.set(created.id, {
+				state: built.state,
+				stateVector: built.stateVector,
+				plainText: built.extracted.plainText,
+				headings: built.extracted.headings
+			})
+			return created
+		},
+		async exportDocMarkdown(pageId) {
+			const page = engine.collections.docPages.get(pageId)
+			if (!page) throw new Error('Document not found')
+			const st = ensurePreviewDocState(page)
+			const ydoc = new Y.Doc()
+			Y.applyUpdate(ydoc, st.state)
+			return {
+				pageId: page.id,
+				slug: page.slug,
+				title: page.title,
+				markdown: ydocToMarkdown(ydoc)
+			}
+		},
+		async importDocMarkdown(body) {
+			const created = await engine.createDocPage({
+				title: body.title ?? 'Imported Document',
+				markdown: body.markdown
+			})
+			const built = buildPreviewYDocState(body.markdown, created.id)
+			docStatesByPage.set(created.id, {
+				state: built.state,
+				stateVector: built.stateVector,
+				plainText: built.extracted.plainText,
+				headings: built.extracted.headings
+			})
+			return created
+		},
+		async listDocVersions(pageId) {
+			return (docVersionsByPage.get(pageId) ?? []).map(({ state: _s, ...dto }) => dto)
+		},
+		async createDocVersion(pageId, label) {
+			const page = engine.collections.docPages.get(pageId)
+			if (!page) throw new Error('Document not found')
+			const st = ensurePreviewDocState(page)
+			const next = {
+				id: generateUuidV7(),
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				pageId,
+				kind: 'named' as const,
+				label,
+				byteSize: st.state.byteLength,
+				plainText: st.plainText,
+				authors: [PREVIEW_USER_ID],
+				createdBy: PREVIEW_USER_ID,
+				createdAt: new Date().toISOString(),
+				state: st.state
+			}
+			docVersionsByPage.set(pageId, [next, ...(docVersionsByPage.get(pageId) ?? [])])
+			const { state: _s, ...dto } = next
+			return dto
+		},
+		async getDocVersionDetail(pageId, versionId) {
+			const list = docVersionsByPage.get(pageId) ?? []
+			const idx = list.findIndex((v) => v.id === versionId)
+			const ver = list[idx]
+			if (!ver) throw new Error('Version not found')
+			const prev = list[idx + 1]
+			const { state: _s, ...dto } = ver
+			return {
+				version: dto,
+				diff: diffVersionText(prev?.plainText ?? '', dto.plainText)
+			}
+		},
+		async restoreDocVersion(pageId, versionId, label) {
+			const page = engine.collections.docPages.get(pageId)
+			const list = docVersionsByPage.get(pageId) ?? []
+			const target = list.find((v) => v.id === versionId)
+			if (!page || !target) throw new Error('Version not found')
+			const current = ensurePreviewDocState(page)
+			const checkpoint = {
+				id: generateUuidV7(),
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				pageId,
+				kind: 'pre_restore' as const,
+				label: label ?? `Before restoring ${target.label ?? target.id.slice(0, 6)}`,
+				byteSize: current.state.byteLength,
+				plainText: current.plainText,
+				authors: [PREVIEW_USER_ID],
+				createdBy: PREVIEW_USER_ID,
+				createdAt: new Date().toISOString(),
+				state: current.state
+			}
+			const restoredDoc = new Y.Doc()
+			Y.applyUpdate(restoredDoc, target.state)
+			const extracted = extractDocumentContent(restoredDoc)
+			docStatesByPage.set(pageId, {
+				state: target.state,
+				stateVector: Y.encodeStateVector(restoredDoc),
+				plainText: extracted.plainText,
+				headings: extracted.headings
+			})
+			docVersionsByPage.set(pageId, [checkpoint, ...list])
+			const { state: _s, ...checkpointDto } = checkpoint
+			return {
+				checkpointVersion: checkpointDto,
+				detail: {
+					page,
+					stateBase64: bytesToBase64(target.state),
+					stateVectorBase64: bytesToBase64(Y.encodeStateVector(restoredDoc)),
+					byteSize: target.state.byteLength,
+					plainText: extracted.plainText,
+					headings: extracted.headings,
+					comments: docCommentsByPage.get(pageId) ?? [],
+					canWrite: true,
+					canShare: true
+				}
+			}
+		},
+		async createDocComment(pageId, body) {
+			const next: DocCommentDto = {
+				id: body.id ?? generateUuidV7(),
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				pageId,
+				parentId: body.parentId ?? null,
+				authorType: 'user',
+				authorId: PREVIEW_USER_ID,
+				anchorFrom: body.anchorFrom ?? null,
+				anchorTo: body.anchorTo ?? null,
+				anchorQuote: body.anchorQuote ?? '',
+				anchorBlockId: body.anchorBlockId ?? null,
+				anchorOrphaned: false,
+				body: body.body ?? { type: 'text', text: body.bodyText },
+				bodyText: body.bodyText,
+				resolvedAt: null,
+				resolvedBy: null,
+				createdAt: new Date().toISOString(),
+				updatedAt: new Date().toISOString(),
+				deletedAt: null,
+				version: 1
+			}
+			docCommentsByPage.set(pageId, [...(docCommentsByPage.get(pageId) ?? []), next])
+			return next
+		},
+		async updateDocComment(pageId, commentId, body) {
+			const list = docCommentsByPage.get(pageId) ?? []
+			const existing = list.find((c) => c.id === commentId)
+			if (!existing) throw new Error('Comment not found')
+			const updated: DocCommentDto = {
+				...existing,
+				bodyText: body.bodyText,
+				body: body.body ?? existing.body,
+				version: existing.version + 1,
+				updatedAt: new Date().toISOString()
+			}
+			docCommentsByPage.set(
+				pageId,
+				list.map((c) => (c.id === commentId ? updated : c))
+			)
+			return updated
+		},
+		async resolveDocComment(pageId, commentId, resolved) {
+			const list = docCommentsByPage.get(pageId) ?? []
+			const existing = list.find((c) => c.id === commentId)
+			if (!existing) throw new Error('Comment not found')
+			const updated: DocCommentDto = {
+				...existing,
+				resolvedAt: resolved ? new Date().toISOString() : null,
+				resolvedBy: resolved ? PREVIEW_USER_ID : null,
+				version: existing.version + 1
+			}
+			docCommentsByPage.set(
+				pageId,
+				list.map((c) => (c.id === commentId ? updated : c))
+			)
+			return updated
+		},
+		async deleteDocComment(pageId, commentId) {
+			const list = docCommentsByPage.get(pageId) ?? []
+			docCommentsByPage.set(
+				pageId,
+				list.filter((c) => c.id !== commentId)
+			)
+		},
+		async listResourceAcls(resourceType, resourceId) {
+			return docAclsByResource.get(`${resourceType}:${resourceId}`) ?? []
+		},
+		async grantResourceAcl(input) {
+			const key = `${input.resourceType}:${input.resourceId}`
+			const item: ResourceAclItemDto = {
+				id: generateUuidV7(),
+				principalType: input.principalType,
+				principalId: input.principalId,
+				permission: input.permission
+			}
+			docAclsByResource.set(key, [...(docAclsByResource.get(key) ?? []), item])
+			return item
+		},
+		async revokeResourceAcl(aclId) {
+			for (const [k, list] of docAclsByResource.entries()) {
+				docAclsByResource.set(
+					k,
+					list.filter((i) => i.id !== aclId)
+				)
 			}
 		}
 	}

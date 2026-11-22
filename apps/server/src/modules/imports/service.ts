@@ -7,8 +7,9 @@ import type {
 } from '@huriro/contracts'
 import type { Queryable } from '@huriro/db'
 import type { ActorContext } from '@huriro/domain'
-import { appendChange } from '../../api/changelog'
+import { appendChange, appendChanges } from '../../api/changelog'
 import { HttpError } from '../../api/error'
+import { createDocPage, getDocPageForRedirect } from '../docs'
 import {
 	createIssue,
 	createIssueComment,
@@ -20,6 +21,8 @@ import { listWorkspaceMembers } from '../tenancy'
 import { IMPORTS_EVENTS } from './events'
 import { fetchGithubRepoPayload, normalizeGithubPayload } from './github'
 import { fetchLinearTeamPayload, type NormalizedImportDataset, normalizeLinearPayload } from './linear'
+import { normalizeMarkdownPayload } from './markdown'
+import { type NormalizedDocImportPage, normalizeNotionPayload } from './notion'
 import { authorizeImportRun } from './policy'
 import {
 	findMappedRemoteIds,
@@ -30,6 +33,31 @@ import {
 	listImportJobsForWorkspace,
 	markImportJobCompleted
 } from './repo'
+
+interface NormalizedDocImportDataset {
+	readonly source: 'notion' | 'markdown'
+	readonly rootTitle: string | null
+	readonly pages: NormalizedDocImportPage[]
+}
+
+function resolveDocDataset(input: {
+	readonly source: 'notion' | 'markdown'
+	readonly notion?: ImportDryRunBody['notion'] | undefined
+	readonly markdown?: ImportDryRunBody['markdown'] | undefined
+}): NormalizedDocImportDataset {
+	if (input.source === 'notion') {
+		if (!input.notion) {
+			throw new HttpError(422, 'validation_failed', 'Provide notion payload')
+		}
+		const normalized = normalizeNotionPayload(input.notion)
+		return { source: 'notion', rootTitle: normalized.rootTitle, pages: normalized.pages }
+	}
+	if (!input.markdown) {
+		throw new HttpError(422, 'validation_failed', 'Provide markdown payload')
+	}
+	const normalized = normalizeMarkdownPayload(input.markdown)
+	return { source: 'markdown', rootTitle: normalized.rootTitle, pages: normalized.pages }
+}
 
 async function resolveNormalizedDataset(input: {
 	readonly source: 'linear' | 'github'
@@ -62,6 +90,59 @@ export async function dryRunImport(
 	body: ImportDryRunBody
 ): Promise<ImportDryRunPreviewDto> {
 	authorizeImportRun(actor)
+
+	if (body.source === 'notion' || body.source === 'markdown') {
+		const docDataset = resolveDocDataset({
+			source: body.source,
+			notion: body.notion,
+			markdown: body.markdown
+		})
+		const existingPages = await findMappedRemoteIds(tx, actor.workspaceId, docDataset.source, 'doc_page')
+		let skippedExisting = 0
+		for (const p of docDataset.pages) {
+			if (existingPages.has(p.remoteId)) skippedExisting++
+		}
+		const projectName =
+			docDataset.rootTitle ?? (docDataset.source === 'notion' ? 'Notion Import' : 'Markdown Import')
+		const safeConfig: Record<string, unknown> = {
+			source: docDataset.source,
+			...(docDataset.source === 'notion' ? { notion: body.notion } : { markdown: body.markdown })
+		}
+		const previewPayload = {
+			source: docDataset.source,
+			projectKey: 'DOCS',
+			projectName,
+			counts: {
+				issues: 0,
+				comments: 0,
+				labels: 0,
+				skippedExisting,
+				pages: docDataset.pages.length
+			},
+			userMappings: [] as { remoteIdentifier: string; matchedUserId: string | null }[],
+			unmappedFields: [] as string[]
+		}
+		const job = await insertImportJobRow(tx, {
+			workspaceId: actor.workspaceId,
+			source: docDataset.source,
+			status: 'dry_run',
+			targetProjectId: null,
+			createdBy: actor.principalId,
+			config: safeConfig,
+			preview: previewPayload
+		})
+		await tx`
+			INSERT INTO outbox (workspace_id, aggregate, aggregate_id, event_type, payload)
+			VALUES (
+				${actor.workspaceId},
+				'import_job',
+				${job.id},
+				${IMPORTS_EVENTS.DryRunCreated},
+				${tx.json({ jobId: job.id, source: docDataset.source, counts: previewPayload.counts } as never)}
+			)
+		`
+		return { jobId: job.id, ...previewPayload }
+	}
 
 	const dataset = await resolveNormalizedDataset({
 		source: body.source,
@@ -171,6 +252,142 @@ export async function executeImport(
 
 	const source = body.source ?? existingJob?.source
 	if (!source) throw new HttpError(422, 'validation_failed', 'Import source is required')
+
+	if (source === 'notion' || source === 'markdown') {
+		const notionInput =
+			body.notion ?? (existingJob?.config['notion'] as ImportDryRunBody['notion'] | undefined)
+		const markdownInput =
+			body.markdown ?? (existingJob?.config['markdown'] as ImportDryRunBody['markdown'] | undefined)
+		const docDataset = resolveDocDataset({
+			source,
+			notion: notionInput,
+			markdown: markdownInput
+		})
+
+		const job =
+			existingJob ??
+			(await insertImportJobRow(tx, {
+				workspaceId: actor.workspaceId,
+				source,
+				status: 'running',
+				targetProjectId: null,
+				createdBy: actor.principalId,
+				config: { source, rootTitle: docDataset.rootTitle },
+				preview: { pages: docDataset.pages.length }
+			}))
+
+		const existingPages = await findMappedRemoteIds(tx, actor.workspaceId, source, 'doc_page')
+		let rootPageId: string | null = body.targetParentPageId ?? null
+		if (docDataset.rootTitle) {
+			const rootKey = `root:${docDataset.rootTitle}`
+			const mappedRoot = existingPages.get(rootKey)
+			if (mappedRoot) {
+				rootPageId = mappedRoot
+			} else {
+				const rootCreated = await createDocPage(tx, actor, {
+					parentId: rootPageId,
+					title: docDataset.rootTitle
+				})
+				rootPageId = rootCreated.data.id
+				existingPages.set(rootKey, rootPageId)
+				await insertImportMapping(tx, {
+					workspaceId: actor.workspaceId,
+					importJobId: job.id,
+					source,
+					remoteType: 'doc_page',
+					remoteId: rootKey,
+					remoteIdentifier: rootKey,
+					remoteUrl: null,
+					localType: 'doc_page',
+					localId: rootPageId
+				})
+			}
+		}
+
+		const createdByRemotePath = new Map<string, string>()
+		let importedPages = 0
+		let skippedPages = 0
+		const redirects: { remoteIdentifier: string; slug: string; pageId: string }[] = []
+		let latestCursor = 0
+
+		for (const p of docDataset.pages) {
+			const existingLocalId = existingPages.get(p.remoteId)
+			if (existingLocalId) {
+				createdByRemotePath.set(p.remotePath, existingLocalId)
+				skippedPages++
+				continue
+			}
+
+			const parentId = (p.parentRemotePath ? createdByRemotePath.get(p.parentRemotePath) : null) ?? rootPageId
+			const created = await createDocPage(tx, actor, {
+				parentId,
+				title: p.title,
+				...(p.markdown.trim().length > 0 ? { markdown: p.markdown } : {})
+			})
+			createdByRemotePath.set(p.remotePath, created.data.id)
+			existingPages.set(p.remoteId, created.data.id)
+			importedPages++
+			latestCursor = Math.max(latestCursor, created.cursor)
+			redirects.push({
+				remoteIdentifier: p.remoteIdentifier,
+				slug: created.data.slug,
+				pageId: created.data.id
+			})
+
+			await insertImportMapping(tx, {
+				workspaceId: actor.workspaceId,
+				importJobId: job.id,
+				source,
+				remoteType: 'doc_page',
+				remoteId: p.remoteId,
+				remoteIdentifier: p.remoteIdentifier,
+				remoteUrl: null,
+				localType: 'doc_page',
+				localId: created.data.id
+			})
+		}
+
+		const report = {
+			importedPages,
+			skippedPages,
+			rootPageId,
+			redirects
+		}
+
+		const completed = await markImportJobCompleted(tx, {
+			workspaceId: actor.workspaceId,
+			jobId: job.id,
+			targetProjectId: null,
+			report
+		})
+
+		await tx`
+			INSERT INTO outbox (workspace_id, aggregate, aggregate_id, event_type, payload)
+			VALUES (
+				${actor.workspaceId},
+				'import_job',
+				${completed.id},
+				${IMPORTS_EVENTS.Completed},
+				${tx.json(report as never)}
+			)
+		`
+
+		await tx`
+			INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, target_type, target_id, metadata)
+			VALUES (
+				${actor.workspaceId},
+				${actor.kind === 'agent' ? 'agent' : 'user'},
+				${actor.principalId},
+				'import.execute',
+				'import_job',
+				${completed.id},
+				${tx.json({ source, importedPages, skippedPages } as never)}
+			)
+		`
+
+		const cursor = latestCursor > 0 ? latestCursor : await appendChanges(tx, actor.workspaceId, [])
+		return { job: completed, cursor }
+	}
 
 	const linearInput = body.linear ?? (existingJob?.config['linear'] as ImportDryRunBody['linear'] | undefined)
 	const githubInput = body.github ?? (existingJob?.config['github'] as ImportDryRunBody['github'] | undefined)
@@ -383,6 +600,17 @@ export async function resolveImportRedirect(
 	const mapping = await findMappingByRemoteIdentifier(tx, actor.workspaceId, remoteIdentifier)
 	if (!mapping) {
 		throw new HttpError(404, 'not_found', `No imported mapping found for "${remoteIdentifier}"`)
+	}
+	if (mapping.localType === 'doc_page') {
+		const docPage = await getDocPageForRedirect(tx, actor.workspaceId, mapping.localId)
+		const slug = docPage?.slug ?? null
+		return {
+			remoteIdentifier: mapping.remoteIdentifier,
+			localType: mapping.localType,
+			localId: mapping.localId,
+			identifier: slug,
+			deepLink: slug ? `/docs/${slug}` : '/docs'
+		}
 	}
 	const issue =
 		mapping.localType === 'issue'

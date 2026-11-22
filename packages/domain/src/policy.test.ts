@@ -24,6 +24,7 @@ function actor(over: Partial<ActorContext> = {}): ActorContext {
 			'issue.read',
 			'issue.write',
 			'doc.read',
+			'doc.comment',
 			'doc.write',
 			'channel.read',
 			'channel.post',
@@ -155,6 +156,13 @@ const CASES: Case[] = [
 		expect: { effect: 'allow', via: 'role' }
 	},
 	{
+		name: 'member comments on a workspace-visible doc',
+		actor: actor(),
+		action: 'doc.comment',
+		resource: publicDoc,
+		expect: { effect: 'allow', via: 'role' }
+	},
+	{
 		name: 'member cannot share a doc (no doc.share perm)',
 		actor: actor(),
 		action: 'doc.share',
@@ -264,6 +272,41 @@ const CASES: Case[] = [
 		action: 'doc.read',
 		resource: privateDoc('read'),
 		expect: { effect: 'allow', via: 'acl' }
+	},
+	{
+		name: 'guest with read ACL cannot comment on private doc',
+		actor: actor({ roleKey: 'guest', roleRank: ROLE_RANKS.guest, permissions: new Set() }),
+		action: 'doc.comment',
+		resource: privateDoc('read'),
+		expect: { effect: 'deny', reason: 'no_acl' }
+	},
+	{
+		name: 'guest with comment ACL can comment on private doc',
+		actor: actor({ roleKey: 'guest', roleRank: ROLE_RANKS.guest, permissions: new Set() }),
+		action: 'doc.comment',
+		resource: privateDoc('comment'),
+		expect: { effect: 'allow', via: 'acl' }
+	},
+	{
+		name: 'guest with comment ACL cannot write private doc',
+		actor: actor({ roleKey: 'guest', roleRank: ROLE_RANKS.guest, permissions: new Set() }),
+		action: 'doc.write',
+		resource: privateDoc('comment'),
+		expect: { effect: 'deny', reason: 'no_acl' }
+	},
+	{
+		name: 'member with no ACL cannot comment on private doc',
+		actor: actor(),
+		action: 'doc.comment',
+		resource: privateDoc(null),
+		expect: { effect: 'deny', reason: 'no_acl' }
+	},
+	{
+		name: 'admin bypasses private doc ACL for doc.comment — flagged for audit',
+		actor: adminActor(),
+		action: 'doc.comment',
+		resource: privateDoc(null),
+		expect: { effect: 'allow', via: 'role', auditedBypass: true }
 	},
 	{
 		name: 'guest cannot read workspace-visible doc without ACL',

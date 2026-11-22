@@ -33,7 +33,14 @@ export const TENANT_TABLES = [
 	'search_documents',
 	'notifications',
 	'import_jobs',
-	'import_mappings'
+	'import_mappings',
+	'doc_pages',
+	'doc_state',
+	'doc_versions',
+	'doc_room_leases',
+	'collab_tickets',
+	'doc_comments',
+	'doc_favorites'
 ] as const
 
 /**

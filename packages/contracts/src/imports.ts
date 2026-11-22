@@ -1,6 +1,11 @@
 import { type Static, Type } from 'typebox'
 
-export const ImportSource = Type.Union([Type.Literal('linear'), Type.Literal('github')])
+export const ImportSource = Type.Union([
+	Type.Literal('linear'),
+	Type.Literal('github'),
+	Type.Literal('notion'),
+	Type.Literal('markdown')
+])
 export type ImportSource = Static<typeof ImportSource>
 
 export const ImportJobStatus = Type.Union([
@@ -71,11 +76,40 @@ export const GithubImportPayload = Type.Object({
 })
 export type GithubImportPayload = Static<typeof GithubImportPayload>
 
+export const NotionImportPage = Type.Object({
+	remotePath: Type.String({ minLength: 1 }),
+	title: Type.Optional(Type.String()),
+	markdown: Type.String(),
+	parentRemotePath: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+	notionId: Type.Optional(Type.String())
+})
+
+export const NotionImportPayload = Type.Object({
+	rootTitle: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+	pages: Type.Array(NotionImportPage)
+})
+export type NotionImportPayload = Static<typeof NotionImportPayload>
+
+export const MarkdownImportFile = Type.Object({
+	path: Type.String({ minLength: 1 }),
+	title: Type.Optional(Type.String()),
+	markdown: Type.String()
+})
+
+export const MarkdownImportPayload = Type.Object({
+	rootTitle: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+	files: Type.Array(MarkdownImportFile)
+})
+export type MarkdownImportPayload = Static<typeof MarkdownImportPayload>
+
 export const ImportDryRunBody = Type.Object({
 	source: ImportSource,
 	targetProjectId: Type.Optional(Type.String({ format: 'uuid' })),
+	targetParentPageId: Type.Optional(Type.String({ format: 'uuid' })),
 	linear: Type.Optional(LinearImportPayload),
 	github: Type.Optional(GithubImportPayload),
+	notion: Type.Optional(NotionImportPayload),
+	markdown: Type.Optional(MarkdownImportPayload),
 	/** Optional live API parameters — tokens are used transiently and never persisted (§4.2). */
 	apiToken: Type.Optional(Type.String()),
 	teamKey: Type.Optional(Type.String()),
@@ -92,7 +126,8 @@ export const ImportDryRunPreviewDto = Type.Object({
 		issues: Type.Integer(),
 		comments: Type.Integer(),
 		labels: Type.Integer(),
-		skippedExisting: Type.Integer()
+		skippedExisting: Type.Integer(),
+		pages: Type.Optional(Type.Integer())
 	}),
 	userMappings: Type.Array(
 		Type.Object({
@@ -108,8 +143,11 @@ export const ImportExecuteBody = Type.Object({
 	jobId: Type.Optional(Type.String({ format: 'uuid' })),
 	source: Type.Optional(ImportSource),
 	targetProjectId: Type.Optional(Type.String({ format: 'uuid' })),
+	targetParentPageId: Type.Optional(Type.String({ format: 'uuid' })),
 	linear: Type.Optional(LinearImportPayload),
 	github: Type.Optional(GithubImportPayload),
+	notion: Type.Optional(NotionImportPayload),
+	markdown: Type.Optional(MarkdownImportPayload),
 	apiToken: Type.Optional(Type.String()),
 	teamKey: Type.Optional(Type.String()),
 	repo: Type.Optional(Type.String())

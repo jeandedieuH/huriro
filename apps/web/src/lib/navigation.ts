@@ -24,12 +24,26 @@ export function destinationFromPathname(pathname: string): AppDestination {
 }
 
 type NavigateFn = (dest: AppDestination) => void
+type DocNavigateFn = (slug: string, hash?: string) => void
 let navigateFn: NavigateFn | null = null
+let docNavigateFn: DocNavigateFn | null = null
 
 export function registerAppNavigator(fn: NavigateFn | null) {
 	navigateFn = fn
 }
 
+export function registerDocNavigator(fn: DocNavigateFn | null) {
+	docNavigateFn = fn
+}
+
 export function navigateToDestination(dest: AppDestination) {
 	navigateFn?.(dest)
+}
+
+export function navigateToDoc(slug: string, hash?: string) {
+	if (docNavigateFn) {
+		docNavigateFn(slug, hash)
+	} else {
+		navigateFn?.('docs')
+	}
 }

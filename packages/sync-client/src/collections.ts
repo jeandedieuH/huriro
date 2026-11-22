@@ -3,6 +3,7 @@
  */
 import type {
 	CycleDto,
+	DocPageDto,
 	IssueDto,
 	LabelDto,
 	NotificationDto,
@@ -114,6 +115,7 @@ export interface PersistedReplicaState {
 	readonly issues: IssueDto[]
 	readonly savedViews: SavedViewDto[]
 	readonly notifications: NotificationDto[]
+	readonly docPages?: DocPageDto[] | undefined
 }
 
 export class HuriroSyncCollections {
@@ -124,6 +126,7 @@ export class HuriroSyncCollections {
 	readonly issuesManaged = makeManagedCollection<IssueDto>('issues')
 	readonly viewsManaged = makeManagedCollection<SavedViewDto>('saved_views')
 	readonly notificationsManaged = makeManagedCollection<NotificationDto>('notifications')
+	readonly docPagesManaged = makeManagedCollection<DocPageDto>('doc_pages')
 
 	get projects(): Collection<ProjectDto, string> {
 		return this.projectsManaged.collection
@@ -146,6 +149,9 @@ export class HuriroSyncCollections {
 	get notifications(): Collection<NotificationDto, string> {
 		return this.notificationsManaged.collection
 	}
+	get docPages(): Collection<DocPageDto, string> {
+		return this.docPagesManaged.collection
+	}
 
 	markAllReady(): void {
 		this.projectsManaged.markReady()
@@ -155,6 +161,7 @@ export class HuriroSyncCollections {
 		this.issuesManaged.markReady()
 		this.viewsManaged.markReady()
 		this.notificationsManaged.markReady()
+		this.docPagesManaged.markReady()
 	}
 
 	applyFullSnapshot(snap: SyncSnapshotResponse | PersistedReplicaState): void {
@@ -165,6 +172,7 @@ export class HuriroSyncCollections {
 		this.issuesManaged.replaceAll(snap.issues as unknown as IssueDto[])
 		this.viewsManaged.replaceAll(snap.savedViews as unknown as SavedViewDto[])
 		this.notificationsManaged.replaceAll(snap.notifications as unknown as NotificationDto[])
+		this.docPagesManaged.replaceAll((snap.docPages ?? []) as unknown as DocPageDto[])
 	}
 
 	applyScopedSnapshot(snap: SyncSnapshotResponse): void {
@@ -174,6 +182,19 @@ export class HuriroSyncCollections {
 		this.cyclesManaged.upsertMany(snap.cycles as unknown as CycleDto[])
 		this.issuesManaged.upsertMany(snap.issues as unknown as IssueDto[])
 		this.viewsManaged.upsertMany(snap.savedViews as unknown as SavedViewDto[])
+		this.docPagesManaged.upsertMany((snap.docPages ?? []) as unknown as DocPageDto[])
+	}
+
+	purgeDocPageScope(pageId: string): void {
+		const target = this.docPagesManaged.values().find((p) => p.id === pageId)
+		const keys = this.docPagesManaged
+			.values()
+			.filter(
+				(p) =>
+					p.id === pageId || p.parentId === pageId || (target ? p.path.startsWith(`${target.path}/`) : false)
+			)
+			.map((p) => p.id)
+		this.docPagesManaged.deleteMany(keys.length > 0 ? keys : [pageId])
 	}
 
 	purgeProjectScope(projectId: string): void {
@@ -206,9 +227,11 @@ export class HuriroSyncCollections {
 	applyChanges(changes: readonly SyncChangeDto[]): {
 		readonly grantScopes: string[]
 		readonly revokedProjectIds: string[]
+		readonly revokedDocPageIds: string[]
 	} {
 		const grantScopes = new Set<string>()
 		const revokedProjectIds = new Set<string>()
+		const revokedDocPageIds = new Set<string>()
 
 		const projectUpserts: ProjectDto[] = []
 		const projectDeletes: string[] = []
@@ -224,19 +247,23 @@ export class HuriroSyncCollections {
 		const viewDeletes: string[] = []
 		const notifUpserts: NotificationDto[] = []
 		const notifDeletes: string[] = []
+		const docPageUpserts: DocPageDto[] = []
+		const docPageDeletes: string[] = []
 
 		for (const c of changes) {
 			if (c.action === 'grant') {
 				for (const s of c.scope) {
-					if (s.startsWith('project:')) grantScopes.add(s)
+					if (s.startsWith('project:') || s.startsWith('doc_page:')) grantScopes.add(s)
 				}
 				continue
 			}
 			if (c.action === 'revoke') {
 				for (const s of c.scope) {
 					if (s.startsWith('project:')) revokedProjectIds.add(s.slice('project:'.length))
+					if (s.startsWith('doc_page:')) revokedDocPageIds.add(s.slice('doc_page:'.length))
 				}
 				if (c.entity === 'project') revokedProjectIds.add(c.id)
+				if (c.entity === 'doc_page') revokedDocPageIds.add(c.id)
 				continue
 			}
 
@@ -270,6 +297,10 @@ export class HuriroSyncCollections {
 					if (isDel) notifDeletes.push(c.id)
 					else notifUpserts.push(c.data as unknown as NotificationDto)
 					break
+				case 'doc_page':
+					if (isDel) docPageDeletes.push(c.id)
+					else docPageUpserts.push(c.data as unknown as DocPageDto)
+					break
 				default:
 					break
 			}
@@ -289,14 +320,20 @@ export class HuriroSyncCollections {
 		this.viewsManaged.deleteMany(viewDeletes)
 		this.notificationsManaged.upsertMany(notifUpserts)
 		this.notificationsManaged.deleteMany(notifDeletes)
+		this.docPagesManaged.upsertMany(docPageUpserts)
+		this.docPagesManaged.deleteMany(docPageDeletes)
 
 		for (const pid of revokedProjectIds) {
 			this.purgeProjectScope(pid)
 		}
+		for (const pageId of revokedDocPageIds) {
+			this.purgeDocPageScope(pageId)
+		}
 
 		return {
 			grantScopes: [...grantScopes],
-			revokedProjectIds: [...revokedProjectIds]
+			revokedProjectIds: [...revokedProjectIds],
+			revokedDocPageIds: [...revokedDocPageIds]
 		}
 	}
 
@@ -309,7 +346,8 @@ export class HuriroSyncCollections {
 			cycles: this.cyclesManaged.values(),
 			issues: this.issuesManaged.values(),
 			savedViews: this.viewsManaged.values(),
-			notifications: this.notificationsManaged.values()
+			notifications: this.notificationsManaged.values(),
+			docPages: this.docPagesManaged.values()
 		}
 	}
 
@@ -322,7 +360,8 @@ export class HuriroSyncCollections {
 			cycles: [],
 			issues: [],
 			savedViews: [],
-			notifications: []
+			notifications: [],
+			docPages: []
 		})
 	}
 }

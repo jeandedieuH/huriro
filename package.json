@@ -23,6 +23,7 @@
 		"check:boundaries": "dependency-cruiser apps packages --config packages/config/dependency-cruiser.cjs",
 		"check:licenses": "bun scripts/check-licenses.ts",
 		"smoke:compose": "bun scripts/compose-smoke.ts",
+		"soak:collab": "bun --cwd apps/server scripts/collab-soak.ts",
 		"verify": "turbo lint typecheck test build gen:check && bun run check:boundaries && bun run check:licenses",
 		"migrate": "bun --cwd apps/server src/index.ts migrate",
 		"doctor": "bun --cwd apps/server src/index.ts doctor"

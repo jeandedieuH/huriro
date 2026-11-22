@@ -17,19 +17,24 @@ import { log } from '../api/observability'
 import { type Auth, requireSession } from '../modules/identity'
 import { verifyAndConsumeRealtimeTicket } from '../modules/sync'
 import { resolveActor } from '../modules/tenancy'
+import type { CollabRuntime } from './collab'
 import { InProcessPubSub, type RealtimePubSub } from './pubsub'
+
+export { type CollabRuntime, type CollabRuntimeDeps, createCollabRuntime } from './collab'
 
 export interface RealtimeDeps {
 	readonly port: number
 	readonly sql?: Sql
 	readonly auth?: Auth | null
 	readonly pubsub?: RealtimePubSub
+	readonly collab?: CollabRuntime
 	readonly allowedOrigins?: readonly string[]
 	readonly coalesceMs?: number
 	readonly maxCoalesceMs?: number
 }
 
-interface SocketData {
+interface SignalSocketData {
+	readonly kind: 'signal'
 	cookieUserId: string | null
 	userId: string | null
 	workspaceId: string | null
@@ -38,6 +43,14 @@ interface SocketData {
 	lastRefillAt: number
 	handshakeTimer: ReturnType<typeof setTimeout> | null
 }
+
+interface CollabSocketData {
+	readonly kind: 'collab'
+	readonly request: Request
+	clientConnection: ReturnType<CollabRuntime['handleConnection']> | null
+}
+
+type SocketData = SignalSocketData | CollabSocketData
 
 interface CoalesceEntry {
 	latest: number
@@ -78,6 +91,7 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 	}
 
 	function removeSocket(ws: ServerWebSocket<SocketData>) {
+		if (ws.data.kind !== 'signal') return
 		if (ws.data.handshakeTimer) {
 			clearTimeout(ws.data.handshakeTimer)
 			ws.data.handshakeTimer = null
@@ -100,7 +114,7 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 		if (!set || set.size === 0) return
 		const payload = JSON.stringify({ t: 'cursor', cursor: entry.latest } satisfies WsServerMessage)
 		for (const ws of set) {
-			if (ws.data.authenticated) {
+			if (ws.data.kind === 'signal' && ws.data.authenticated) {
 				try {
 					ws.send(payload)
 				} catch {
@@ -133,7 +147,7 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 		const set = workspaceSockets.get(workspaceId)
 		if (!set) return
 		for (const ws of [...set]) {
-			if (ws.data.userId === userId) {
+			if (ws.data.kind === 'signal' && ws.data.userId === userId) {
 				sendMsg(ws, { t: 'revoke', reason })
 				ws.close(4003, reason)
 				set.delete(ws)
@@ -151,6 +165,7 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 	})
 
 	async function handleHello(ws: ServerWebSocket<SocketData>, msg: Extract<WsClientMessage, { t: 'hello' }>) {
+		if (ws.data.kind !== 'signal') return
 		if (!deps.sql) {
 			sendMsg(ws, { t: 'error', code: 'not_implemented', message: 'Database unavailable' })
 			ws.close(1011, 'no_db')
@@ -227,7 +242,7 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 		const ping = JSON.stringify({ t: 'ping' } satisfies WsServerMessage)
 		for (const set of workspaceSockets.values()) {
 			for (const ws of set) {
-				if (ws.data.authenticated) {
+				if (ws.data.kind === 'signal' && ws.data.authenticated) {
 					try {
 						ws.send(ping)
 					} catch {
@@ -243,6 +258,7 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 		const db = deps.sql
 		for (const [wsId, set] of workspaceSockets.entries()) {
 			for (const ws of [...set]) {
+				if (ws.data.kind !== 'signal') continue
 				const userId = ws.data.userId
 				if (!ws.data.authenticated || !userId) continue
 				void withWorkspace(db, { workspaceId: wsId, userId }, async (tx) => {
@@ -288,6 +304,7 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 
 				const upgraded = srv.upgrade(req, {
 					data: {
+						kind: 'signal',
 						cookieUserId,
 						userId: null,
 						workspaceId: null,
@@ -299,17 +316,80 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 				})
 				return upgraded ? undefined : new Response('WebSocket upgrade failed', { status: 400 })
 			}
+			if (url.pathname === '/collab') {
+				if (!deps.collab) {
+					return new Response('Collaborative editor runtime not configured.', { status: 501 })
+				}
+				const origin = req.headers.get('origin')
+				if (
+					origin &&
+					allowedOrigins.length > 0 &&
+					!allowedOrigins.includes(origin) &&
+					origin !== url.origin
+				) {
+					return new Response('Forbidden origin', { status: 403 })
+				}
+				if (url.searchParams.has('ticket') || url.searchParams.has('token')) {
+					return new Response('Ticket must not be sent in query string', { status: 400 })
+				}
+				const upgraded = srv.upgrade(req, {
+					data: {
+						kind: 'collab',
+						request: req,
+						clientConnection: null
+					}
+				})
+				return upgraded ? undefined : new Response('WebSocket upgrade failed', { status: 400 })
+			}
 			return new Response('Not found', { status: 404 })
 		},
 		websocket: {
 			open(ws) {
+				if (ws.data.kind === 'collab') {
+					const collab = deps.collab
+					if (!collab) {
+						ws.close(1011, 'collab_unconfigured')
+						return
+					}
+					const wsLike = {
+						get readyState() {
+							return ws.readyState
+						},
+						send(data: string | ArrayBufferLike | Blob | ArrayBufferView) {
+							try {
+								if (ws.readyState === 1) {
+									ws.send(data as Parameters<ServerWebSocket<SocketData>['send']>[0])
+								}
+							} catch {
+								// Socket closed mid-send.
+							}
+						},
+						close(code?: number, reason?: string) {
+							try {
+								ws.close(code, reason)
+							} catch {
+								// Socket already closed.
+							}
+						}
+					}
+					ws.data.clientConnection = collab.handleConnection(wsLike, ws.data.request)
+					return
+				}
+
 				ws.data.handshakeTimer = setTimeout(() => {
-					if (!ws.data.authenticated) {
+					if (ws.data.kind === 'signal' && !ws.data.authenticated) {
 						ws.close(4008, 'handshake_timeout')
 					}
 				}, 10_000)
 			},
 			async message(ws, raw) {
+				if (ws.data.kind === 'collab') {
+					const bytes =
+						typeof raw === 'string' ? new Uint8Array(Buffer.from(raw, 'utf8')) : new Uint8Array(raw)
+					ws.data.clientConnection?.handleMessage(bytes)
+					return
+				}
+
 				// Per-socket 60/min rate limit (§12.9).
 				const now = Date.now()
 				const elapsed = now - ws.data.lastRefillAt
@@ -338,13 +418,22 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 					await handleHello(ws, msg)
 				}
 			},
-			close(ws) {
+			pong(ws) {
+				if (ws.data.kind === 'collab') {
+					ws.data.clientConnection?.touch()
+				}
+			},
+			close(ws, code, reason) {
+				if (ws.data.kind === 'collab') {
+					ws.data.clientConnection?.handleClose({ code, reason })
+					return
+				}
 				removeSocket(ws)
 			}
 		}
 	})
 
-	log.info({ port: server.port }, 'realtime signal server listening')
+	log.info({ port: server.port }, 'realtime signal + collab server listening')
 	return {
 		port: server.port ?? deps.port,
 		stop: async () => {
@@ -353,6 +442,9 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 			for (const entry of pendingCursors.values()) clearTimeout(entry.timer)
 			pendingCursors.clear()
 			unsubscribe()
+			if (deps.collab) {
+				await deps.collab.stop()
+			}
 			server.stop(true)
 		}
 	}

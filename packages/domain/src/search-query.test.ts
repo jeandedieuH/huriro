@@ -27,4 +27,9 @@ describe('parseSearchQuery', () => {
 		expect(q.freeText).toBe('')
 		expect(q.issueIdentifier).toBeNull()
 	})
+
+	test('normalizes type:doc and type:doc_page to doc_page', () => {
+		expect(parseSearchQuery('type:doc architecture').entityType).toBe('doc_page')
+		expect(parseSearchQuery('type:doc_page runbook').entityType).toBe('doc_page')
+	})
 })

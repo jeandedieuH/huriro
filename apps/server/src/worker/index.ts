@@ -5,9 +5,10 @@
  * with the admin URL. Job HANDLERS do tenant work through the huriro_app pool
  * inside withWorkspace, same as the API (§12.4).
  */
-import { type Sql, withWorkspace } from '@huriro/db'
+import { isUuid, type Sql, withSystem, withWorkspace } from '@huriro/db'
 import { PgBoss } from 'pg-boss'
 import { log, outboxLag } from '../api/observability'
+import { runDocMaintenanceOnce } from '../modules/docs'
 import { processNotificationOutboxEvent } from '../modules/notifications'
 import { processSearchOutboxEvent } from '../modules/search'
 import type { RealtimePubSub } from '../realtime/pubsub'
@@ -55,17 +56,25 @@ export async function drainOutboxOnce(app: Sql, pubsub?: RealtimePubSub): Promis
 	for (const row of rows) {
 		try {
 			if (row.workspaceId) {
-				const cursor = await withWorkspace(app, { workspaceId: row.workspaceId }, async (tx) => {
-					await processSearchOutboxEvent(tx, row)
-					const notifRes = await processNotificationOutboxEvent(tx, row)
-					await tx`
+				const actorId =
+					typeof row.payload['actorId'] === 'string' && isUuid(row.payload['actorId'])
+						? row.payload['actorId']
+						: undefined
+				const cursor = await withWorkspace(
+					app,
+					actorId ? { workspaceId: row.workspaceId, userId: actorId } : { workspaceId: row.workspaceId },
+					async (tx) => {
+						await processSearchOutboxEvent(tx, row)
+						const notifRes = await processNotificationOutboxEvent(tx, row)
+						await tx`
 						INSERT INTO processed_events (consumer, event_id)
 						VALUES ('outbox-drain', ${row.id})
 						ON CONFLICT (consumer, event_id) DO NOTHING
 					`
-					await tx`UPDATE outbox SET published_at = now() WHERE id = ${row.id}`
-					return notifRes.cursor
-				})
+						await tx`UPDATE outbox SET published_at = now() WHERE id = ${row.id}`
+						return notifRes.cursor
+					}
+				)
 				if (cursor !== null) {
 					const prev = cursorsToPublish.get(row.workspaceId)
 					cursorsToPublish.set(row.workspaceId, prev === undefined ? cursor : Math.max(prev, cursor))
@@ -119,6 +128,15 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 		await updateLagMetric(deps.app)
 	})
 
+	await boss.createQueue('doc-versions-thin')
+	await boss.schedule('doc-versions-thin', '0 * * * *', {}, { tz: 'UTC' })
+	await boss.work('doc-versions-thin', async () => {
+		const res = await withSystem(deps.app, (tx) => runDocMaintenanceOnce(tx))
+		if (res.thinnedVersions > 0 || res.deletedTickets > 0) {
+			log.info(res, 'doc version retention & ticket cleanup completed')
+		}
+	})
+
 	// Dead-man switch: page the operator if the worker loop goes quiet (§20.4).
 	const heartbeatMs = 60_000
 	const heartbeat = deps.heartbeatUrl
@@ -130,7 +148,7 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 		: null
 
 	await updateLagMetric(deps.app)
-	log.info({ queues: ['outbox-drain'] }, 'worker started')
+	log.info({ queues: ['outbox-drain', 'doc-versions-thin'] }, 'worker started')
 
 	return {
 		stop: async () => {

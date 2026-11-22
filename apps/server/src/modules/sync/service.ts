@@ -1,9 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto'
 import type {
+	CreateDocPageBody,
 	CreateIssueBody,
 	CreateIssueCommentBody,
 	CreateProjectBody,
 	CreateSavedViewBody,
+	MoveDocPageBody,
 	MoveIssueBody,
 	MutationEnvelope,
 	MutationResultDto,
@@ -14,6 +16,7 @@ import type {
 	SyncChangesResponse,
 	SyncSnapshotQuery,
 	SyncSnapshotResponse,
+	UpdateDocPageBody,
 	UpdateIssueBody,
 	UpdateIssueCommentBody,
 	UpdateProjectBody,
@@ -23,6 +26,14 @@ import type { Queryable } from '@huriro/db'
 import type { ActorContext } from '@huriro/domain'
 import { withIdempotency } from '../../api/context'
 import { HttpError } from '../../api/error'
+import {
+	createDocPage,
+	deleteDocPage,
+	getDocsSnapshotData,
+	listAccessibleDocPageIds,
+	moveDocPage,
+	updateDocPage
+} from '../docs'
 import { getNotificationsSnapshot, markNotificationRead } from '../notifications'
 import {
 	createIssue,
@@ -55,10 +66,18 @@ function extractProjectIdFromScope(scope: readonly string[]): string | null {
 	return null
 }
 
+function extractDocPageIdFromScope(scope: readonly string[]): string | null {
+	for (const s of scope) {
+		if (s.startsWith('doc_page:')) return s.slice('doc_page:'.length)
+	}
+	return null
+}
+
 function filterRowForActor(
 	row: RawChangeLogRow,
 	actor: ActorContext,
-	accessibleProjects: ReadonlySet<string>
+	accessibleProjects: ReadonlySet<string>,
+	accessibleDocPages: ReadonlySet<string>
 ): SyncChangeDto | null {
 	if (row.entityType === 'notification') {
 		if (!row.scope.includes(`user:${actor.principalId}`)) return null
@@ -100,6 +119,67 @@ function filterRowForActor(
 			data: row.payload,
 			changedAt: row.changedAt
 		}
+	}
+
+	if (row.entityType === 'doc_page' || row.entityType === 'doc_comment') {
+		const pageId = extractDocPageIdFromScope(row.scope)
+		if (row.action === 'revoke') {
+			const p = row.payload ?? {}
+			const isWorkspaceRevoke = p['principalType'] === 'workspace' || p['previousVisibility'] === 'workspace'
+			const isUserRevoke = p['principalType'] === 'user' && p['principalId'] === actor.principalId
+			if (!isWorkspaceRevoke && !isUserRevoke && (!pageId || accessibleDocPages.has(pageId))) {
+				return null
+			}
+			return {
+				cursor: row.cursor,
+				entity: row.entityType,
+				id: row.entityId,
+				action: 'revoke',
+				scope: row.scope,
+				data: null,
+				changedAt: row.changedAt
+			}
+		}
+
+		if (row.action === 'grant') {
+			if (!pageId || !accessibleDocPages.has(pageId)) return null
+			return {
+				cursor: row.cursor,
+				entity: row.entityType,
+				id: row.entityId,
+				action: 'grant',
+				scope: row.scope,
+				data: row.payload,
+				changedAt: row.changedAt
+			}
+		}
+
+		if (pageId && accessibleDocPages.has(pageId)) {
+			return {
+				cursor: row.cursor,
+				entity: row.entityType,
+				id: row.entityId,
+				action: row.action,
+				scope: row.scope,
+				data: row.action === 'delete' ? null : row.payload,
+				changedAt: row.changedAt
+			}
+		}
+
+		// Visibility tightened from workspace -> private: emit delete tombstone so unauthorized peers purge (§9.3).
+		if (row.action !== 'delete' && row.payload && row.payload['previousVisibility'] === 'workspace') {
+			return {
+				cursor: row.cursor,
+				entity: row.entityType,
+				id: row.entityId,
+				action: 'delete',
+				scope: row.scope,
+				data: null,
+				changedAt: row.changedAt
+			}
+		}
+
+		return null
 	}
 
 	const projectId = extractProjectIdFromScope(row.scope)
@@ -217,10 +297,13 @@ export async function getSyncChanges(
 	const { rows, hasMore } = await readChangeLogAfter(tx, actor.workspaceId, since, limit)
 	const nextCursor = rows.length > 0 ? rows[rows.length - 1]!.cursor : Math.max(since, lastCursor)
 
-	const accessibleProjects = await listAccessibleProjectIds(tx, actor)
+	const [accessibleProjects, accessibleDocPages] = await Promise.all([
+		listAccessibleProjectIds(tx, actor),
+		listAccessibleDocPageIds(tx, actor)
+	])
 	const filtered: SyncChangeDto[] = []
 	for (const row of rows) {
-		const mapped = filterRowForActor(row, actor, accessibleProjects)
+		const mapped = filterRowForActor(row, actor, accessibleProjects, accessibleDocPages)
 		if (mapped) filtered.push(mapped)
 	}
 
@@ -246,14 +329,26 @@ export async function getSyncSnapshot(
 	assertActiveSyncMember(actor)
 
 	let scopeProjectId: string | undefined
+	let scopeDocPageId: string | undefined
 	if (query.scope?.startsWith('project:')) {
 		scopeProjectId = query.scope.slice('project:'.length)
+	} else if (query.scope?.startsWith('doc_page:')) {
+		scopeDocPageId = query.scope.slice('doc_page:'.length)
 	}
 
 	const { lastCursor } = await getWorkspaceCursorBounds(tx, actor.workspaceId)
-	const [tasksSnap, notifSnap] = await Promise.all([
-		getTasksSnapshotData(tx, actor, scopeProjectId),
-		scopeProjectId ? Promise.resolve([]) : getNotificationsSnapshot(tx, actor)
+	const emptyTasks = {
+		projects: [],
+		projectStatuses: [],
+		labels: [],
+		cycles: [],
+		issues: [],
+		savedViews: []
+	}
+	const [tasksSnap, docsSnap, notifSnap] = await Promise.all([
+		scopeDocPageId ? Promise.resolve(emptyTasks) : getTasksSnapshotData(tx, actor, scopeProjectId),
+		scopeProjectId ? Promise.resolve({ docPages: [] }) : getDocsSnapshotData(tx, actor, scopeDocPageId),
+		scopeProjectId || scopeDocPageId ? Promise.resolve([]) : getNotificationsSnapshot(tx, actor)
 	])
 
 	return {
@@ -265,7 +360,8 @@ export async function getSyncSnapshot(
 		cycles: tasksSnap.cycles as unknown as Record<string, unknown>[],
 		issues: tasksSnap.issues as unknown as Record<string, unknown>[],
 		savedViews: tasksSnap.savedViews as unknown as Record<string, unknown>[],
-		notifications: notifSnap as unknown as Record<string, unknown>[]
+		notifications: notifSnap as unknown as Record<string, unknown>[],
+		docPages: docsSnap.docPages as unknown as Record<string, unknown>[]
 	}
 }
 
@@ -365,6 +461,36 @@ async function runSingleMutation(
 	if (m.entity === 'notification' && m.op === 'mark_read') {
 		const res = await markNotificationRead(tx, actor, m.entityId)
 		return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+	}
+
+	if (m.entity === 'doc_page') {
+		if (m.op === 'create') {
+			const res = await createDocPage(tx, actor, {
+				...(patch as Omit<CreateDocPageBody, 'id'>),
+				id: m.entityId
+			})
+			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+		}
+		if (m.op === 'update') {
+			const version = m.baseVersion ?? Number(patch['version'] ?? 1)
+			const res = await updateDocPage(tx, actor, m.entityId, {
+				...(patch as Omit<UpdateDocPageBody, 'version'>),
+				version
+			})
+			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+		}
+		if (m.op === 'move') {
+			const version = m.baseVersion ?? Number(patch['version'] ?? 1)
+			const res = await moveDocPage(tx, actor, m.entityId, {
+				...(patch as Omit<MoveDocPageBody, 'version'>),
+				version
+			})
+			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+		}
+		if (m.op === 'delete') {
+			const res = await deleteDocPage(tx, actor, m.entityId, m.baseVersion)
+			return { data: { id: res.id, deleted: true }, cursor: res.cursor }
+		}
 	}
 
 	throw new HttpError(422, 'validation_failed', `Unsupported mutation ${m.entity}.${m.op}`)

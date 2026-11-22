@@ -12,7 +12,7 @@ export const importJobs = pgTable(
 		workspaceId: uuid('workspace_id')
 			.notNull()
 			.references(() => workspaces.id, { onDelete: 'cascade' }),
-		source: text('source', { enum: ['linear', 'github'] }).notNull(),
+		source: text('source', { enum: ['linear', 'github', 'notion', 'markdown'] }).notNull(),
 		status: text('status', {
 			enum: ['dry_run', 'pending', 'running', 'completed', 'failed', 'cancelled']
 		})
@@ -47,9 +47,9 @@ export const importMappings = pgTable(
 			.notNull()
 			.references(() => workspaces.id, { onDelete: 'cascade' }),
 		importJobId: uuid('import_job_id').notNull(),
-		source: text('source', { enum: ['linear', 'github'] }).notNull(),
+		source: text('source', { enum: ['linear', 'github', 'notion', 'markdown'] }).notNull(),
 		remoteType: text('remote_type', {
-			enum: ['project', 'issue', 'comment', 'label', 'cycle', 'status']
+			enum: ['project', 'issue', 'comment', 'label', 'cycle', 'status', 'doc_page']
 		}).notNull(),
 		remoteId: text('remote_id').notNull(),
 		remoteIdentifier: text('remote_identifier'),

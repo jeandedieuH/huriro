@@ -36,9 +36,36 @@ export const changeLogWriteMs = new client.Histogram({
 	help: 'Time to allocate a sync cursor + append change_log rows (§24 R3)',
 	buckets: [1, 5, 10, 25, 50, 100]
 })
+export const collabRoomsGauge = new client.Gauge({
+	name: 'huriro_collab_active_rooms',
+	help: 'Currently loaded Hocuspocus document rooms'
+})
+export const collabConnectionsGauge = new client.Gauge({
+	name: 'huriro_collab_active_connections',
+	help: 'Currently active Hocuspocus WebSocket client connections'
+})
+export const collabStateBytesHistogram = new client.Histogram({
+	name: 'huriro_collab_document_bytes',
+	help: 'Encoded Y.Doc state size on persistence (§10.2)',
+	buckets: [1024, 16384, 65536, 262144, 1048576, 2097152, 10485760]
+})
+export const collabLeaseConflictsTotal = new client.Counter({
+	name: 'huriro_collab_lease_conflicts_total',
+	help: 'Count of doc_room_leases ownership or epoch fencing conflicts (§10.5)'
+})
+export const collabStoreDurationSeconds = new client.Histogram({
+	name: 'huriro_collab_store_duration_seconds',
+	help: 'Duration of fenced Y.Doc PostgreSQL persistence (§10.5)',
+	buckets: [0.005, 0.02, 0.05, 0.12, 0.25, 0.5, 1, 2.5]
+})
 metrics.registerMetric(httpDuration)
 metrics.registerMetric(outboxLag)
 metrics.registerMetric(changeLogWriteMs)
+metrics.registerMetric(collabRoomsGauge)
+metrics.registerMetric(collabConnectionsGauge)
+metrics.registerMetric(collabStateBytesHistogram)
+metrics.registerMetric(collabLeaseConflictsTotal)
+metrics.registerMetric(collabStoreDurationSeconds)
 
 export function hashForLog(id: string | undefined): string | undefined {
 	if (!id) return undefined

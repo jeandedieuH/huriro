@@ -81,6 +81,35 @@ export async function processSearchOutboxEvent(tx: Queryable, event: OutboxEvent
 			})
 			return true
 		}
+		case 'docs.page.created.v1':
+		case 'docs.page.updated.v1':
+		case 'docs.state.saved.v1': {
+			const pageId = String(p['pageId'] ?? '')
+			if (!pageId) return false
+			const slug = typeof p['slug'] === 'string' ? p['slug'] : null
+			await upsertSearchDocument(tx, {
+				workspaceId: event.workspaceId,
+				entityType: 'doc_page',
+				entityId: pageId,
+				projectId: null,
+				containerId: pageId,
+				identifier: slug,
+				title: String(p['title'] ?? ''),
+				body: String(p['plainText'] ?? ''),
+				metadata: {
+					slug,
+					headings: Array.isArray(p['headings']) ? p['headings'] : [],
+					blocks: Array.isArray(p['blocks']) ? p['blocks'] : []
+				}
+			})
+			return true
+		}
+		case 'docs.page.deleted.v1': {
+			const pageId = String(p['pageId'] ?? '')
+			if (!pageId) return false
+			await deleteSearchDocument(tx, event.workspaceId, 'doc_page', pageId)
+			return true
+		}
 		default:
 			return false
 	}

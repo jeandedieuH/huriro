@@ -56,7 +56,21 @@ export async function init(args: string[]): Promise<void> {
 	].join('\n')
 	await Bun.write(join(dir, '.env'), env, { mode: 0o600 })
 
-	await Bun.write(join(dir, 'Caddyfile'), `${domain} {\n\treverse_proxy huriro:3001\n}\n`)
+	const caddyfile = [
+		`${domain} {`,
+		`\thandle /ws* {`,
+		`\t\treverse_proxy huriro:3005`,
+		`\t}`,
+		`\thandle /collab* {`,
+		`\t\treverse_proxy huriro:3005`,
+		`\t}`,
+		`\thandle {`,
+		`\t\treverse_proxy huriro:3001`,
+		`\t}`,
+		`}`,
+		''
+	].join('\n')
+	await Bun.write(join(dir, 'Caddyfile'), caddyfile)
 
 	console.log(
 		[

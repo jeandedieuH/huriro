@@ -1,5 +1,5 @@
 // Search materialized index table — owned by the `search` module (§5.4, §11.1).
-import { foreignKey, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { foreignKey, jsonb, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { projects } from './tasks'
 import { workspaces } from './tenancy'
 
@@ -19,6 +19,7 @@ export const searchDocuments = pgTable(
 		title: text('title').notNull().default(''),
 		body: text('body').notNull().default(''),
 		lang: text('lang').notNull().default('simple'),
+		metadata: jsonb('metadata').notNull().default({}),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 	},

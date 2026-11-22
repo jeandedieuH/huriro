@@ -18,7 +18,12 @@ import { ShortcutsDialog } from '@/features/keyboard/shortcuts-dialog'
 import { CommandPalette } from '@/features/search/components/command-palette'
 import { ConflictResolverDialog } from '@/features/sync/components/conflict-resolver-dialog'
 import { SyncStatusBanner } from '@/features/sync/components/sync-status-banner'
-import { DESTINATION_PATHS, destinationFromPathname, registerAppNavigator } from '@/lib/navigation'
+import {
+	DESTINATION_PATHS,
+	destinationFromPathname,
+	registerAppNavigator,
+	registerDocNavigator
+} from '@/lib/navigation'
 import { type BootstrappedWorkspace, bootstrapWorkspace } from '@/lib/sync-bootstrap'
 import { useWorkspace, WorkspaceProvider } from '@/lib/workspace'
 import { useUiStore } from '@/stores/ui-store'
@@ -67,10 +72,20 @@ function RootComponent() {
 		}
 	}, [pathname])
 
-	// Bridge store-mediated navigation (sidebar, palette, G-chords) to the router.
+	// Bridge store-mediated navigation (sidebar, palette, G-chords, docs) to the router.
 	useEffect(() => {
 		registerAppNavigator((dest) => void navigate({ to: DESTINATION_PATHS[dest] }))
-		return () => registerAppNavigator(null)
+		registerDocNavigator((slug, hash) => {
+			void navigate({
+				to: '/docs/$slug',
+				params: { slug },
+				...(hash ? { hash } : {})
+			})
+		})
+		return () => {
+			registerAppNavigator(null)
+			registerDocNavigator(null)
+		}
 	}, [navigate])
 
 	useEffect(() => {
@@ -121,6 +136,7 @@ function WorkspaceFrame() {
 	const toggleTheme = useUiStore((s) => s.toggleTheme)
 	const setCommandPaletteOpen = useUiStore((s) => s.setCommandPaletteOpen)
 	const setCreateIssueOpen = useUiStore((s) => s.setCreateIssueOpen)
+	const setCreateDocOpen = useUiStore((s) => s.setCreateDocOpen)
 	const setShortcutsDialogOpen = useUiStore((s) => s.setShortcutsDialogOpen)
 	const toasts = useUiStore((s) => s.toasts)
 	const dismissToast = useUiStore((s) => s.dismissToast)
@@ -140,7 +156,7 @@ function WorkspaceFrame() {
 				theme={theme}
 				onSelectNav={setDestination}
 				onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-				onCreateNew={() => setCreateIssueOpen(true)}
+				onCreateNew={() => (destination === 'docs' ? setCreateDocOpen(true) : setCreateIssueOpen(true))}
 				onToggleTheme={toggleTheme}
 				onOpenShortcuts={() => setShortcutsDialogOpen(true)}
 			>

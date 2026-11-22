@@ -17,7 +17,7 @@ export const options = {
 		}
 	},
 	thresholds: {
-		'http_req_failed': ['rate<0.01'],
+		http_req_failed: ['rate<0.01'],
 		'http_req_duration{kind:read_list}': ['p(95)<250'],
 		'http_req_duration{kind:read_sync}': ['p(95)<120'],
 		'http_req_duration{kind:search}': ['p(95)<150'],

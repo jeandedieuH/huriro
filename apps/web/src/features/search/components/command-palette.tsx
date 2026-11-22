@@ -16,6 +16,7 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { navigateToDoc } from '@/lib/navigation'
 import type { TaskApiBridge } from '@/lib/sync-bootstrap'
 import { type AppDestination, useUiStore } from '@/stores/ui-store'
 
@@ -34,12 +35,14 @@ interface PaletteItem {
 export function CommandPalette({ api }: CommandPaletteProps) {
 	const engine = useSyncEngine()
 	const localIssues = useCollectionItems(engine.collections.issues)
+	const localDocs = useCollectionItems(engine.collections.docPages)
 
 	const open = useUiStore((s) => s.commandPaletteOpen)
 	const setOpen = useUiStore((s) => s.setCommandPaletteOpen)
 	const setDestination = useUiStore((s) => s.setDestination)
 	const setTasksLayout = useUiStore((s) => s.setTasksLayout)
 	const setCreateIssueOpen = useUiStore((s) => s.setCreateIssueOpen)
+	const setCreateDocOpen = useUiStore((s) => s.setCreateDocOpen)
 	const setCreateProjectOpen = useUiStore((s) => s.setCreateProjectOpen)
 	const setShortcutsDialogOpen = useUiStore((s) => s.setShortcutsDialogOpen)
 	const setImportDialogOpen = useUiStore((s) => s.setImportDialogOpen)
@@ -89,6 +92,16 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 				onRun: () => {
 					setOpen(false)
 					setCreateIssueOpen(true)
+				}
+			},
+			{
+				id: 'act-create-doc',
+				section: 'actions',
+				label: t('docs.palette.new-doc'),
+				onRun: () => {
+					setOpen(false)
+					setDestination('docs')
+					setCreateDocOpen(true)
 				}
 			},
 			{
@@ -168,11 +181,17 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 				content.push({
 					id: `hit-${hit.entityId}`,
 					section: 'content',
-					label: `${hit.identifier ? `${hit.identifier} · ` : ''}${hit.title}`,
+					label: `${hit.identifier && hit.entityType !== 'doc_page' ? `${hit.identifier} · ` : ''}${hit.title}`,
 					hint: hit.snippet.slice(0, 48),
 					onRun: () => {
-						setDestination('tasks')
-						selectIssue(hit.entityId, true)
+						if (hit.entityType === 'doc_page') {
+							const withoutPrefix = hit.deepLink.replace(/^\/docs\//, '')
+							const [slugPart, hashPart] = withoutPrefix.split('#')
+							navigateToDoc(slugPart || hit.identifier || hit.entityId, hashPart)
+						} else {
+							setDestination('tasks')
+							selectIssue(hit.entityId, true)
+						}
 						setOpen(false)
 					}
 				})
@@ -197,7 +216,28 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 						}
 					})
 				}
-				if (content.length >= 12) break
+				if (content.length >= 10) break
+			}
+
+			for (const doc of localDocs) {
+				if (doc.archivedAt !== null || mergedIds.has(doc.id)) continue
+				if (
+					searchTerm.length === 0 ||
+					doc.title.toLowerCase().includes(searchTerm) ||
+					doc.slug.toLowerCase().includes(searchTerm)
+				) {
+					content.push({
+						id: `local-doc-${doc.id}`,
+						section: 'content',
+						label: doc.title,
+						hint: `/docs/${doc.slug}`,
+						onRun: () => {
+							navigateToDoc(doc.slug)
+							setOpen(false)
+						}
+					})
+				}
+				if (content.length >= 16) break
 			}
 		}
 
@@ -206,10 +246,12 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 
 		return [...actions.filter(filterFn), ...navigation.filter(filterFn), ...content]
 	}, [
+		localDocs,
 		localIssues,
 		query,
 		selectIssue,
 		serverHits,
+		setCreateDocOpen,
 		setCreateIssueOpen,
 		setCreateProjectOpen,
 		setDestination,

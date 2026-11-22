@@ -22,6 +22,7 @@ export const ACTIONS = [
 	'issue.delete',
 	// docs
 	'doc.read',
+	'doc.comment',
 	'doc.write',
 	'doc.share',
 	// chat
@@ -94,6 +95,7 @@ export const SYSTEM_ROLES: readonly SystemRole[] = [
 			'issue.read',
 			'issue.write',
 			'doc.read',
+			'doc.comment',
 			'doc.write',
 			'channel.read',
 			'channel.post',

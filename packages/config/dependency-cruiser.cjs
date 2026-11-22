@@ -108,7 +108,7 @@ module.exports = {
 			name: 'no-server-only-in-clients',
 			severity: 'error',
 			comment: 'Server-only code must never reach a client bundle (§7.4)',
-			from: { path: '(apps/(web|mobile)|packages/sync-client)/' },
+			from: { path: '(apps/(web|mobile)|packages/(sync-client|editor))/' },
 			to: { path: '(packages/(db|test-utils)|apps/server)/' }
 		},
 		...appPairRules,

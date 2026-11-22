@@ -23,3 +23,142 @@
 		outline-offset: 2px;
 	}
 }
+
+/* Collaborative ProseMirror / TipTap surface (§10, §17) */
+.huriro-editor .ProseMirror {
+	outline: none;
+	min-height: 280px;
+	line-height: var(--font-leading-prose);
+}
+
+.huriro-editor .ProseMirror p.is-editor-empty:first-child::before {
+	content: attr(data-placeholder);
+	float: left;
+	color: var(--ink-tertiary);
+	pointer-events: none;
+	height: 0;
+}
+
+.huriro-editor .ProseMirror h1 {
+	font-size: var(--font-size-2xl);
+	font-weight: 700;
+	letter-spacing: -0.02em;
+	margin: 1.25rem 0 0.5rem;
+}
+
+.huriro-editor .ProseMirror h2 {
+	font-size: var(--font-size-lg);
+	font-weight: 600;
+	margin: 1rem 0 0.4rem;
+}
+
+.huriro-editor .ProseMirror h3 {
+	font-size: var(--font-size-md);
+	font-weight: 600;
+	margin: 0.75rem 0 0.3rem;
+}
+
+.huriro-editor .ProseMirror pre {
+	background: var(--surface-2);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	font-family: var(--font-family-mono);
+	font-size: var(--font-size-sm);
+	padding: 0.75rem 1rem;
+	overflow-x: auto;
+	margin: 0.5rem 0;
+}
+
+.huriro-editor .ProseMirror ul[data-type='taskList'] {
+	list-style: none;
+	padding-left: 0.25rem;
+}
+
+.huriro-editor .ProseMirror ul[data-type='taskList'] li {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.5rem;
+}
+
+.huriro-editor .ProseMirror table {
+	width: 100%;
+	border-collapse: collapse;
+	margin: 0.75rem 0;
+}
+
+.huriro-editor .ProseMirror th,
+.huriro-editor .ProseMirror td {
+	border: 1px solid var(--border);
+	padding: 0.4rem 0.6rem;
+	text-align: left;
+}
+
+.huriro-editor .ProseMirror th {
+	background: var(--muted);
+	font-weight: 600;
+}
+
+.huriro-editor .ProseMirror div[data-type='callout'] {
+	border-left: 3px solid var(--info);
+	background: var(--surface-2);
+	border-radius: var(--radius-md);
+	padding: 0.65rem 0.9rem;
+	margin: 0.65rem 0;
+}
+
+.huriro-editor .ProseMirror div[data-type='callout'][data-tone='warning'] {
+	border-left-color: var(--warning);
+}
+
+.huriro-editor .ProseMirror div[data-type='callout'][data-tone='success'] {
+	border-left-color: var(--success);
+}
+
+.huriro-editor .ProseMirror div[data-type='callout'][data-tone='danger'] {
+	border-left-color: var(--destructive);
+}
+
+.huriro-editor .ProseMirror details[data-type='toggle'] {
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	padding: 0.5rem 0.75rem;
+	margin: 0.5rem 0;
+}
+
+.huriro-editor .ProseMirror span[data-type='entity-mention'] {
+	background: color-mix(in oklch, var(--primary) 12%, transparent);
+	color: var(--primary);
+	border-radius: var(--radius-sm);
+	padding: 0.05rem 0.3rem;
+	font-weight: 500;
+}
+
+.huriro-editor .ProseMirror mark[data-comment-id] {
+	background: color-mix(in oklch, var(--warning) 28%, transparent);
+	color: inherit;
+	border-bottom: 2px solid var(--warning);
+}
+
+.huriro-editor .collaboration-carets__caret {
+	border-left: 2px solid var(--primary);
+	margin-left: -1px;
+	margin-right: -1px;
+	pointer-events: none;
+	position: relative;
+	word-break: normal;
+}
+
+.huriro-editor .collaboration-carets__label {
+	background: var(--primary);
+	color: var(--primary-foreground);
+	border-radius: var(--radius-sm);
+	font-size: 11px;
+	font-weight: 600;
+	left: -1px;
+	line-height: 1.1;
+	padding: 2px 5px;
+	position: absolute;
+	top: -1.35em;
+	user-select: none;
+	white-space: nowrap;
+}

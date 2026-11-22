@@ -17,7 +17,7 @@ import { init } from './cli/init'
 import { backup, createAdmin, health, migrateCmd, restore } from './cli/ops'
 import { loadEnv } from './env'
 import { createAuth } from './modules/identity'
-import { startRealtime } from './realtime'
+import { createCollabRuntime, startRealtime } from './realtime'
 import { InProcessPubSub, PostgresNotifyPubSub } from './realtime/pubsub'
 import { startWorker } from './worker'
 
@@ -97,11 +97,24 @@ async function serve(args: string[]) {
 	stoppers.push(() => pubsub.close())
 
 	const auth = role === 'api' || role === 'realtime' || role === 'all' ? createAuth(env) : null
+	const collabTicketSecret = env.betterAuthSecret ?? env.secretKey ?? 'huriro-dev-collab'
+	const collab =
+		role === 'realtime' || role === 'all'
+			? createCollabRuntime({ sql: app, pubsub, ticketSecret: collabTicketSecret })
+			: undefined
 
 	if (role === 'api' || role === 'all') {
 		// Identity lives behind a flag-free factory — better-auth needs the
 		// DB pool, so it constructs after migration (the auth schema exists).
-		createApp({ sql: app, migrationsDir, mode: env.HURIRO_MODE, auth, pubsub }).listen(env.PORT)
+		createApp({
+			sql: app,
+			migrationsDir,
+			mode: env.HURIRO_MODE,
+			auth,
+			pubsub,
+			collabTicketSecret,
+			...(collab ? { collabBridge: collab.bridge } : {})
+		}).listen(env.PORT)
 		log.info({ port: env.PORT }, 'api listening')
 	}
 	if (role === 'worker' || role === 'all') {
@@ -119,7 +132,8 @@ async function serve(args: string[]) {
 			sql: app,
 			auth,
 			pubsub,
-			allowedOrigins: [env.HURIRO_URL]
+			allowedOrigins: [env.HURIRO_URL],
+			...(collab ? { collab } : {})
 		})
 		stoppers.push(() => rt.stop())
 	}

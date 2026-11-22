@@ -5,7 +5,7 @@
  *   - exact issue identifier (`ENG-142`)
  *   - typed operators: `in:<projectKey>`, `is:open|closed`, `@<person>`,
  *     `label:<name|"quoted">`, `priority:<0..4|none|urgent|high|medium|low>`,
- *     `type:<issue|project|comment>`
+ *     `type:<issue|project|comment|doc|doc_page>`
  */
 
 export type SearchMode = 'all' | 'actions'
@@ -20,7 +20,7 @@ export interface ParsedSearchQuery {
 	readonly assigneeHandle: string | null
 	readonly labels: readonly string[]
 	readonly priority: number | null
-	readonly entityType: 'issue' | 'project' | 'comment' | null
+	readonly entityType: 'issue' | 'project' | 'comment' | 'doc_page' | null
 }
 
 const PRIORITY_MAP: Record<string, number> = {
@@ -68,7 +68,7 @@ export function parseSearchQuery(rawInput: string): ParsedSearchQuery {
 	let assigneeHandle: string | null = null
 	const labels: string[] = []
 	let priority: number | null = null
-	let entityType: 'issue' | 'project' | 'comment' | null = null
+	let entityType: 'issue' | 'project' | 'comment' | 'doc_page' | null = null
 
 	for (const token of tokens) {
 		const lower = token.toLowerCase()
@@ -100,6 +100,10 @@ export function parseSearchQuery(rawInput: string): ParsedSearchQuery {
 			const t = unquote(token.slice(5)).toLowerCase()
 			if (t === 'issue' || t === 'project' || t === 'comment') {
 				entityType = t
+				continue
+			}
+			if (t === 'doc' || t === 'doc_page') {
+				entityType = 'doc_page'
 				continue
 			}
 		}

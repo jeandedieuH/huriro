@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import Value from 'typebox/value'
 import {
+	CollabTicketResponse,
+	CreateDocCommentBody,
+	CreateDocPageBody,
 	CreateIssueBody,
 	CreateProjectBody,
 	decodeCursor,
@@ -83,6 +86,57 @@ describe('M1 wire contracts', () => {
 
 	test('ImportDryRunBody validates source union', () => {
 		expect(Value.Check(ImportDryRunBody, { source: 'linear' })).toBe(true)
+		expect(Value.Check(ImportDryRunBody, { source: 'notion' })).toBe(true)
+		expect(Value.Check(ImportDryRunBody, { source: 'markdown' })).toBe(true)
 		expect(Value.Check(ImportDryRunBody, { source: 'jira' })).toBe(false)
+	})
+})
+
+describe('M2 docs wire contracts', () => {
+	test('CreateDocPageBody validates title and slug pattern', () => {
+		expect(Value.Check(CreateDocPageBody, { title: 'Architecture RFC', slug: 'architecture-rfc' })).toBe(true)
+		expect(Value.Check(CreateDocPageBody, { title: 'Bad Slug', slug: 'INVALID SLUG' })).toBe(false)
+		expect(Value.Check(CreateDocPageBody, { title: '' })).toBe(false)
+	})
+
+	test('CreateDocCommentBody requires non-empty bodyText', () => {
+		expect(Value.Check(CreateDocCommentBody, { bodyText: 'Looks good @alice', anchorQuote: 'heading' })).toBe(
+			true
+		)
+		expect(Value.Check(CreateDocCommentBody, { bodyText: '' })).toBe(false)
+	})
+
+	test('CollabTicketResponse validates permission enum', () => {
+		expect(
+			Value.Check(CollabTicketResponse, {
+				ticket: 'ct_abc',
+				documentName: '0190a0b1-0000-7000-8000-000000000001:0190a0b1-0000-7000-8000-000000000002',
+				permission: 'write',
+				expiresAt: '2026-11-22T12:00:00Z',
+				collabUrl: '/collab'
+			})
+		).toBe(true)
+		expect(
+			Value.Check(CollabTicketResponse, {
+				ticket: 'ct_abc',
+				documentName: 'x',
+				permission: 'admin',
+				expiresAt: '2026-11-22T12:00:00Z',
+				collabUrl: '/collab'
+			})
+		).toBe(false)
+	})
+
+	test('MutationEnvelope supports doc_page', () => {
+		expect(
+			Value.Check(MutationEnvelope, {
+				mutationId: '0190a0b1-9a9a-7000-8000-000000000001',
+				workspaceId: '0190a0b1-9a9a-7000-8000-000000000002',
+				entity: 'doc_page',
+				entityId: '0190a0b1-9a9a-7000-8000-000000000003',
+				op: 'create',
+				patch: { title: 'Offline Doc' }
+			})
+		).toBe(true)
 	})
 })

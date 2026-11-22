@@ -27,6 +27,7 @@ A secure, self-hostable, modular workspace platform. Monorepo: Bun workspaces
 - `packages/contracts` — wire schemas (TypeBox): problem+json, pagination.
 - `packages/env` — env validation (zod + t3-env), one module per app; `genenv` emits `.env.example`.
 - `packages/domain` — PURE core: permission catalog, roles, `can()` policy.
+- `packages/editor` — shared TipTap v3 + Yjs schema, Markdown/Y.Doc converters, relative anchors, HTML/URL sanitizer.
 - `packages/db` — Drizzle schema + raw SQL migrations + `withWorkspace` + runner.
 - `packages/test-utils` — factories, DB harness, the RLS coverage test.
 - `infra/` — compose stack, postgres image (18 + pgvector + pgBackRest).

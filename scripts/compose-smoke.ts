@@ -66,7 +66,17 @@ assert(!/environment:[\s\S]*PASSWORD:\s*\S+/.test(yml), 'no inline passwords in 
 
 // Secret files must exist for --up; config mode only warns.
 const secretsDir = join(ROOT, 'secrets')
-const needSecrets = ['pg_password', 'app_db_password', 'maint_db_password', 'auth_db_password', 'database_url', 'database_admin_url', 'database_auth_url', 'secret_key', 'setup_token_hash']
+const needSecrets = [
+	'pg_password',
+	'app_db_password',
+	'maint_db_password',
+	'auth_db_password',
+	'database_url',
+	'database_admin_url',
+	'database_auth_url',
+	'secret_key',
+	'setup_token_hash'
+]
 const missing = needSecrets.filter((s) => !existsSync(join(secretsDir, s)))
 if (UP && missing.length > 0) fail(`missing secrets (run \`huriro init\` first): ${missing.join(', ')}`)
 
@@ -85,7 +95,10 @@ if (up.status !== 0) {
 }
 // Health endpoint through the app's healthcheck already passed via --wait;
 // hit the HTTP endpoint through Caddy as the final assertion.
-const health = run(['docker', 'compose', '-f', COMPOSE, 'exec', '-T', 'caddy', 'wget', '-qO-', 'http://huriro:3001/health'], { capture: true })
+const health = run(
+	['docker', 'compose', '-f', COMPOSE, 'exec', '-T', 'caddy', 'wget', '-qO-', 'http://huriro:3001/health'],
+	{ capture: true }
+)
 const ok = health.status === 0 && /ok|healthy|status/i.test(health.stdout)
 run(['docker', 'compose', '-f', COMPOSE, 'down', '-v'])
 if (!ok) fail(`/health check failed: ${health.stdout} ${health.stderr}`)

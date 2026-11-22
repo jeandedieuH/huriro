@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type {
+	DocPageDto,
 	IssueDto,
 	MutationEnvelope,
 	MutationsBatchResponse,
@@ -104,7 +105,8 @@ describe('HuriroSyncEngine', () => {
 					cycles: [],
 					issues: createdFromServer ? [createdFromServer] : [],
 					savedViews: [],
-					notifications: []
+					notifications: [],
+					docPages: []
 				}
 			},
 			async fetchChanges(since): Promise<SyncChangesResponse> {
@@ -196,7 +198,8 @@ describe('HuriroSyncEngine', () => {
 					cycles: [],
 					issues: [serverIssue],
 					savedViews: [],
-					notifications: []
+					notifications: [],
+					docPages: []
 				}
 			},
 			async fetchChanges(since) {
@@ -278,7 +281,8 @@ describe('HuriroSyncEngine', () => {
 					cycles: [],
 					issues: [serverIssue],
 					savedViews: [],
-					notifications: []
+					notifications: [],
+					docPages: []
 				}
 			},
 			async fetchChanges(since) {
@@ -364,7 +368,8 @@ describe('HuriroSyncEngine', () => {
 					cycles: [],
 					issues: phase === 'grant' ? [makeIssue(issueId, { title: 'Granted secret issue' })] : [],
 					savedViews: [],
-					notifications: []
+					notifications: [],
+					docPages: []
 				}
 			},
 			async fetchChanges(since) {
@@ -471,6 +476,144 @@ describe('HuriroSyncEngine', () => {
 		await expect(engine.createIssue({ projectId: PROJ_ID, title: 'Overflow' })).rejects.toThrow(
 			/5000|5,000|limit/
 		)
+		engine.dispose()
+	})
+
+	test('replicates doc_pages deltas, grant/revoke scopes, and optimistic create/update/move/delete', async () => {
+		const storage = new MemoryReplicaStorage()
+		const docId = generateUuidV7()
+		const secretDocId = generateUuidV7()
+		let phase: 'initial' | 'grant_doc' | 'revoke_doc' = 'initial'
+		const requestedScopes: (string | undefined)[] = []
+
+		const makeDoc = (id: string, over: Partial<DocPageDto> = {}): DocPageDto => ({
+			id,
+			workspaceId: WS_ID,
+			parentId: null,
+			path: id,
+			depth: 0,
+			slug: `doc-${id.slice(0, 6)}`,
+			title: 'Doc Page',
+			icon: null,
+			visibility: 'workspace',
+			isTemplate: false,
+			isFavorite: false,
+			position: 'V',
+			createdBy: USER_ID,
+			archivedAt: null,
+			createdAt: '2026-11-22T00:00:00Z',
+			updatedAt: '2026-11-22T00:00:00Z',
+			version: 1,
+			byteSize: 42,
+			...over
+		})
+
+		const transport: SyncTransport = {
+			async fetchSnapshot(scope) {
+				requestedScopes.push(scope)
+				return {
+					cursor: 10,
+					serverTime: new Date().toISOString(),
+					projects: [],
+					projectStatuses: [],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages:
+						phase === 'grant_doc'
+							? [makeDoc(secretDocId, { title: 'Private RFC', visibility: 'private' })]
+							: []
+				}
+			},
+			async fetchChanges(since) {
+				if (phase === 'grant_doc') {
+					return {
+						changes: [
+							{
+								cursor: since + 1,
+								entity: 'doc_page',
+								id: secretDocId,
+								action: 'grant',
+								scope: [`doc_page:${secretDocId}`],
+								data: null,
+								changedAt: new Date().toISOString()
+							}
+						],
+						nextCursor: since + 1,
+						hasMore: false,
+						serverTime: new Date().toISOString()
+					}
+				}
+				return {
+					changes: [
+						{
+							cursor: since + 1,
+							entity: 'doc_page',
+							id: secretDocId,
+							action: 'revoke',
+							scope: [`doc_page:${secretDocId}`],
+							data: null,
+							changedAt: new Date().toISOString()
+						}
+					],
+					nextCursor: since + 1,
+					hasMore: false,
+					serverTime: new Date().toISOString()
+				}
+			},
+			async sendBatch(mutations) {
+				return {
+					cursor: 11,
+					results: mutations.map((m) => ({
+						mutationId: m.mutationId,
+						status: 200,
+						outcome: 'applied',
+						data: makeDoc(m.entityId, {
+							id: m.entityId,
+							title: String(m.patch['title'] ?? 'Updated Doc'),
+							parentId: (m.patch['parentId'] as string | null) ?? null,
+							version: (m.baseVersion ?? 0) + 1
+						}) as unknown as Record<string, unknown>
+					}))
+				}
+			}
+		}
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport
+		})
+		await engine.bootstrap()
+
+		// Grant scoped snapshot + revoke purge
+		phase = 'grant_doc'
+		await engine.syncNow()
+		expect(requestedScopes).toContain(`doc_page:${secretDocId}`)
+		expect(engine.collections.docPages.get(secretDocId)?.title).toBe('Private RFC')
+
+		phase = 'revoke_doc'
+		await engine.syncNow()
+		expect(engine.collections.docPages.get(secretDocId)).toBeUndefined()
+
+		// Optimistic doc lifecycle offline -> flush
+		engine.setOnline(false)
+		const created = await engine.createDocPage({ id: docId, title: 'Architecture' })
+		expect(engine.collections.docPages.get(created.id)?.title).toBe('Architecture')
+		await engine.updateDocPage(docId, { title: 'Architecture v2' })
+		expect(engine.collections.docPages.get(docId)?.title).toBe('Architecture v2')
+		await engine.moveDocPage(docId, { parentId: null, position: 'a' })
+		expect(engine.collections.docPages.get(docId)?.position).toBe('a')
+
+		engine.setOnline(true)
+		await engine.flushOutbox()
+		expect(engine.getStatus().pendingCount).toBe(0)
+
+		await engine.deleteDocPage(docId)
+		expect(engine.collections.docPages.get(docId)).toBeUndefined()
 		engine.dispose()
 	})
 })

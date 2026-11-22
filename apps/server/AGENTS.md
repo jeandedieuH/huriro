@@ -23,7 +23,10 @@ ADR-0018, §19.1. Also the operator CLI (`huriro`).
   derive.
 - `src/worker/` — pg-boss (admin URL for queue DDL) + outbox drain; job
   handlers do tenant work through the app pool inside `withWorkspace`.
-- `src/realtime/` — M0 stub until the sync milestone.
+- `src/realtime/` — `/ws` signal fan-out (cursor + revoke) + `/collab` Hocuspocus
+  runtime (`collab.ts`): single-use tickets, room leases with epoch fencing,
+  live readOnly enforcement, fenced Yjs persistence.
+- `scripts/collab-soak.ts` — Gate G2 multi-editor soak; `bun run soak:collab`.
 
 ## Hard rules
 

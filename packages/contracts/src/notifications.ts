@@ -5,7 +5,11 @@ export const NotificationKind = Type.Union([
 	Type.Literal('issue.mentioned'),
 	Type.Literal('issue.commented'),
 	Type.Literal('issue.status_changed'),
-	Type.Literal('project.access_granted')
+	Type.Literal('project.access_granted'),
+	Type.Literal('doc.mentioned'),
+	Type.Literal('doc.commented'),
+	Type.Literal('doc.comment_resolved'),
+	Type.Literal('doc.access_granted')
 ])
 export type NotificationKind = Static<typeof NotificationKind>
 

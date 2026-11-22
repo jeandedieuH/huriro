@@ -8,7 +8,7 @@ const SHORTCUT_ROWS: readonly { readonly keys: readonly string[]; readonly label
 	{ keys: ['⌘', 'K'], label: 'Command palette' },
 	{ keys: ['?'], label: 'Toggle keyboard shortcuts' },
 	{ keys: ['⌘', 'J'], label: 'Toggle detail panel' },
-	{ keys: ['C'], label: 'Create issue' },
+	{ keys: ['C'], label: 'Create issue / doc page' },
 	{ keys: ['G', 'I'], label: 'Go to Inbox' },
 	{ keys: ['G', 'T'], label: 'Go to Issues' },
 	{ keys: ['G', 'D'], label: 'Go to Docs' },

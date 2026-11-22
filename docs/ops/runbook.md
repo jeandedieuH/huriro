@@ -31,11 +31,13 @@ storage milestone. Until then the drill uses `pg_dump`/`pg_restore` — the
 procedure and RPO expectations are identical, only the transport differs.
 
 1. **Backup** (from the `data` network — never expose postgres):
+
    ```bash
    docker compose -f infra/compose/compose.yml exec -T postgres \
      pg_dump -U huriro -Fc huriro > backup-$(date +%F).dump
    ```
 2. **Restore rehearsal** — into a throwaway DB, never over live:
+
    ```bash
    docker compose -f infra/compose/compose.yml exec -T postgres \
      psql -U huriro -d postgres -c "CREATE DATABASE huriro_restore_test;"
@@ -43,6 +45,7 @@ procedure and RPO expectations are identical, only the transport differs.
      pg_restore -U huriro -d huriro_restore_test < backup-YYYY-MM-DD.dump
    ```
 3. **Verify** — row counts on sentinel tables must match source:
+
    ```bash
    docker compose -f infra/compose/compose.yml exec -T postgres psql -U huriro \
      -d huriro_restore_test -c "SELECT count(*) FROM users; SELECT count(*) FROM workspaces;"

@@ -4,9 +4,13 @@ import type {
 	ImportDryRunPreviewDto,
 	ImportExecuteBody,
 	ImportJobDto,
-	LinearImportPayload
+	ImportSource,
+	LinearImportPayload,
+	MarkdownImportPayload,
+	NotionImportPayload
 } from '@huriro/contracts'
 import { t } from '@huriro/i18n'
+import { strFromU8, unzipSync } from 'fflate'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
@@ -48,16 +52,65 @@ export function ImportDialog({ api, onImported }: ImportDialogProps) {
 	const setOpen = useUiStore((s) => s.setImportDialogOpen)
 	const pushToast = useUiStore((s) => s.pushToast)
 
-	const [source, setSource] = useState<'linear' | 'github'>('linear')
+	const [source, setSource] = useState<ImportSource>('linear')
 	const [projectKey, setProjectKey] = useState('IMP')
 	const [payloadText, setPayloadText] = useState(SAMPLE_LINEAR_JSON)
+	const [docFiles, setDocFiles] = useState<Array<{ path: string; markdown: string }>>([])
 	const [dryRun, setDryRun] = useState<ImportDryRunPreviewDto | null>(null)
 	const [result, setResult] = useState<ImportJobDto | null>(null)
 	const [error, setError] = useState<string | null>(null)
 	const [busy, setBusy] = useState(false)
 
+	async function handleDocFileUpload(files: FileList | null) {
+		if (!files || files.length === 0) return
+		setError(null)
+		const collected: Array<{ path: string; markdown: string }> = []
+		for (const file of Array.from(files)) {
+			if (file.name.toLowerCase().endsWith('.zip')) {
+				const entries = unzipSync(new Uint8Array(await file.arrayBuffer()))
+				for (const [entryPath, bytes] of Object.entries(entries)) {
+					if (entryPath.toLowerCase().endsWith('.md')) {
+						collected.push({ path: entryPath, markdown: strFromU8(bytes) })
+					}
+				}
+			} else if (file.name.toLowerCase().endsWith('.md') || file.name.toLowerCase().endsWith('.txt')) {
+				collected.push({ path: file.name, markdown: await file.text() })
+			}
+		}
+		if (collected.length === 0) {
+			setError('No .md files found')
+			return
+		}
+		setDocFiles(collected)
+		setDryRun(null)
+	}
+
 	function buildRequestBody(): ImportDryRunBody | null {
 		setError(null)
+		if (source === 'notion' || source === 'markdown') {
+			if (docFiles.length > 0) {
+				return source === 'notion'
+					? {
+							source: 'notion',
+							notion: { pages: docFiles.map((f) => ({ remotePath: f.path, markdown: f.markdown })) }
+						}
+					: {
+							source: 'markdown',
+							markdown: { files: docFiles.map((f) => ({ path: f.path, markdown: f.markdown })) }
+						}
+			}
+			return source === 'notion'
+				? {
+						source: 'notion',
+						notion: { pages: JSON.parse(payloadText) as NotionImportPayload['pages'] }
+					}
+				: {
+						source: 'markdown',
+						markdown: {
+							files: [{ path: 'note.md', markdown: payloadText }] as MarkdownImportPayload['files']
+						}
+					}
+		}
 		try {
 			const parsed = JSON.parse(payloadText) as unknown[]
 			if (!Array.isArray(parsed)) {
@@ -118,17 +171,23 @@ export function ImportDialog({ api, onImported }: ImportDialogProps) {
 				source: body.source,
 				...(dryRun?.jobId ? { jobId: dryRun.jobId } : {}),
 				...(body.linear ? { linear: body.linear } : {}),
-				...(body.github ? { github: body.github } : {})
+				...(body.github ? { github: body.github } : {}),
+				...(body.notion ? { notion: body.notion } : {}),
+				...(body.markdown ? { markdown: body.markdown } : {})
 			}
 			const res = await api.importExecute(execBody)
 			setResult(res)
 			onImported?.()
+			const importedPages = Number(res.report['importedPages'] ?? 0)
 			pushToast({
 				tone: 'success',
-				title: t('imports.complete', {
-					issues: Number(res.report['importedIssues'] ?? 0),
-					comments: Number(res.report['importedComments'] ?? 0)
-				})
+				title:
+					source === 'notion' || source === 'markdown'
+						? t('imports.complete-docs', { pages: importedPages })
+						: t('imports.complete', {
+								issues: Number(res.report['importedIssues'] ?? 0),
+								comments: Number(res.report['importedComments'] ?? 0)
+							})
 			})
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Import failed')
@@ -154,7 +213,8 @@ export function ImportDialog({ api, onImported }: ImportDialogProps) {
 							<Select
 								value={source}
 								onValueChange={(v) => {
-									setSource(v as 'linear' | 'github')
+									setSource(v as ImportSource)
+									setDocFiles([])
 									setDryRun(null)
 									setResult(null)
 								}}
@@ -165,20 +225,37 @@ export function ImportDialog({ api, onImported }: ImportDialogProps) {
 								<SelectContent>
 									<SelectItem value="linear">{t('imports.source.linear')}</SelectItem>
 									<SelectItem value="github">{t('imports.source.github')}</SelectItem>
+									<SelectItem value="notion">{t('imports.source.notion')}</SelectItem>
+									<SelectItem value="markdown">{t('imports.source.markdown')}</SelectItem>
 								</SelectContent>
 							</Select>
 						</div>
-						<div className="space-y-1">
-							<label htmlFor="import-target-key" className="text-xs font-medium">
-								{t('tasks.project.key')}
-							</label>
-							<Input
-								id="import-target-key"
-								value={projectKey}
-								onChange={(ev) => setProjectKey(ev.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-								maxLength={12}
-							/>
-						</div>
+						{source === 'linear' || source === 'github' ? (
+							<div className="space-y-1">
+								<label htmlFor="import-target-key" className="text-xs font-medium">
+									{t('tasks.project.key')}
+								</label>
+								<Input
+									id="import-target-key"
+									value={projectKey}
+									onChange={(ev) => setProjectKey(ev.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+									maxLength={12}
+								/>
+							</div>
+						) : (
+							<div className="space-y-1">
+								<label htmlFor="import-doc-files" className="text-xs font-medium">
+									{t('imports.files-label')}
+								</label>
+								<Input
+									id="import-doc-files"
+									type="file"
+									multiple
+									accept=".md,.txt,.zip"
+									onChange={(ev) => void handleDocFileUpload(ev.target.files)}
+								/>
+							</div>
+						)}
 					</div>
 
 					<div className="space-y-1">

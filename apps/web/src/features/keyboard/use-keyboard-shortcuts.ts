@@ -17,6 +17,7 @@ function isEditableElement(target: EventTarget | null): boolean {
 	const tag = target.tagName
 	if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
 	if (target.isContentEditable) return true
+	if (target.closest('[contenteditable="true"]')) return true
 	if (target.getAttribute('role') === 'textbox') return true
 	return false
 }
@@ -75,6 +76,18 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
 					state.setCreateIssueOpen(false)
 					return
 				}
+				if (state.createDocOpen) {
+					state.setCreateDocOpen(false)
+					return
+				}
+				if (state.docShareOpen) {
+					state.setDocShareOpen(false)
+					return
+				}
+				if (state.docImportOpen) {
+					state.setDocImportOpen(false)
+					return
+				}
 				if (state.detailPanelOpen) {
 					state.setDetailPanelOpen(false)
 					return
@@ -90,7 +103,16 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
 			// Single-key shortcuts below must never hijack typing or trigger when disabled (WCAG 2.1.4).
 			if (!state.shortcutsEnabled) return
 			if (ev.altKey || mod || isEditableElement(ev.target)) return
-			if (state.commandPaletteOpen || state.createIssueOpen || state.createProjectOpen) return
+			if (
+				state.commandPaletteOpen ||
+				state.createIssueOpen ||
+				state.createProjectOpen ||
+				state.createDocOpen ||
+				state.docShareOpen ||
+				state.docImportOpen
+			) {
+				return
+			}
 
 			if (ev.key === '?') {
 				ev.preventDefault()
@@ -118,7 +140,8 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
 
 			if (key === 'c') {
 				ev.preventDefault()
-				state.setCreateIssueOpen(true)
+				if (state.destination === 'docs') state.setCreateDocOpen(true)
+				else state.setCreateIssueOpen(true)
 				return
 			}
 

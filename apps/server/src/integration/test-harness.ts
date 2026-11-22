@@ -5,11 +5,13 @@
  * runs every HTTP request as `huriro_app` through `createApp()`, and supports seeded
  * owner/admin/member/guest/suspended/outsider users + secondary tenant isolation.
  */
+import { randomUUID } from 'node:crypto'
 import type { Sql } from '@huriro/db'
 import { aMembership, aUser, aWorkspace, getTestDb, migrationsDir, type TestDb } from '@huriro/test-utils'
 import { createApp } from '../api/app'
+import type { CollabDirectBridge } from '../modules/docs'
 import type { Auth } from '../modules/identity'
-import { InProcessPubSub } from '../realtime/pubsub'
+import { InProcessPubSub, type RealtimePubSub } from '../realtime/pubsub'
 
 export interface M1SeededFixture {
 	readonly workspaceId: string
@@ -49,15 +51,26 @@ export function createTestAuth(): Auth {
 	} as unknown as Auth
 }
 
-export function createIntegrationServer(db: TestDb) {
+export function createIntegrationServer(
+	db: TestDb,
+	opts?: {
+		readonly collabBridge?: CollabDirectBridge
+		readonly collabTicketSecret?: string
+		readonly pubsub?: RealtimePubSub
+	}
+) {
 	const auth = createTestAuth()
-	const pubsub = new InProcessPubSub()
+	// Injected pubsub lets a test share one bus between api, realtime, and the
+	// collab runtime — matching how `serve --role=all` wires them in src/index.ts.
+	const pubsub = opts?.pubsub ?? new InProcessPubSub()
 	const app = createApp({
 		sql: db.app,
 		migrationsDir: migrationsDir(),
 		mode: 'selfhost',
 		auth,
-		pubsub
+		pubsub,
+		...(opts?.collabBridge ? { collabBridge: opts.collabBridge } : {}),
+		...(opts?.collabTicketSecret ? { collabTicketSecret: opts.collabTicketSecret } : {})
 	})
 	return { app, auth, pubsub }
 }
@@ -105,17 +118,33 @@ export async function apiRequest(
 }
 
 export async function seedM1Fixture(ownerSql: Sql): Promise<M1SeededFixture> {
-	const wsA = await aWorkspace(ownerSql)
-	const wsB = await aWorkspace(ownerSql)
+	const tag = randomUUID().slice(0, 8)
+	const wsA = await aWorkspace(ownerSql, { slug: `ws-${tag}-a`, name: `Workspace A ${tag}` })
+	const wsB = await aWorkspace(ownerSql, { slug: `ws-${tag}-b`, name: `Workspace B ${tag}` })
 
-	const owner = await aUser(ownerSql)
-	const admin = await aUser(ownerSql)
-	const memberA = await aUser(ownerSql)
-	const memberB = await aUser(ownerSql)
-	const guest = await aUser(ownerSql)
-	const suspended = await aUser(ownerSql)
-	const outsider = await aUser(ownerSql)
-	const otherTenantUser = await aUser(ownerSql)
+	const owner = await aUser(ownerSql, { email: `owner-${tag}@test.huriro.dev`, displayName: `Owner ${tag}` })
+	const admin = await aUser(ownerSql, { email: `admin-${tag}@test.huriro.dev`, displayName: `Admin ${tag}` })
+	const memberA = await aUser(ownerSql, {
+		email: `membera-${tag}@test.huriro.dev`,
+		displayName: `Member A ${tag}`
+	})
+	const memberB = await aUser(ownerSql, {
+		email: `memberb-${tag}@test.huriro.dev`,
+		displayName: `Member B ${tag}`
+	})
+	const guest = await aUser(ownerSql, { email: `guest-${tag}@test.huriro.dev`, displayName: `Guest ${tag}` })
+	const suspended = await aUser(ownerSql, {
+		email: `suspended-${tag}@test.huriro.dev`,
+		displayName: `Suspended ${tag}`
+	})
+	const outsider = await aUser(ownerSql, {
+		email: `outsider-${tag}@test.huriro.dev`,
+		displayName: `Outsider ${tag}`
+	})
+	const otherTenantUser = await aUser(ownerSql, {
+		email: `othertenant-${tag}@test.huriro.dev`,
+		displayName: `Other Tenant ${tag}`
+	})
 
 	await aMembership(ownerSql, { workspaceId: wsA.id, userId: owner.id, roleId: wsA.roleIds['owner'] ?? '' })
 	await aMembership(ownerSql, { workspaceId: wsA.id, userId: admin.id, roleId: wsA.roleIds['admin'] ?? '' })

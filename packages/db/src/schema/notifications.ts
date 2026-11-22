@@ -22,7 +22,11 @@ export const notifications = pgTable(
 				'issue.mentioned',
 				'issue.commented',
 				'issue.status_changed',
-				'project.access_granted'
+				'project.access_granted',
+				'doc.mentioned',
+				'doc.commented',
+				'doc.comment_resolved',
+				'doc.access_granted'
 			]
 		}).notNull(),
 		entityType: text('entity_type').notNull(),

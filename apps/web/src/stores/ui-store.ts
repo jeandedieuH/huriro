@@ -4,6 +4,7 @@ import { navigateToDestination } from '@/lib/navigation'
 
 export type AppDestination = 'inbox' | 'tasks' | 'docs' | 'chat' | 'settings'
 export type TasksLayout = 'list' | 'board' | 'my-work'
+export type DocSidePanel = 'comments' | 'versions' | 'toc' | null
 export type DisplayDensity = 'compact' | 'comfortable'
 export type ThemeMode = 'light' | 'dark'
 
@@ -50,6 +51,14 @@ export interface UiState {
 	conflictDialogOpen: boolean
 	importDialogOpen: boolean
 
+	// Docs workspace ephemeral state
+	docsSidebarOpen: boolean
+	activeDocSidePanel: DocSidePanel
+	createDocOpen: boolean
+	docShareOpen: boolean
+	docImportOpen: boolean
+	selectedCommentThreadId: string | null
+
 	// Ephemeral toast stack (§17.8)
 	toasts: readonly ToastItem[]
 
@@ -72,8 +81,14 @@ export interface UiState {
 	setShortcutsDialogOpen: (open: boolean) => void
 	setCreateIssueOpen: (open: boolean) => void
 	setCreateProjectOpen: (open: boolean) => void
-	setConflictDialogOpen: (open: boolean) => void
+	setConflictDialogOpen: (conflictDialogOpen: boolean) => void
 	setImportDialogOpen: (open: boolean) => void
+	setDocsSidebarOpen: (open: boolean) => void
+	setActiveDocSidePanel: (panel: DocSidePanel) => void
+	setCreateDocOpen: (open: boolean) => void
+	setDocShareOpen: (open: boolean) => void
+	setDocImportOpen: (open: boolean) => void
+	setSelectedCommentThreadId: (commentId: string | null) => void
 	pushToast: (toast: {
 		readonly title: string
 		readonly description?: string | undefined
@@ -110,6 +125,13 @@ export const useUiStore = create<UiState>((set, get) => ({
 	createProjectOpen: false,
 	conflictDialogOpen: false,
 	importDialogOpen: false,
+
+	docsSidebarOpen: true,
+	activeDocSidePanel: 'comments',
+	createDocOpen: false,
+	docShareOpen: false,
+	docImportOpen: false,
+	selectedCommentThreadId: null,
 
 	toasts: [],
 
@@ -159,6 +181,12 @@ export const useUiStore = create<UiState>((set, get) => ({
 	setCreateProjectOpen: (createProjectOpen) => set({ createProjectOpen }),
 	setConflictDialogOpen: (conflictDialogOpen) => set({ conflictDialogOpen }),
 	setImportDialogOpen: (importDialogOpen) => set({ importDialogOpen }),
+	setDocsSidebarOpen: (docsSidebarOpen) => set({ docsSidebarOpen }),
+	setActiveDocSidePanel: (activeDocSidePanel) => set({ activeDocSidePanel }),
+	setCreateDocOpen: (createDocOpen) => set({ createDocOpen }),
+	setDocShareOpen: (docShareOpen) => set({ docShareOpen }),
+	setDocImportOpen: (docImportOpen) => set({ docImportOpen }),
+	setSelectedCommentThreadId: (selectedCommentThreadId) => set({ selectedCommentThreadId }),
 	pushToast: (toast) => {
 		toastSeq += 1
 		const id = `toast-${toastSeq}`

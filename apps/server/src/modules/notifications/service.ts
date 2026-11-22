@@ -151,6 +151,122 @@ export async function processNotificationOutboxEvent(
 					})
 				)
 			}
+		} else if (p['resourceType'] === 'doc_page' && p['principalType'] === 'user') {
+			const uid = typeof p['principalId'] === 'string' ? p['principalId'] : null
+			const resourceId = typeof p['resourceId'] === 'string' ? p['resourceId'] : null
+			const grantedBy = typeof p['grantedBy'] === 'string' ? p['grantedBy'] : null
+			if (uid && resourceId && uid !== grantedBy) {
+				createdNotifications.push(
+					await insertNotificationRow(tx, {
+						workspaceId: event.workspaceId,
+						recipientUserId: uid,
+						actorType: 'user',
+						actorId: grantedBy,
+						kind: 'doc.access_granted',
+						entityType: 'doc_page',
+						entityId: resourceId,
+						title: 'Granted access to a private document',
+						body: '',
+						metadata: { permission: p['permission'] ?? 'read' }
+					})
+				)
+			}
+		}
+	} else if (event.eventType === 'docs.comment.created.v1') {
+		const pageId = typeof p['pageId'] === 'string' ? p['pageId'] : null
+		if (pageId) {
+			const handles = Array.isArray(p['mentions'])
+				? p['mentions'].filter((h): h is string => typeof h === 'string')
+				: []
+			const mentionedIds = await resolveWorkspaceUserIdsByHandles(tx, event.workspaceId, handles)
+			const mentionedSet = new Set(mentionedIds.filter((id) => id !== actorId))
+			const pageTitle = String(p['pageTitle'] ?? 'Document')
+			const pageSlug = typeof p['pageSlug'] === 'string' ? p['pageSlug'] : null
+
+			for (const uid of mentionedSet) {
+				createdNotifications.push(
+					await insertNotificationRow(tx, {
+						workspaceId: event.workspaceId,
+						recipientUserId: uid,
+						actorType,
+						actorId,
+						kind: 'doc.mentioned',
+						entityType: 'doc_page',
+						entityId: pageId,
+						title: `Mentioned in comment on ${pageTitle}`,
+						body: String(p['bodyText'] ?? '').slice(0, 240),
+						metadata: { slug: pageSlug, commentId: p['commentId'] ?? null }
+					})
+				)
+			}
+
+			const pageOwner = typeof p['pageCreatedBy'] === 'string' ? p['pageCreatedBy'] : null
+			if (pageOwner && pageOwner !== actorId && !mentionedSet.has(pageOwner)) {
+				createdNotifications.push(
+					await insertNotificationRow(tx, {
+						workspaceId: event.workspaceId,
+						recipientUserId: pageOwner,
+						actorType,
+						actorId,
+						kind: 'doc.commented',
+						entityType: 'doc_page',
+						entityId: pageId,
+						title: `New comment on ${pageTitle}`,
+						body: String(p['bodyText'] ?? '').slice(0, 240),
+						metadata: { slug: pageSlug, commentId: p['commentId'] ?? null }
+					})
+				)
+			}
+		}
+	} else if (event.eventType === 'docs.comment.resolved.v1') {
+		const pageId = typeof p['pageId'] === 'string' ? p['pageId'] : null
+		const commentAuthorId = typeof p['commentAuthorId'] === 'string' ? p['commentAuthorId'] : null
+		if (pageId && commentAuthorId && p['resolved'] === true && commentAuthorId !== actorId) {
+			createdNotifications.push(
+				await insertNotificationRow(tx, {
+					workspaceId: event.workspaceId,
+					recipientUserId: commentAuthorId,
+					actorType,
+					actorId,
+					kind: 'doc.comment_resolved',
+					entityType: 'doc_page',
+					entityId: pageId,
+					title: `Comment resolved on ${String(p['pageTitle'] ?? 'Document')}`,
+					body: '',
+					metadata: {
+						slug: typeof p['pageSlug'] === 'string' ? p['pageSlug'] : null,
+						commentId: p['commentId'] ?? null
+					}
+				})
+			)
+		}
+	} else if (event.eventType === 'docs.state.saved.v1') {
+		const pageId = typeof p['pageId'] === 'string' ? p['pageId'] : null
+		if (pageId) {
+			const directUserIds = Array.isArray(p['newMentionUserIds'])
+				? p['newMentionUserIds'].filter((id): id is string => typeof id === 'string')
+				: []
+			const handles = Array.isArray(p['newMentionHandles'])
+				? p['newMentionHandles'].filter((h): h is string => typeof h === 'string')
+				: []
+			const resolvedIds = await resolveWorkspaceUserIdsByHandles(tx, event.workspaceId, handles)
+			const recipients = new Set([...directUserIds, ...resolvedIds].filter((id) => id !== actorId))
+			for (const uid of recipients) {
+				createdNotifications.push(
+					await insertNotificationRow(tx, {
+						workspaceId: event.workspaceId,
+						recipientUserId: uid,
+						actorType,
+						actorId,
+						kind: 'doc.mentioned',
+						entityType: 'doc_page',
+						entityId: pageId,
+						title: `Mentioned in ${String(p['title'] ?? 'Document')}`,
+						body: String(p['plainText'] ?? '').slice(0, 240),
+						metadata: { slug: typeof p['slug'] === 'string' ? p['slug'] : null }
+					})
+				)
+			}
 		}
 	}
 

@@ -6,6 +6,7 @@
 import { openapi } from '@elysia/openapi'
 import { pendingMigrations, type Sql, withSystem } from '@huriro/db'
 import { Elysia } from 'elysia'
+import { type CollabDirectBridge, docsModule } from '../modules/docs'
 import type { Auth } from '../modules/identity'
 import { importsModule } from '../modules/imports'
 import { notificationsModule } from '../modules/notifications'
@@ -23,10 +24,12 @@ export interface AppDeps {
 	readonly mode: 'selfhost' | 'cloud'
 	readonly auth: Auth | null
 	readonly pubsub?: RealtimePubSub
+	readonly collabBridge?: CollabDirectBridge
+	readonly collabTicketSecret?: string
 }
 
 export function createApp(deps: AppDeps) {
-	const { sql, migrationsDir, mode, auth, pubsub } = deps
+	const { sql, migrationsDir, mode, auth, pubsub, collabBridge, collabTicketSecret } = deps
 
 	const base = new Elysia({ name: 'huriro.api' })
 		.use(observability)
@@ -57,10 +60,14 @@ export function createApp(deps: AppDeps) {
 					tags: [
 						{ name: 'tenancy', description: 'Workspaces, membership, bootstrap, ACLs' },
 						{ name: 'tasks', description: 'Projects, statuses, labels, cycles, issues, views' },
+						{
+							name: 'docs',
+							description: 'Collaborative doc tree, CRDT tickets, versions, anchored comments'
+						},
 						{ name: 'sync', description: 'Change log delta, snapshots, batch mutations, realtime tickets' },
 						{ name: 'search', description: 'Unified workspace FTS + trigram search' },
 						{ name: 'notifications', description: 'In-app triage notifications' },
-						{ name: 'imports', description: 'Linear and GitHub Issues importers' }
+						{ name: 'imports', description: 'Linear, GitHub, Notion and Markdown importers' }
 					]
 				}
 			})
@@ -102,6 +109,7 @@ export function createApp(deps: AppDeps) {
 			api
 				.use(tenancyModule(sql, mode, auth, pubsub))
 				.use(tasksModule(sql, auth, pubsub))
+				.use(docsModule(sql, auth, pubsub, collabBridge, collabTicketSecret))
 				.use(syncModule(sql, auth, pubsub))
 				.use(searchModule(sql, auth))
 				.use(notificationsModule(sql, auth, pubsub))

@@ -2,10 +2,13 @@
  * HuriroSyncEngine — client replication & mutation coordinator (§9.5, §9.6).
  */
 import type {
+	CreateDocPageBody,
 	CreateIssueBody,
 	CreateProjectBody,
 	CreateSavedViewBody,
+	DocPageDto,
 	IssueDto,
+	MoveDocPageBody,
 	MoveIssueBody,
 	MutationEnvelope,
 	MutationResultDto,
@@ -14,6 +17,7 @@ import type {
 	SavedViewDto,
 	SyncChangesResponse,
 	SyncSnapshotResponse,
+	UpdateDocPageBody,
 	UpdateIssueBody
 } from '@huriro/contracts'
 import { generateKeyBetween } from '@huriro/domain'
@@ -369,6 +373,42 @@ export class HuriroSyncEngine {
 						])
 					}
 				}
+			} else if (envelope.entity === 'doc_page') {
+				if (envelope.op === 'delete') {
+					this.collections.purgeDocPageScope(envelope.entityId)
+				} else if (envelope.op === 'create') {
+					const parentId = (envelope.patch['parentId'] as string | null) ?? null
+					const parent = parentId ? this.collections.docPages.get(parentId) : undefined
+					const nowIso = envelope.queuedAt ?? new Date().toISOString()
+					const synthetic: DocPageDto = {
+						id: envelope.entityId,
+						workspaceId: this.workspaceId,
+						parentId,
+						path: parent ? `${parent.path}/${envelope.entityId}` : envelope.entityId,
+						depth: parent ? parent.depth + 1 : 0,
+						slug: String(envelope.patch['slug'] ?? envelope.entityId.slice(0, 8)),
+						title: String(envelope.patch['title'] ?? 'Untitled'),
+						icon: (envelope.patch['icon'] as string | null) ?? null,
+						visibility: (envelope.patch['visibility'] as 'workspace' | 'private') ?? 'workspace',
+						isTemplate: Boolean(envelope.patch['isTemplate'] ?? false),
+						isFavorite: false,
+						position: String(envelope.patch['position'] ?? 'V'),
+						createdBy: this.currentUserId,
+						archivedAt: null,
+						createdAt: nowIso,
+						updatedAt: nowIso,
+						version: 1,
+						byteSize: 0
+					}
+					this.collections.docPagesManaged.upsertMany([synthetic])
+				} else {
+					const existing = this.collections.docPages.get(envelope.entityId)
+					if (existing) {
+						this.collections.docPagesManaged.upsertMany([
+							{ ...existing, ...envelope.patch, updatedAt: new Date().toISOString() }
+						])
+					}
+				}
 			}
 		}
 	}
@@ -477,6 +517,12 @@ export class HuriroSyncEngine {
 			this.collections.projectsManaged.upsertMany([result.data as unknown as ProjectDto])
 		} else if (entity === 'saved_view') {
 			this.collections.viewsManaged.upsertMany([result.data as unknown as SavedViewDto])
+		} else if (entity === 'doc_page') {
+			if (op === 'delete') {
+				this.collections.purgeDocPageScope(entityId)
+			} else {
+				this.collections.docPagesManaged.upsertMany([result.data as unknown as DocPageDto])
+			}
 		}
 	}
 
@@ -494,6 +540,12 @@ export class HuriroSyncEngine {
 			} else if (item.base) {
 				this.collections.projectsManaged.upsertMany([item.base as unknown as ProjectDto])
 			}
+		} else if (entity === 'doc_page') {
+			if (op === 'create') {
+				this.collections.docPagesManaged.deleteMany([entityId])
+			} else if (item.base) {
+				this.collections.docPagesManaged.upsertMany([item.base as unknown as DocPageDto])
+			}
 		}
 	}
 
@@ -508,6 +560,14 @@ export class HuriroSyncEngine {
 			} else {
 				this.collections.issuesManaged.upsertMany([
 					{ ...(conflict.serverValues as unknown as IssueDto), ...rebased.patch }
+				])
+			}
+		} else if (conflict.entity === 'doc_page') {
+			if (rebased === null) {
+				this.collections.docPagesManaged.upsertMany([conflict.serverValues as unknown as DocPageDto])
+			} else {
+				this.collections.docPagesManaged.upsertMany([
+					{ ...(conflict.serverValues as unknown as DocPageDto), ...rebased.patch }
 				])
 			}
 		}
@@ -837,6 +897,195 @@ export class HuriroSyncEngine {
 			base: current as unknown as Record<string, unknown>,
 			title: current.title
 		})
+		await this.persistReplica()
+		this.emit()
+		if (this.online && this.transport) void this.flushOutbox()
+	}
+
+	async createDocPage(input: Omit<CreateDocPageBody, 'id'> & { readonly id?: string }): Promise<DocPageDto> {
+		const id = input.id ?? generateUuidV7()
+		const parentId = input.parentId ?? null
+		const parent = parentId ? this.collections.docPages.get(parentId) : undefined
+		const tail =
+			this.collections.docPages.toArray
+				.filter((p) => p.parentId === parentId && p.archivedAt === null)
+				.sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0))
+				.at(-1)?.position ?? null
+		const position = input.position ?? generateKeyBetween(tail, null)
+		const slugBase = input.title
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-+|-+$/g, '')
+		const slug = input.slug ?? (slugBase || `doc-${id.slice(0, 6)}`)
+		const nowIso = new Date().toISOString()
+
+		const optimistic: DocPageDto = {
+			id,
+			workspaceId: this.workspaceId,
+			parentId,
+			path: parent ? `${parent.path}/${id}` : id,
+			depth: parent ? parent.depth + 1 : 0,
+			slug,
+			title: input.title,
+			icon: input.icon ?? null,
+			visibility: input.visibility ?? parent?.visibility ?? 'workspace',
+			isTemplate: input.isTemplate ?? false,
+			isFavorite: false,
+			position,
+			createdBy: this.currentUserId,
+			archivedAt: null,
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1,
+			byteSize: 0
+		}
+
+		await this.outbox.enqueue({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'doc_page',
+				entityId: id,
+				op: 'create',
+				patch: {
+					parentId,
+					title: input.title,
+					visibility: optimistic.visibility,
+					position,
+					...(input.slug !== undefined ? { slug: input.slug } : { slug }),
+					...(input.icon !== undefined ? { icon: input.icon } : {}),
+					...(input.isTemplate !== undefined ? { isTemplate: input.isTemplate } : {}),
+					...(input.templateId !== undefined ? { templateId: input.templateId } : {}),
+					...(input.markdown !== undefined ? { markdown: input.markdown } : {})
+				},
+				queuedAt: nowIso
+			},
+			title: input.title
+		})
+
+		this.collections.docPagesManaged.upsertMany([optimistic])
+		await this.persistReplica()
+		this.emit()
+		if (this.online && this.transport) void this.flushOutbox()
+		return optimistic
+	}
+
+	async updateDocPage(pageId: string, patch: Omit<UpdateDocPageBody, 'version'>): Promise<void> {
+		const current = this.collections.docPages.get(pageId)
+		if (!current) throw new Error(`Doc page "${pageId}" not found in local replica`)
+
+		const optimistic: DocPageDto = {
+			...current,
+			...(patch.title !== undefined ? { title: patch.title } : {}),
+			...(patch.slug !== undefined ? { slug: patch.slug } : {}),
+			...(patch.icon !== undefined ? { icon: patch.icon } : {}),
+			...(patch.visibility !== undefined ? { visibility: patch.visibility } : {}),
+			...(patch.isTemplate !== undefined ? { isTemplate: patch.isTemplate } : {}),
+			...(patch.archived !== undefined
+				? { archivedAt: patch.archived ? new Date().toISOString() : null }
+				: {}),
+			updatedAt: new Date().toISOString()
+		}
+
+		await this.outbox.enqueue({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'doc_page',
+				entityId: pageId,
+				op: 'update',
+				patch: patch as Record<string, unknown>,
+				baseVersion: current.version,
+				queuedAt: new Date().toISOString()
+			},
+			base: current as unknown as Record<string, unknown>,
+			title: current.title
+		})
+
+		this.collections.docPagesManaged.upsertMany([optimistic])
+		await this.persistReplica()
+		this.emit()
+		if (this.online && this.transport) void this.flushOutbox()
+	}
+
+	async moveDocPage(pageId: string, move: Omit<MoveDocPageBody, 'version'>): Promise<void> {
+		const current = this.collections.docPages.get(pageId)
+		if (!current) throw new Error(`Doc page "${pageId}" not found in local replica`)
+
+		let position = move.position
+		if (!position) {
+			const afterPos = move.afterPageId
+				? (this.collections.docPages.get(move.afterPageId)?.position ?? null)
+				: null
+			const beforePos = move.beforePageId
+				? (this.collections.docPages.get(move.beforePageId)?.position ?? null)
+				: null
+			if (afterPos === null && beforePos === null) {
+				const tail =
+					this.collections.docPages.toArray
+						.filter((p) => p.parentId === move.parentId && p.archivedAt === null && p.id !== pageId)
+						.sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0))
+						.at(-1)?.position ?? null
+				position = generateKeyBetween(tail, null)
+			} else {
+				position = generateKeyBetween(afterPos, beforePos)
+			}
+		}
+
+		const parent = move.parentId ? this.collections.docPages.get(move.parentId) : undefined
+		const optimistic: DocPageDto = {
+			...current,
+			parentId: move.parentId,
+			path: parent ? `${parent.path}/${current.id}` : current.id,
+			depth: parent ? parent.depth + 1 : 0,
+			position,
+			updatedAt: new Date().toISOString()
+		}
+
+		await this.outbox.enqueue({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'doc_page',
+				entityId: pageId,
+				op: 'move',
+				patch: {
+					parentId: move.parentId,
+					position,
+					...(move.afterPageId !== undefined ? { afterPageId: move.afterPageId } : {}),
+					...(move.beforePageId !== undefined ? { beforePageId: move.beforePageId } : {})
+				},
+				baseVersion: current.version,
+				queuedAt: new Date().toISOString()
+			},
+			base: current as unknown as Record<string, unknown>,
+			title: current.title
+		})
+
+		this.collections.docPagesManaged.upsertMany([optimistic])
+		await this.persistReplica()
+		this.emit()
+		if (this.online && this.transport) void this.flushOutbox()
+	}
+
+	async deleteDocPage(pageId: string): Promise<void> {
+		const current = this.collections.docPages.get(pageId)
+		if (!current) return
+		await this.outbox.enqueue({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'doc_page',
+				entityId: pageId,
+				op: 'delete',
+				patch: {},
+				baseVersion: current.version,
+				queuedAt: new Date().toISOString()
+			},
+			base: current as unknown as Record<string, unknown>,
+			title: current.title
+		})
+		this.collections.purgeDocPageScope(pageId)
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()

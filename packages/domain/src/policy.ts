@@ -106,6 +106,7 @@ const ACTION_ACL_LEVEL: Partial<Record<Action, AclLevel>> = {
 	'issue.write': 'write',
 	'issue.delete': 'manage',
 	'doc.read': 'read',
+	'doc.comment': 'comment',
 	'doc.write': 'write',
 	'doc.share': 'manage',
 	'channel.read': 'read',

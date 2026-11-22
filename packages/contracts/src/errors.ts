@@ -34,7 +34,11 @@ export const ERROR_CODES = [
 	// agents & MCP
 	'agent_scope_exceeded',
 	'approval_required',
-	'token_audience_mismatch'
+	'token_audience_mismatch',
+	// collaborative docs
+	'doc_too_large',
+	'collab_lease_conflict',
+	'collab_ticket_invalid'
 ] as const
 
 export type ErrorCode = (typeof ERROR_CODES)[number]

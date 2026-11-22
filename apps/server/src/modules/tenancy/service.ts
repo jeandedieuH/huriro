@@ -344,7 +344,7 @@ export async function grantAcl(
 	})
 
 	// Map resourceType to SyncEntityType for change_log grant event (§9.3).
-	const syncEntityType = args.resourceType === 'project' ? 'project' : 'project'
+	const syncEntityType = args.resourceType === 'doc_page' ? 'doc_page' : 'project'
 	const scope = [`${args.resourceType}:${args.resourceId}`]
 	const cursor = await appendChange(tx, args.workspaceId, {
 		entityType: syncEntityType,
@@ -406,8 +406,9 @@ export async function revokeAcl(
 		}
 	})
 
+	const syncEntityType = entry.resourceType === 'doc_page' ? 'doc_page' : 'project'
 	const cursor = await appendChange(tx, args.workspaceId, {
-		entityType: 'project',
+		entityType: syncEntityType,
 		entityId: entry.resourceId,
 		action: 'revoke',
 		scope: [`${entry.resourceType}:${entry.resourceId}`],

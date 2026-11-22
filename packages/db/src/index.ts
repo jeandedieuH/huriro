@@ -20,6 +20,15 @@ export {
 	authVerifications,
 	betterAuthSchema
 } from './schema/auth'
+export {
+	collabTickets,
+	docComments,
+	docFavorites,
+	docPages,
+	docRoomLeases,
+	docState,
+	docVersions
+} from './schema/docs'
 export { users } from './schema/identity'
 export { importJobs, importMappings } from './schema/imports'
 export { notifications } from './schema/notifications'

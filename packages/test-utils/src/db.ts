@@ -16,9 +16,9 @@
 import {
 	createAppPool,
 	createOwnerPool,
+	migrationsDir as dbMigrationsDir,
 	listMigrationFiles,
 	migrate,
-	migrationsDir as dbMigrationsDir,
 	type Sql
 } from '@huriro/db'
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql'
@@ -29,6 +29,7 @@ export interface TestDb {
 	/** `huriro_app` pool — the role under test. */
 	readonly app: Sql
 	readonly url: string
+	readonly appUrl: string
 	readonly migrated: { version: number; name: string }[]
 	stop(): Promise<void>
 }
@@ -43,39 +44,65 @@ export function testDbAvailable(): Promise<TestDb | null> {
 export async function getTestDb(): Promise<TestDb | null> {
 	if (cached) return cached
 	cached = (async () => {
-		const envUrl = process.env['DATABASE_URL']
-		if (envUrl) {
-			const db = await prepare(envUrl, null)
+		if (process.env['HURIRO_TESTCONTAINERS']) {
+			const container = await new PostgreSqlContainer('postgres:18-alpine')
+				.withDatabase('huriro_test')
+				.withUsername('postgres')
+				.withPassword('postgres')
+				.start()
+			const db = await prepare(container.getConnectionUri(), container, null)
 			return db
 		}
-		if (!process.env['HURIRO_TESTCONTAINERS']) return null
-		const container = await new PostgreSqlContainer('postgres:18-alpine')
-			.withDatabase('huriro_test')
-			.withUsername('postgres')
-			.withPassword('postgres')
-			.start()
-		const db = await prepare(container.getConnectionUri(), container)
-		return db
+		const adminUrl = process.env['DATABASE_ADMIN_URL']
+		const envUrl = process.env['DATABASE_URL']
+		if (adminUrl) {
+			let explicitAppUrl: string | null = null
+			if (envUrl) {
+				try {
+					if (new URL(envUrl).username === 'huriro_app') {
+						explicitAppUrl = envUrl
+					}
+				} catch {
+					explicitAppUrl = null
+				}
+			}
+			const db = await prepare(adminUrl, null, explicitAppUrl)
+			return db
+		}
+		if (envUrl) {
+			const db = await prepare(envUrl, null, null)
+			return db
+		}
+		return null
 	})()
 	return cached
 }
 
-async function prepare(url: string, container: StartedPostgreSqlContainer | null): Promise<TestDb> {
-	const owner = createOwnerPool(url, { max: 4 })
+async function prepare(
+	ownerUrl: string,
+	container: StartedPostgreSqlContainer | null,
+	explicitAppUrl: string | null
+): Promise<TestDb> {
+	const owner = createOwnerPool(ownerUrl, { max: 4 })
 
 	// Migrate first (0001 creates huriro_app), then provision the role's password —
 	// secrets live in provision-time env, never in migration files (§12.7).
 	const migrated = await migrate(owner, dbMigrationsDir)
-	await owner`ALTER ROLE huriro_app LOGIN PASSWORD 'huriro-test'`
-
-	const u = new URL(url)
-	const appUrl = `${u.protocol}//huriro_app:huriro-test@${u.host}${u.pathname}`
+	let appUrl: string
+	if (explicitAppUrl !== null) {
+		appUrl = explicitAppUrl
+	} else {
+		await owner`ALTER ROLE huriro_app LOGIN PASSWORD 'huriro-test'`
+		const u = new URL(ownerUrl)
+		appUrl = `${u.protocol}//huriro_app:huriro-test@${u.host}${u.pathname}`
+	}
 	const app = createAppPool(appUrl, { max: 4 })
 
 	return {
 		owner,
 		app,
-		url,
+		url: ownerUrl,
+		appUrl,
 		migrated,
 		stop: async () => {
 			await app.end()
