@@ -11,7 +11,7 @@ const stubSql = new Proxy((() => {}) as never, {
 	get: () => () => Promise.reject(new Error('no db in unit tests'))
 })
 
-const app = createApp({ sql: stubSql as never, migrationsDir: '.', mode: 'selfhost' })
+const app = createApp({ sql: stubSql as never, migrationsDir: '.', mode: 'selfhost', auth: null })
 
 describe('api contract', () => {
 	test('GET /health', async () => {
@@ -47,5 +47,44 @@ describe('api contract', () => {
 			new Request('http://t/health', { headers: { 'x-request-id': 'req_test_1' } })
 		)
 		expect(res.headers.get('x-request-id')).toBe('req_test_1')
+	})
+
+	// ---- session-gated routes: auth null → 501 not_implemented (never 500) ----
+
+	test('GET /workspaces/current without auth → 501 problem+json', async () => {
+		const res = await app.handle(new Request('http://t/api/v1/workspaces/current'))
+		expect(res.status).toBe(501)
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('not_implemented')
+	})
+
+	test('POST /invitations/accept without auth → 501 problem+json', async () => {
+		const res = await app.handle(
+			new Request('http://t/api/v1/invitations/accept', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ token: 'a'.repeat(43) })
+			})
+		)
+		expect(res.status).toBe(501)
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('not_implemented')
+	})
+
+	test('POST /invitations accepts only owner-issuable roles', async () => {
+		const res = await app.handle(
+			new Request('http://t/api/v1/invitations', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					workspaceId: crypto.randomUUID(),
+					email: 'x@y.z',
+					role: 'owner' // inviting as owner is never allowed
+				})
+			})
+		)
+		expect(res.status).toBe(422)
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('validation_failed')
 	})
 })

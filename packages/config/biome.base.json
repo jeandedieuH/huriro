@@ -33,6 +33,9 @@
 				"useNodejsImportProtocol": "error",
 				"useImportType": "error"
 			},
+			"complexity": {
+				"useLiteralKeys": "off"
+			},
 			"security": {
 				"noGlobalEval": "error"
 			}

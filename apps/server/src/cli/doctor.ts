@@ -47,14 +47,14 @@ export async function doctor(args: string[]): Promise<void> {
 	// --- connectivity + version ---
 	try {
 		const [row] = await sql!<{ v: string }[]>`SELECT version() AS v`
-		const m = row!.v.match(/PostgreSQL (\d+)\.(\d+)/)
+		const m = row?.v.match(/PostgreSQL (\d+)\.(\d+)/)
 		const major = m ? Number(m[1]) : 0
 		const minor = m ? Number(m[2]) : 0
 		const ok = major > 18 || (major === 18 && minor >= 7)
 		checks.push({
 			name: 'postgres',
 			ok,
-			detail: row!.v.split(',')[0] ?? 'unknown',
+			detail: row?.v.split(',')[0] ?? 'unknown',
 			hint: ok ? undefined : 'PostgreSQL ≥ 18.7 required (uuidv7, RLS) — see infra/postgres image'
 		})
 	} catch (err) {
@@ -91,9 +91,9 @@ export async function doctor(args: string[]): Promise<void> {
 		>`SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'huriro_app' AND rolcanlogin) AS ok`
 		checks.push({
 			name: 'huriro_app role',
-			ok: r!.ok,
-			detail: r!.ok ? 'login role present' : 'missing',
-			hint: r!.ok ? undefined : 'run migrations (0001 creates it), then ALTER ROLE … PASSWORD via init'
+			ok: r?.ok === true,
+			detail: r?.ok ? 'login role present' : 'missing',
+			hint: r?.ok ? undefined : 'run migrations (0001 creates it), then ALTER ROLE … PASSWORD via init'
 		})
 	} catch (err) {
 		checks.push({ name: 'huriro_app role', ok: false, detail: String(err) })
@@ -120,7 +120,7 @@ export async function doctor(args: string[]): Promise<void> {
 	}
 
 	report(checks)
-	await sql!.end()
+	await sql?.end()
 	process.exit(checks.every((c) => c.ok) ? 0 : 1)
 }
 

@@ -25,15 +25,22 @@ export async function init(args: string[]): Promise<void> {
 	const pgPassword = secret(24)
 	const appDbPassword = secret(24)
 	const maintDbPassword = secret(24)
+	const authDbPassword = secret(24)
 	const setupToken = secret(32)
 
 	// Secrets stay in files; .env references them via *_FILE (§12.7).
 	await writeSecret(secretsDir, 'pg_password', pgPassword)
 	await writeSecret(secretsDir, 'app_db_password', appDbPassword)
 	await writeSecret(secretsDir, 'maint_db_password', maintDbPassword)
+	await writeSecret(secretsDir, 'auth_db_password', authDbPassword)
 	await writeSecret(secretsDir, 'secret_key', secret(32))
 	await writeSecret(secretsDir, 'database_url', `postgres://huriro_app:${appDbPassword}@postgres:5432/huriro`)
 	await writeSecret(secretsDir, 'database_admin_url', `postgres://huriro:${pgPassword}@postgres:5432/huriro`)
+	await writeSecret(
+		secretsDir,
+		'database_auth_url',
+		`postgres://huriro_auth:${authDbPassword}@postgres:5432/huriro`
+	)
 	await writeSecret(secretsDir, 'setup_token_hash', createHash('sha256').update(setupToken).digest('hex'))
 
 	const env = [
@@ -42,6 +49,7 @@ export async function init(args: string[]): Promise<void> {
 		`HURIRO_ENV=production`,
 		`DATABASE_URL_FILE=/run/secrets/database_url`,
 		`DATABASE_ADMIN_URL_FILE=/run/secrets/database_admin_url`,
+		`DATABASE_AUTH_URL_FILE=/run/secrets/database_auth_url`,
 		`HURIRO_SECRET_KEY_FILE=/run/secrets/secret_key`,
 		`BLOB_DIR=/var/lib/huriro/files`,
 		''

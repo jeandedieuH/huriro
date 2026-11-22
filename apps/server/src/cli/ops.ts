@@ -33,7 +33,7 @@ export async function createAdmin(args: string[]): Promise<void> {
 	const sql = postgres(env.databaseAdminUrl, { max: 1 })
 	try {
 		const [row] = await sql<{ id: string }[]>`
-			INSERT INTO users (email, display_name) VALUES (${email!.toLowerCase()}, ${name})
+			INSERT INTO users (email, display_name) VALUES (${email.toLowerCase()}, ${name})
 			ON CONFLICT (email) DO UPDATE SET display_name = EXCLUDED.display_name
 			RETURNING id
 		`
@@ -84,7 +84,7 @@ export async function backup(args: string[]): Promise<void> {
 			const s = postgres(scratchUrl, { max: 1 })
 			const [n] = await s<{ n: number }[]>`SELECT count(*)::int AS n FROM workspaces`
 			await s.end()
-			console.log(`verify: restored into ${scratch} (${n!.n} workspaces)`)
+			console.log(`verify: restored into ${scratch} (${n?.n} workspaces)`)
 		} finally {
 			await admin.unsafe(`DROP DATABASE IF EXISTS ${scratch}`).catch(() => {})
 			await admin.end()

@@ -39,7 +39,10 @@ const fs = require('node:fs')
 const path = require('node:path')
 const appsDir = path.resolve(__dirname, '../../apps')
 const appNames = fs.existsSync(appsDir)
-	? fs.readdirSync(appsDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)
+	? fs
+			.readdirSync(appsDir, { withFileTypes: true })
+			.filter((d) => d.isDirectory())
+			.map((d) => d.name)
 	: []
 const appPairRules = appNames.flatMap((a) =>
 	appNames

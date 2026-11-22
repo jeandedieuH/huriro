@@ -27,7 +27,9 @@ export function listMigrationFiles(dir: string): { version: number; name: string
 	return readdirSync(dir)
 		.filter((f) => FILE_RE.test(f))
 		.map((f) => {
-			const version = Number.parseInt(FILE_RE.exec(f)![1]!, 10)
+			// FILE_RE.test() above guarantees the match; index access needs a guard.
+			const m = FILE_RE.exec(f)
+			const version = m?.[1] ? Number.parseInt(m[1], 10) : 0
 			return { version, name: f, path: join(dir, f) }
 		})
 		.sort((a, b) => a.version - b.version)
@@ -60,7 +62,7 @@ export async function migrate(sql: Sql, dir: string): Promise<AppliedMigration[]
 
 		// Refuse silent downgrade: DB must never be ahead of the code (§19.2).
 		const dbMax = applied.at(-1)?.version ?? 0
-		const codeMax = files.at(-1)!.version
+		const codeMax = files.at(-1)?.version ?? 0
 		if (dbMax > codeMax) {
 			throw new Error(
 				`Database is at migration ${dbMax} but this build only knows ${codeMax}. ` +

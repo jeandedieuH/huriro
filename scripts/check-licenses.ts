@@ -59,7 +59,9 @@ for await (const dir of walk('node_modules')) {
 	// license may be an SPDX expression ("MIT OR Apache-2.0") or a string[] —
 	// normalize to bare identifiers and require every one to be allowlisted.
 	const raw: string[] = typeof license === 'string' ? [license] : Array.isArray(license) ? license : []
-	const licenses = raw.flatMap((l) => l.match(/[A-Za-z0-9.-]+/g) ?? []).filter((t) => t !== 'OR' && t !== 'AND')
+	const licenses = raw
+		.flatMap((l) => l.match(/[A-Za-z0-9.-]+/g) ?? [])
+		.filter((t) => t !== 'OR' && t !== 'AND')
 	const ok = licenses.length > 0 && licenses.every((l) => ALLOWED.has(l))
 	checked++
 	if (!ok) {

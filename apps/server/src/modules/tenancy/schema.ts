@@ -13,7 +13,10 @@ export const CompleteSetupBody = Type.Object({
 	workspaceName: Type.String({ minLength: 1, maxLength: 80 }),
 	slug: Type.String({ minLength: 2, maxLength: 48, pattern: '^[a-z0-9][a-z0-9-]*$' }),
 	email: Type.String({ format: 'email' }),
-	displayName: Type.String({ minLength: 1, maxLength: 120 })
+	displayName: Type.String({ minLength: 1, maxLength: 120 }),
+	// When present the owner credential is created through better-auth so the
+	// first admin can log in immediately (§12.2).
+	password: Type.Optional(Type.String({ minLength: 8, maxLength: 128 }))
 })
 
 export const CompleteSetupResponse = Type.Object({

@@ -47,13 +47,12 @@ export async function insertRolePermission(
 export async function insertMembership(
 	tx: Queryable,
 	args: { workspaceId: string; userId: string; roleId: string }
-): Promise<string> {
-	const [row] = await tx<{ id: string }[]>`
+): Promise<void> {
+	// memberships' PK is (workspace_id, user_id) — no surrogate id to return.
+	await tx`
 		INSERT INTO memberships (workspace_id, user_id, role_id)
 		VALUES (${args.workspaceId}, ${args.userId}, ${args.roleId})
-		RETURNING id
 	`
-	return row!.id
 }
 
 export async function insertUser(
@@ -71,6 +70,84 @@ export async function insertUser(
 export async function findUserByEmail(tx: Queryable, email: string): Promise<{ id: string } | undefined> {
 	const [row] = await tx<{ id: string }[]>`SELECT id FROM users WHERE email = ${email}`
 	return row
+}
+
+// ---------- invitations ----------
+
+export interface InvitationRow {
+	id: string
+	workspaceId: string
+	email: string
+	roleId: string
+	status: string
+	expiresAt: Date
+}
+
+export async function insertInvitation(
+	tx: Queryable,
+	args: {
+		workspaceId: string
+		email: string
+		roleId: string
+		tokenHash: string
+		invitedBy: string
+		expiresAt: Date
+	}
+): Promise<string> {
+	const [row] = await tx<{ id: string }[]>`
+		INSERT INTO invitations (workspace_id, email, role_id, token_hash, invited_by, expires_at)
+		VALUES (${args.workspaceId}, ${args.email}, ${args.roleId}, ${args.tokenHash}, ${args.invitedBy}, ${args.expiresAt})
+		RETURNING id
+	`
+	return row!.id
+}
+
+/** Pending, unexpired invite by token hash — the accept path's only lookup. */
+export async function findPendingInvitation(
+	tx: Queryable,
+	tokenHash: string
+): Promise<InvitationRow | undefined> {
+	const [row] = await tx<InvitationRow[]>`
+		SELECT id, workspace_id AS "workspaceId", email, role_id AS "roleId",
+			status, expires_at AS "expiresAt"
+		FROM invitations
+		WHERE token_hash = ${tokenHash} AND status = 'pending' AND expires_at > now()
+		FOR UPDATE
+	`
+	return row
+}
+
+export async function markInvitationAccepted(tx: Queryable, id: string) {
+	await tx`
+		UPDATE invitations SET status = 'accepted', accepted_at = now()
+		WHERE id = ${id} AND status = 'pending'
+	`
+}
+
+export async function getRoleIdByKey(tx: Queryable, workspaceId: string, key: string) {
+	const [row] = await tx<{ id: string }[]>`
+		SELECT id FROM roles WHERE workspace_id = ${workspaceId} AND key = ${key}
+	`
+	return row!.id
+}
+
+export async function getMembershipRoleKey(tx: Queryable, workspaceId: string, userId: string) {
+	const [row] = await tx<{ key: string }[]>`
+		SELECT r.key FROM memberships m JOIN roles r ON r.id = m.role_id
+		WHERE m.workspace_id = ${workspaceId} AND m.user_id = ${userId} AND m.status = 'active'
+	`
+	return row?.key
+}
+
+export async function listUserWorkspaces(tx: Queryable, userId: string) {
+	return tx<{ id: string; slug: string; name: string; roleKey: string }[]>`
+		SELECT w.id, w.slug, w.name, r.key AS "roleKey"
+		FROM memberships m
+		JOIN workspaces w ON w.id = m.workspace_id
+		JOIN roles r ON r.id = m.role_id
+		WHERE m.user_id = ${userId} AND m.status = 'active' AND w.deleted_at IS NULL
+		ORDER BY w.name
+	`
 }
 
 /** Append to the transactional outbox — same tx as the domain write (§4.3). */

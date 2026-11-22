@@ -33,6 +33,25 @@ export const EnvSchema = Type.Object({
 		Type.String({ description: 'postgres://… privileged role for migrations/pg-boss/CLI' })
 	),
 	DATABASE_ADMIN_URL_FILE: Type.Optional(Type.String()),
+	DATABASE_AUTH_URL: Type.Optional(
+		Type.String({ description: 'postgres://… as role huriro_auth — identity/session lookups only' })
+	),
+	DATABASE_AUTH_URL_FILE: Type.Optional(Type.String()),
+
+	// ---- auth (better-auth: email/password + passkey + TOTP, ADR-0003) ----
+	BETTER_AUTH_SECRET: Type.Optional(
+		Type.String({
+			description: 'Cookie/session signing secret (≥32 chars); falls back to HKDF of HURIRO_SECRET_KEY'
+		})
+	),
+	BETTER_AUTH_SECRET_FILE: Type.Optional(Type.String()),
+	PASSKEY_RP_ID: Type.Optional(
+		Type.String({ description: 'WebAuthn relying-party id — defaults to HURIRO_URL hostname' })
+	),
+	PASSKEY_RP_NAME: Type.String({ default: 'Huriro', description: 'Shown in the authenticator prompt' }),
+	PASSKEY_ORIGIN: Type.Optional(
+		Type.String({ description: 'Allowed passkey origin(s), comma-separated — defaults to HURIRO_URL' })
+	),
 
 	HURIRO_SECRET_KEY: Type.Optional(
 		Type.String({ description: 'Root key; per-purpose keys derived via HKDF' })
@@ -88,7 +107,9 @@ export interface Config extends Env {
 	/** Resolved after _FILE indirection. */
 	readonly databaseUrl: string
 	readonly databaseAdminUrl: string
+	readonly databaseAuthUrl: string
 	readonly secretKey: string | undefined
+	readonly betterAuthSecret: string | undefined
 }
 
 let cached: Config | null = null
@@ -117,6 +138,13 @@ export async function loadEnv(source: Record<string, string | undefined> = proce
 		DATABASE_URL_FILE: env['DATABASE_URL_FILE'],
 		DATABASE_ADMIN_URL: env['DATABASE_ADMIN_URL'],
 		DATABASE_ADMIN_URL_FILE: env['DATABASE_ADMIN_URL_FILE'],
+		DATABASE_AUTH_URL: env['DATABASE_AUTH_URL'],
+		DATABASE_AUTH_URL_FILE: env['DATABASE_AUTH_URL_FILE'],
+		BETTER_AUTH_SECRET: env['BETTER_AUTH_SECRET'],
+		BETTER_AUTH_SECRET_FILE: env['BETTER_AUTH_SECRET_FILE'],
+		PASSKEY_RP_ID: env['PASSKEY_RP_ID'],
+		PASSKEY_RP_NAME: env['PASSKEY_RP_NAME'] ?? 'Huriro',
+		PASSKEY_ORIGIN: env['PASSKEY_ORIGIN'],
 		HURIRO_SECRET_KEY: env['HURIRO_SECRET_KEY'],
 		HURIRO_SECRET_KEY_FILE: env['HURIRO_SECRET_KEY_FILE'],
 		BLOB_STORE: env['BLOB_STORE'] ?? 'fs',
@@ -146,8 +174,14 @@ export async function loadEnv(source: Record<string, string | undefined> = proce
 		parsed.DATABASE_ADMIN_URL ??
 		(await readSecretFile(parsed.DATABASE_ADMIN_URL_FILE as string | undefined)) ??
 		databaseUrl // minimal self-host: one privileged URL acceptable, doctor warns
+	const databaseAuthUrl =
+		parsed.DATABASE_AUTH_URL ??
+		(await readSecretFile(parsed.DATABASE_AUTH_URL_FILE as string | undefined)) ??
+		databaseUrl // dev fallback: session lookups through the app role's own URL
 	const secretKey =
 		parsed.HURIRO_SECRET_KEY ?? (await readSecretFile(parsed.HURIRO_SECRET_KEY_FILE as string | undefined))
+	const betterAuthSecret =
+		parsed.BETTER_AUTH_SECRET ?? (await readSecretFile(parsed.BETTER_AUTH_SECRET_FILE as string | undefined))
 
 	if (!databaseUrl) problems.push('DATABASE_URL or DATABASE_URL_FILE is required')
 	if (parsed.HURIRO_ENV === 'production' && !secretKey) {
@@ -163,7 +197,14 @@ export async function loadEnv(source: Record<string, string | undefined> = proce
 		)
 	}
 
-	cached = { ...(parsed as Env), databaseUrl: databaseUrl!, databaseAdminUrl: databaseAdminUrl!, secretKey }
+	cached = {
+		...(parsed as Env),
+		databaseUrl: databaseUrl!,
+		databaseAdminUrl: databaseAdminUrl!,
+		databaseAuthUrl: databaseAuthUrl!,
+		secretKey,
+		betterAuthSecret
+	}
 	return cached
 }
 

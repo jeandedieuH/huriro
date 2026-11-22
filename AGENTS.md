@@ -8,13 +8,13 @@ A secure, self-hostable, modular workspace platform. Monorepo: Bun workspaces
 
 ## Commands
 
-| Command                        | Purpose                                                                       |
-| ------------------------------ | ----------------------------------------------------------------------------- |
-| `bun install`                  | install all workspaces                                                        |
-| `bun run verify`               | the gate: lint + typecheck + test + build + gen:check + boundaries + licenses |
-| `bun run dev`                  | dev (turbo)                                                                   |
-| `bun run migrate`              | apply DB migrations                                                           |
-| `bun run doctor`               | instance preflight checks                                                     |
+| Command                        | Purpose                                                                                                                                 |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun install`                  | install all workspaces                                                                                                                  |
+| `bun run verify`               | the gate: lint + typecheck + test + build + gen:check + boundaries + licenses                                                           |
+| `bun run dev`                  | dev (turbo)                                                                                                                             |
+| `bun run migrate`              | apply DB migrations                                                                                                                     |
+| `bun run doctor`               | instance preflight checks                                                                                                               |
 | `bun test packages/test-utils` | RLS/integration suite (needs `DATABASE_URL` or `HURIRO_TESTCONTAINERS=1`; if ryuk can't pull, also `TESTCONTAINERS_RYUK_DISABLED=true`) |
 
 ## Layout

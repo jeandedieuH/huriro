@@ -10,6 +10,7 @@
  */
 import { createHash } from 'node:crypto'
 import { type Sql, withSystem } from '@huriro/db'
+import type { Auth } from '../identity'
 import { TENANCY_EVENTS } from './events'
 import { audit, emitEvent, findUserByEmail, getSetting, insertUser, putSetting } from './repo'
 import { seedWorkspace } from './service'
@@ -33,18 +34,57 @@ export interface SetupResult {
 }
 
 export class SetupError extends Error {
-	readonly code: 'already_configured' | 'invalid_token' | 'slug_taken'
+	readonly code: 'already_configured' | 'invalid_token' | 'slug_taken' | 'auth_failed'
 
-	constructor(code: 'already_configured' | 'invalid_token' | 'slug_taken', message: string) {
+	constructor(code: 'already_configured' | 'invalid_token' | 'slug_taken' | 'auth_failed', message: string) {
 		super(message)
 		this.name = 'SetupError'
 		this.code = code
 	}
 }
 
+/**
+ * The first admin must be able to log in — when auth is configured and a
+ * password is supplied, the credential account goes through better-auth's
+ * signUpEmail (atomic user+account rows on the auth pool, which commits
+ * independently of the setup tx). If the setup tx then fails, the user row
+ * persists and a retry can still proceed (findUserByEmail reuses it).
+ */
+async function provisionFirstUser(
+	tx: Parameters<typeof insertUser>[0],
+	auth: Auth | null,
+	args: { email: string; displayName: string; password: string | undefined }
+): Promise<string> {
+	const email = args.email.toLowerCase()
+	const existing = await findUserByEmail(tx, email)
+	if (existing) return existing.id
+	if (auth && args.password) {
+		try {
+			const res = await auth.api.signUpEmail({
+				body: { email, password: args.password, name: args.displayName }
+			})
+			return res.user.id
+		} catch (err) {
+			throw new SetupError(
+				'auth_failed',
+				`Could not create the admin credential: ${err instanceof Error ? err.message : 'unknown error'}`
+			)
+		}
+	}
+	return insertUser(tx, { email, displayName: args.displayName })
+}
+
 export async function completeSetup(
 	sql: Sql,
-	args: { token: string; workspaceName: string; slug: string; email: string; displayName: string }
+	auth: Auth | null,
+	args: {
+		token: string
+		workspaceName: string
+		slug: string
+		email: string
+		displayName: string
+		password?: string
+	}
 ): Promise<SetupResult> {
 	return withSystem(sql, async (tx) => {
 		const configured = (await getSetting(tx, DONE_KEY)) === true
@@ -59,11 +99,13 @@ export async function completeSetup(
 			throw new SetupError('invalid_token', 'Setup token is invalid')
 		}
 
-		// Reuse the user row if the email exists (idempotent retries), else create.
-		const existing = await findUserByEmail(tx, args.email.toLowerCase())
-		const userId =
-			existing?.id ??
-			(await insertUser(tx, { email: args.email.toLowerCase(), displayName: args.displayName }))
+		// Reuse the user row if the email exists (idempotent retries), else create
+		// — through better-auth when a password is supplied so login works.
+		const userId = await provisionFirstUser(tx, auth, {
+			email: args.email,
+			displayName: args.displayName,
+			password: args.password
+		})
 
 		let ws: Awaited<ReturnType<typeof seedWorkspace>>
 		try {

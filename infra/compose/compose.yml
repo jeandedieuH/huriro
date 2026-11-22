@@ -30,6 +30,10 @@ secrets:
     file: ../../secrets/database_url
   database_admin_url:
     file: ../../secrets/database_admin_url
+  database_auth_url:
+    file: ../../secrets/database_auth_url
+  auth_db_password:
+    file: ../../secrets/auth_db_password
   secret_key:
     file: ../../secrets/secret_key
   setup_token_hash:
@@ -63,8 +67,9 @@ services:
     environment:
       DATABASE_URL_FILE: /run/secrets/database_url
       DATABASE_ADMIN_URL_FILE: /run/secrets/database_admin_url
+      DATABASE_AUTH_URL_FILE: /run/secrets/database_auth_url
       HURIRO_SECRET_KEY_FILE: /run/secrets/secret_key
-    secrets: [database_url, database_admin_url, secret_key]
+    secrets: [database_url, database_admin_url, database_auth_url, secret_key]
     volumes:
       - huriro_files:/var/lib/huriro/files
     depends_on:
@@ -95,8 +100,9 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
       HURIRO_APP_DB_PASSWORD_FILE: /run/secrets/app_db_password
       HURIRO_MAINT_DB_PASSWORD_FILE: /run/secrets/maint_db_password
+      HURIRO_AUTH_DB_PASSWORD_FILE: /run/secrets/auth_db_password
       HURIRO_SETUP_TOKEN_HASH_FILE: /run/secrets/setup_token_hash
-    secrets: [pg_password, app_db_password, maint_db_password, setup_token_hash]
+    secrets: [pg_password, app_db_password, maint_db_password, auth_db_password, setup_token_hash]
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

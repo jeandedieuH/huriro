@@ -13,6 +13,8 @@ export const users = pgTable('users', {
 	locale: text('locale').notNull().default('en'),
 	timezone: text('timezone').notNull().default('UTC'),
 	mfaEnabled: boolean('mfa_enabled').notNull().default(false),
+	// better-auth's user.emailVerified maps onto this column (0005_auth.sql).
+	emailVerified: boolean('email_verified').notNull().default(false),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 	deletedAt: timestamp('deleted_at', { withTimezone: true })

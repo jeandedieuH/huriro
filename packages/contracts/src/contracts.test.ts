@@ -21,7 +21,7 @@ describe('problem()', () => {
 			{ status: 409, code: 'stale_version', title: 'stale', requestId: 'r' },
 			{ currentVersion: 5, yourVersion: 3 }
 		)
-		expect((p as Record<string, unknown>)['currentVersion']).toBe(5)
+		expect((p as { currentVersion?: unknown }).currentVersion).toBe(5)
 		expect(p.code).toBe('stale_version')
 	})
 })

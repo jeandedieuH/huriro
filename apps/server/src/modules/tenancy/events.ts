@@ -5,7 +5,9 @@
 export const TENANCY_EVENTS = {
 	WorkspaceCreated: 'tenancy.workspace.created.v1',
 	MemberAdded: 'tenancy.member.added.v1',
-	SetupCompleted: 'tenancy.setup.completed.v1'
+	SetupCompleted: 'tenancy.setup.completed.v1',
+	InvitationCreated: 'tenancy.invitation.created.v1',
+	InvitationAccepted: 'tenancy.invitation.accepted.v1'
 } as const
 
 export interface WorkspaceCreatedPayload {

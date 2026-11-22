@@ -17,6 +17,7 @@ import { genenv } from './cli/genenv'
 import { init } from './cli/init'
 import { backup, createAdmin, health, migrateCmd, restore } from './cli/ops'
 import { loadEnv } from './env'
+import { createAuth } from './modules/identity'
 import { startRealtime } from './realtime'
 import { startWorker } from './worker'
 
@@ -88,7 +89,10 @@ async function serve(args: string[]) {
 	const stoppers: (() => Promise<void> | void)[] = []
 
 	if (role === 'api' || role === 'all') {
-		createApp({ sql: app, migrationsDir: MIGRATIONS_DIR, mode: env.HURIRO_MODE }).listen(env.PORT)
+		// Identity lives behind a flag-free factory — better-auth needs the
+		// DB pool, so it constructs after migration (the auth schema exists).
+		const auth = createAuth(env)
+		createApp({ sql: app, migrationsDir: MIGRATIONS_DIR, mode: env.HURIRO_MODE, auth }).listen(env.PORT)
 		log.info({ port: env.PORT }, 'api listening')
 	}
 	if (role === 'worker' || role === 'all') {

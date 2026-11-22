@@ -15,15 +15,24 @@ months of security-critical work.
 Adopt **Better Auth** (exact pins, whole `@better-auth/*` family upgraded together) for
 **identity only**: users, sessions, passkeys, 2FA, OAuth provider, API keys, device flow.
 
-- Better Auth owns its tables in a dedicated `auth` schema (users, sessions, accounts,
-  passkeys, jwks, oauth_*). `users` is exposed to Huriro via `additionalFields`; it is
-  NOT a second user table.
+- Better Auth owns sessions, credential accounts, verifications, passkeys, and TOTP
+  secrets in a dedicated `auth` PG schema (0005_auth.sql). `public.users` remains the
+  ONE user table — better-auth maps onto it via field mapping
+  (name→display_name, image→avatar_url, emailVerified→email_verified,
+  twoFactorEnabled→mfa_enabled), so tenancy joins never touch a shadow table.
+- Auth queries run on a dedicated `huriro_auth` DB role (`DATABASE_AUTH_URL`,
+  falling back to `DATABASE_URL` in dev): session lookups precede any tenant
+  context, so it alone gets context-free `users` reads via a `huriro_auth`-scoped
+  policy — and holds ZERO grants on tenant tables in return.
 - **The organization plugin is not used.** Tenancy (workspaces, memberships, roles,
   ACLs) is Huriro's own schema — RLS, the change feed, and custom roles depend on it
-  staying under our control.
-- Login rate limiting uses the **database** store (never the in-memory default, which
-  breaks under multi-node).
-- Cookie caching disabled for sensitive operations so revocation is immediate.
+  staying under our control. Invitations are Huriro-owned rows (sha256 token hash,
+  7-day TTL) accepted through an RLS email-escape policy.
+- Login rate limiting uses the **memory** store for M0 (single-node self-host is
+  the shipping target; the database store needs a table we deferred — multi-replica
+  cloud switches before horizontal scale ships).
+- A short (5 min) JWS cookie cache fronts session lookup; the DB remains the source
+  of truth so revocation propagates within the cache window.
 - Never enable the OAuth provider and a browser-session JWT signer on the same key.
 
 ## Risk posture (mandatory mitigations, from §12.2/R1)

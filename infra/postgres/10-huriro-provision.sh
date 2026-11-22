@@ -18,6 +18,7 @@ read_secret() {
 
 APP_PW="$(read_secret HURIRO_APP_DB_PASSWORD_FILE HURIRO_APP_DB_PASSWORD)"
 MAINT_PW="$(read_secret HURIRO_MAINT_DB_PASSWORD_FILE HURIRO_MAINT_DB_PASSWORD)"
+AUTH_PW="$(read_secret HURIRO_AUTH_DB_PASSWORD_FILE HURIRO_AUTH_DB_PASSWORD)"
 SETUP_HASH="$(read_secret HURIRO_SETUP_TOKEN_HASH_FILE HURIRO_SETUP_TOKEN_HASH)"
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-SQL
@@ -31,10 +32,14 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-S
 		IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'huriro_maint') THEN
 			CREATE ROLE huriro_maint NOINHERIT BYPASSRLS LOGIN;
 		END IF;
+		IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'huriro_auth') THEN
+			CREATE ROLE huriro_auth NOINHERIT NOBYPASSRLS LOGIN;
+		END IF;
 	END
 	\$\$;
 	ALTER ROLE huriro_app PASSWORD '${APP_PW}';
 	ALTER ROLE huriro_maint PASSWORD '${MAINT_PW}';
+	ALTER ROLE huriro_auth PASSWORD '${AUTH_PW}';
 
 	CREATE TABLE IF NOT EXISTS huriro_bootstrap (key text PRIMARY KEY, value jsonb NOT NULL);
 	INSERT INTO huriro_bootstrap (key, value)
