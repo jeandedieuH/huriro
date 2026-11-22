@@ -1,0 +1,32 @@
+{
+	"name": "@huriro/sync-client",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Local-first sync adapter: TanStack DB collections, OPFS/IDB persistence, durable outbox, and WS signal client (§9.5)",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"dependencies": {
+		"@huriro/contracts": "workspace:*",
+		"@huriro/domain": "workspace:*",
+		"@tanstack/db": "1.0.0-rc.1.5",
+		"@tanstack/offline-transactions": "1.2.1",
+		"@tanstack/react-db": "1.0.0-rc.1.5"
+	},
+	"peerDependencies": {
+		"react": "^19.0.0"
+	},
+	"devDependencies": {
+		"@types/react": "19.1.13",
+		"react": "19.1.1"
+	},
+	"scripts": {
+		"lint": "biome check .",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test"
+	}
+}

@@ -7,7 +7,7 @@ describe('i18n', () => {
 	test('en catalog resolves', () => {
 		activateI18n('en')
 		expect(t('app.name')).toBe('Huriro')
-		expect(t('nav.tasks')).toBe('Tasks')
+		expect(t('nav.tasks')).toBe('Issues')
 	})
 
 	test('pseudo locale wraps + accents every message', () => {

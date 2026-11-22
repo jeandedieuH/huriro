@@ -1,0 +1,34 @@
+{
+	"name": "@huriro/env",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Environment validation: zod schemas + t3-env createEnv, one module per app (§7.5)",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./index.ts",
+			"default": "./index.ts"
+		},
+		"./server": {
+			"types": "./server/index.ts",
+			"default": "./server/index.ts"
+		},
+		"./web": {
+			"types": "./web/index.ts",
+			"default": "./web/index.ts"
+		},
+		"./mobile": {
+			"types": "./mobile/index.ts",
+			"default": "./mobile/index.ts"
+		}
+	},
+	"dependencies": {
+		"@t3-oss/env-core": "0.13.11",
+		"zod": "^4.6.7"
+	},
+	"scripts": {
+		"lint": "biome check .",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test"
+	}
+}

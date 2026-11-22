@@ -4,6 +4,8 @@ node_modules/
 # builds
 dist/
 out/
+.output/
+.tanstack/
 *.tsbuildinfo
 .turbo/
 
@@ -33,3 +35,5 @@ Thumbs.db
 coverage/
 playwright-report/
 test-results/
+storybook-static/
+nul

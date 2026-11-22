@@ -85,7 +85,7 @@ if (up.status !== 0) {
 }
 // Health endpoint through the app's healthcheck already passed via --wait;
 // hit the HTTP endpoint through Caddy as the final assertion.
-const health = run(['docker', 'compose', '-f', COMPOSE, 'exec', '-T', 'caddy', 'wget', '-qO-', 'http://huriro:3000/health'], { capture: true })
+const health = run(['docker', 'compose', '-f', COMPOSE, 'exec', '-T', 'caddy', 'wget', '-qO-', 'http://huriro:3001/health'], { capture: true })
 const ok = health.status === 0 && /ok|healthy|status/i.test(health.stdout)
 run(['docker', 'compose', '-f', COMPOSE, 'down', '-v'])
 if (!ok) fail(`/health check failed: ${health.stdout} ${health.stderr}`)

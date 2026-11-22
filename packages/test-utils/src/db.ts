@@ -13,11 +13,15 @@
  *     the migration — secrets don't live in migration files.
  */
 
-import { join } from 'node:path'
-import { createAppPool, createOwnerPool, listMigrationFiles, migrate, type Sql } from '@huriro/db'
+import {
+	createAppPool,
+	createOwnerPool,
+	listMigrationFiles,
+	migrate,
+	migrationsDir as dbMigrationsDir,
+	type Sql
+} from '@huriro/db'
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql'
-
-const MIGRATIONS_DIR = join(import.meta.dir, '..', '..', 'db', 'migrations')
 
 export interface TestDb {
 	/** Superuser pool — fixture writes bypass RLS; never use in assertions paths. */
@@ -61,7 +65,7 @@ async function prepare(url: string, container: StartedPostgreSqlContainer | null
 
 	// Migrate first (0001 creates huriro_app), then provision the role's password —
 	// secrets live in provision-time env, never in migration files (§12.7).
-	const migrated = await migrate(owner, MIGRATIONS_DIR)
+	const migrated = await migrate(owner, dbMigrationsDir)
 	await owner`ALTER ROLE huriro_app LOGIN PASSWORD 'huriro-test'`
 
 	const u = new URL(url)
@@ -83,7 +87,7 @@ async function prepare(url: string, container: StartedPostgreSqlContainer | null
 }
 
 export function migrationsDir(): string {
-	return MIGRATIONS_DIR
+	return dbMigrationsDir
 }
 
 export { listMigrationFiles }

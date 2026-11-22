@@ -5,15 +5,37 @@
  */
 import { t } from '@huriro/i18n'
 import type { ReactNode } from 'react'
+import type { AppDestination } from '@/stores/ui-store'
 import { Sidebar } from './sidebar'
 import { Topbar } from './topbar'
 
 export interface AppShellProps {
 	children: ReactNode
 	activeNav?: string
+	workspaceName?: string | undefined
+	inboxUnreadCount?: number | undefined
+	isPreview?: boolean | undefined
+	theme?: 'light' | 'dark' | undefined
+	onSelectNav?: ((dest: AppDestination) => void) | undefined
+	onOpenCommandPalette?: (() => void) | undefined
+	onCreateNew?: (() => void) | undefined
+	onToggleTheme?: (() => void) | undefined
+	onOpenShortcuts?: (() => void) | undefined
 }
 
-export function AppShell({ children, activeNav }: AppShellProps) {
+export function AppShell({
+	children,
+	activeNav,
+	workspaceName,
+	inboxUnreadCount,
+	isPreview,
+	theme,
+	onSelectNav,
+	onOpenCommandPalette,
+	onCreateNew,
+	onToggleTheme,
+	onOpenShortcuts
+}: AppShellProps) {
 	return (
 		<div className="grid h-dvh grid-cols-[auto_1fr] grid-rows-[auto_1fr] bg-background">
 			<a
@@ -23,10 +45,22 @@ export function AppShell({ children, activeNav }: AppShellProps) {
 				{t('shell.skip-to-content')}
 			</a>
 			<div className="row-span-2">
-				<Sidebar active={activeNav ?? ''} />
+				<Sidebar
+					active={activeNav ?? ''}
+					workspaceName={workspaceName}
+					inboxUnreadCount={inboxUnreadCount}
+					onSelect={onSelectNav}
+					onOpenShortcuts={onOpenShortcuts}
+				/>
 			</div>
-			<Topbar />
-			<main id="content" className="min-h-0 overflow-y-auto">
+			<Topbar
+				isPreview={isPreview}
+				theme={theme}
+				onOpenCommandPalette={onOpenCommandPalette}
+				onCreateNew={onCreateNew}
+				onToggleTheme={onToggleTheme}
+			/>
+			<main id="content" className="flex min-h-0 flex-col overflow-hidden">
 				{children}
 			</main>
 		</div>

@@ -26,7 +26,7 @@ RUN apt-get update \
 	&& rm -rf /var/lib/apt/lists/*
 USER bun
 WORKDIR /app/apps/server
-EXPOSE 3000 3001
+EXPOSE 3001 3005
 ENTRYPOINT ["bun", "src/index.ts"]
 CMD ["serve", "--role=all"]
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s \

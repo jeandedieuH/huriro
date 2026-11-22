@@ -2,7 +2,7 @@
  * `huriro doctor` — preflight + fix hints (§12.2, §19.2). Exit code 1 when any
  * required check fails so scripts and CI can gate on it.
  */
-import { pendingMigrations, type Sql } from '@huriro/db'
+import { migrationsDir, pendingMigrations, type Sql } from '@huriro/db'
 import postgres from 'postgres'
 import { loadEnv } from '../env'
 
@@ -14,7 +14,7 @@ interface Check {
 }
 
 export async function doctor(args: string[]): Promise<void> {
-	const migrationsDir = flag(args, '--migrations') ?? 'packages/db/migrations'
+	const dir = flag(args, '--migrations') ?? migrationsDir
 	const checks: Check[] = []
 	let sql: Sql | null = null
 
@@ -70,7 +70,7 @@ export async function doctor(args: string[]): Promise<void> {
 
 	// --- migrations pending ---
 	try {
-		const pending = await pendingMigrations(sql!, migrationsDir)
+		const pending = await pendingMigrations(sql!, dir)
 		checks.push({
 			name: 'migrations',
 			ok: pending.length === 0,

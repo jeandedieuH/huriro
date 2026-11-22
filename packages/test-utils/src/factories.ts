@@ -115,3 +115,203 @@ export async function seedTwoTenants(sql: Sql) {
 
 	return { userA, wsA, userB, wsB }
 }
+
+export interface SeedProject {
+	readonly id: string
+	readonly workspaceId: string
+	readonly key: string
+	readonly name: string
+	readonly visibility: 'workspace' | 'private'
+	readonly statusIds: Record<string, string>
+}
+
+export async function aProject(
+	sql: Sql,
+	args: {
+		workspaceId: string
+		key?: string
+		name?: string
+		visibility?: 'workspace' | 'private'
+		createdBy?: string
+	}
+): Promise<SeedProject> {
+	const n = seq()
+	const key = args.key ?? `PRJ${n}`
+	const name = args.name ?? `Project ${n}`
+	const visibility = args.visibility ?? 'workspace'
+	const [proj] = await sql<{ id: string }[]>`
+		INSERT INTO projects (workspace_id, key, name, visibility, position, created_by)
+		VALUES (${args.workspaceId}, ${key}, ${name}, ${visibility}, ${`V${n}`}, ${args.createdBy ?? null})
+		RETURNING id
+	`
+	const projectId = proj!.id
+	await sql`INSERT INTO issue_counters (workspace_id, project_id, next_number) VALUES (${args.workspaceId}, ${projectId}, 1)`
+
+	const defaults = [
+		{ name: 'Backlog', category: 'backlog', color: 'neutral', pos: 'B', isDefault: false },
+		{ name: 'Todo', category: 'unstarted', color: 'info', pos: 'F', isDefault: true },
+		{ name: 'In Progress', category: 'started', color: 'warning', pos: 'N', isDefault: false },
+		{ name: 'Done', category: 'completed', color: 'success', pos: 'V', isDefault: false },
+		{ name: 'Canceled', category: 'cancelled', color: 'danger', pos: 'd', isDefault: false }
+	] as const
+	const statusIds: Record<string, string> = {}
+	for (const s of defaults) {
+		const [st] = await sql<{ id: string }[]>`
+			INSERT INTO project_statuses (workspace_id, project_id, name, category, color, position, is_default)
+			VALUES (${args.workspaceId}, ${projectId}, ${s.name}, ${s.category}, ${s.color}, ${s.pos}, ${s.isDefault})
+			RETURNING id
+		`
+		statusIds[s.name] = st!.id
+	}
+	return { id: projectId, workspaceId: args.workspaceId, key, name, visibility, statusIds }
+}
+
+export async function aProjectStatus(
+	sql: Sql,
+	args: {
+		workspaceId: string
+		projectId: string
+		name?: string
+		category?: 'backlog' | 'unstarted' | 'started' | 'completed' | 'cancelled'
+		position?: string
+		isDefault?: boolean
+	}
+): Promise<string> {
+	const n = seq()
+	const [row] = await sql<{ id: string }[]>`
+		INSERT INTO project_statuses (workspace_id, project_id, name, category, position, is_default)
+		VALUES (
+			${args.workspaceId},
+			${args.projectId},
+			${args.name ?? `Status ${n}`},
+			${args.category ?? 'unstarted'},
+			${args.position ?? `Z${n}`},
+			${args.isDefault ?? false}
+		)
+		RETURNING id
+	`
+	return row!.id
+}
+
+export async function aLabel(
+	sql: Sql,
+	args: { workspaceId: string; name?: string; color?: string }
+): Promise<string> {
+	const n = seq()
+	const [row] = await sql<{ id: string }[]>`
+		INSERT INTO labels (workspace_id, name, color)
+		VALUES (${args.workspaceId}, ${args.name ?? `label-${n}`}, ${args.color ?? 'info'})
+		RETURNING id
+	`
+	return row!.id
+}
+
+export async function aCycle(
+	sql: Sql,
+	args: { workspaceId: string; projectId: string; name?: string; startsAt?: string; endsAt?: string }
+): Promise<string> {
+	const n = seq()
+	const [row] = await sql<{ id: string }[]>`
+		INSERT INTO cycles (workspace_id, project_id, name, starts_at, ends_at)
+		VALUES (
+			${args.workspaceId},
+			${args.projectId},
+			${args.name ?? `Cycle ${n}`},
+			${args.startsAt ?? '2026-11-01'},
+			${args.endsAt ?? '2026-11-15'}
+		)
+		RETURNING id
+	`
+	return row!.id
+}
+
+export async function anIssue(
+	sql: Sql,
+	args: {
+		workspaceId: string
+		projectId: string
+		statusId: string
+		creatorId: string
+		title?: string
+		priority?: number
+		assigneeId?: string | null
+		assigneeType?: 'user' | 'agent' | null
+		position?: string
+	}
+): Promise<{ id: string; number: number }> {
+	const n = seq()
+	const [cnt] = await sql<{ num: number }[]>`
+		UPDATE issue_counters SET next_number = next_number + 1
+		WHERE workspace_id = ${args.workspaceId} AND project_id = ${args.projectId}
+		RETURNING next_number - 1 AS num
+	`
+	const num = cnt!.num
+	const [row] = await sql<{ id: string }[]>`
+		INSERT INTO issues (
+			workspace_id, project_id, number, title, status_id, priority,
+			assignee_type, assignee_id, creator_id, position
+		)
+		VALUES (
+			${args.workspaceId},
+			${args.projectId},
+			${num},
+			${args.title ?? `Test issue ${n}`},
+			${args.statusId},
+			${args.priority ?? 0},
+			${args.assigneeType ?? null},
+			${args.assigneeId ?? null},
+			${args.creatorId},
+			${args.position ?? `V${n}`}
+		)
+		RETURNING id
+	`
+	return { id: row!.id, number: num }
+}
+
+export async function anIssueComment(
+	sql: Sql,
+	args: { workspaceId: string; issueId: string; authorId: string; bodyText?: string }
+): Promise<string> {
+	const n = seq()
+	const [row] = await sql<{ id: string }[]>`
+		INSERT INTO issue_comments (workspace_id, issue_id, author_type, author_id, body_text)
+		VALUES (${args.workspaceId}, ${args.issueId}, 'user', ${args.authorId}, ${args.bodyText ?? `Comment ${n}`})
+		RETURNING id
+	`
+	return row!.id
+}
+
+export async function aNotification(
+	sql: Sql,
+	args: {
+		workspaceId: string
+		recipientUserId: string
+		entityType: string
+		entityId: string
+		title?: string
+		kind?:
+			| 'issue.assigned'
+			| 'issue.mentioned'
+			| 'issue.commented'
+			| 'issue.status_changed'
+			| 'project.access_granted'
+	}
+): Promise<string> {
+	const n = seq()
+	const [row] = await sql<{ id: string }[]>`
+		INSERT INTO notifications (
+			workspace_id, recipient_user_id, actor_type, kind, entity_type, entity_id, title
+		)
+		VALUES (
+			${args.workspaceId},
+			${args.recipientUserId},
+			'system',
+			${args.kind ?? 'issue.assigned'},
+			${args.entityType},
+			${args.entityId},
+			${args.title ?? `Notification ${n}`}
+		)
+		RETURNING id
+	`
+	return row!.id
+}

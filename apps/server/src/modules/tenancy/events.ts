@@ -7,7 +7,9 @@ export const TENANCY_EVENTS = {
 	MemberAdded: 'tenancy.member.added.v1',
 	SetupCompleted: 'tenancy.setup.completed.v1',
 	InvitationCreated: 'tenancy.invitation.created.v1',
-	InvitationAccepted: 'tenancy.invitation.accepted.v1'
+	InvitationAccepted: 'tenancy.invitation.accepted.v1',
+	AclGranted: 'tenancy.acl.granted.v1',
+	AclRevoked: 'tenancy.acl.revoked.v1'
 } as const
 
 export interface WorkspaceCreatedPayload {

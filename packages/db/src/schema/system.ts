@@ -35,7 +35,7 @@ export const changeLog = pgTable(
 		cursor: bigint('cursor', { mode: 'bigint' }).notNull(),
 		entityType: text('entity_type').notNull(),
 		entityId: uuid('entity_id').notNull(),
-		action: text('action', { enum: ['upsert', 'delete', 'reorder', 'revoke'] }).notNull(),
+		action: text('action', { enum: ['upsert', 'delete', 'reorder', 'revoke', 'grant'] }).notNull(),
 		scope: text('scope').array().notNull().default([]),
 		payload: jsonb('payload'),
 		actorId: uuid('actor_id'),

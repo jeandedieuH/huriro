@@ -1,0 +1,5 @@
+{"level":30,"time":1795375891234,"service":"huriro","role":"all","env":"development","mode":"selfhost","msg":"huriro starting"}
+{"level":30,"time":1795375891337,"service":"huriro","port":3001,"msg":"api listening"}
+{"level":30,"time":1795375891779,"service":"huriro","queues":["outbox-drain"],"msg":"worker started"}
+{"level":30,"time":1795375891781,"service":"huriro","port":3005,"msg":"realtime signal server listening"}
+{"level":30,"time":1795375897462,"service":"huriro","request_id":"req_7c5b3a99-c814-4491-979b-6f299c9ee165","method":"GET","path":"/health","status":200,"ms":10.6,"msg":"http"}

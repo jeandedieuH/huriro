@@ -13,7 +13,9 @@ export default defineConfig({
 	retries: process.env['CI'] ? 1 : 0,
 	use: { baseURL: 'http://localhost:4173' },
 	webServer: {
-		command: 'bun run build && bunx vite preview --port 4173',
+		// TanStack Start builds a Nitro node server in .output — serve that directly.
+		command: 'bun run build && bun .output/server/index.mjs',
+		env: { PORT: '4173', NITRO_PORT: '4173' },
 		port: 4173,
 		reuseExistingServer: !process.env['CI'],
 		timeout: 120_000

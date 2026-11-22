@@ -80,7 +80,7 @@ jobs:
       - name: api becomes healthy
         run: |
           for i in $(seq 1 60); do
-            if curl -sf http://localhost:3000/health; then exit 0; fi
+            if docker compose -f /tmp/huriro-smoke/infra/compose/compose.yml exec -T caddy wget -qO- http://huriro:3001/health; then exit 0; fi
             sleep 2
           done
           docker compose -f /tmp/huriro-smoke/infra/compose/compose.yml logs

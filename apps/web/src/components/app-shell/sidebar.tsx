@@ -1,38 +1,106 @@
 import { type MessageId, t } from '@huriro/i18n'
+import { CheckSquare, FileText, Inbox, Keyboard, MessageSquare, Settings } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import type { AppDestination } from '@/stores/ui-store'
 
-const NAV: { id: string; label: MessageId }[] = [
-	{ id: 'inbox', label: 'nav.inbox' },
-	{ id: 'tasks', label: 'nav.tasks' },
-	{ id: 'docs', label: 'nav.docs' },
-	{ id: 'chat', label: 'nav.chat' },
-	{ id: 'mail', label: 'nav.mail' },
-	{ id: 'search', label: 'nav.search' },
-	{ id: 'settings', label: 'nav.settings' }
+// §17.2 — strictly 5 primary destinations: Inbox, Issues, Docs, Chat, Settings
+const NAV: { id: AppDestination; label: MessageId; icon: typeof Inbox }[] = [
+	{ id: 'inbox', label: 'nav.inbox', icon: Inbox },
+	{ id: 'tasks', label: 'nav.tasks', icon: CheckSquare },
+	{ id: 'docs', label: 'nav.docs', icon: FileText },
+	{ id: 'chat', label: 'nav.chat', icon: MessageSquare },
+	{ id: 'settings', label: 'nav.settings', icon: Settings }
 ]
 
-export function Sidebar({ active }: { active?: string }) {
+export interface SidebarProps {
+	readonly active?: string
+	readonly workspaceName?: string | undefined
+	readonly inboxUnreadCount?: number | undefined
+	readonly onSelect?: ((dest: AppDestination) => void) | undefined
+	readonly onOpenShortcuts?: (() => void) | undefined
+}
+
+export function Sidebar({
+	active,
+	workspaceName,
+	inboxUnreadCount = 0,
+	onSelect,
+	onOpenShortcuts
+}: SidebarProps) {
 	return (
 		<nav
 			aria-label="Primary"
 			className="flex h-full w-56 flex-col gap-1 border-r border-sidebar-border bg-sidebar px-2 py-3 text-sidebar-foreground"
 		>
-			<div className="px-2 pb-3 text-sm font-semibold">{t('app.name')}</div>
-			{NAV.map((item) => (
-				<a
-					key={item.id}
-					href={`#${item.id}`}
-					aria-current={active === item.id ? 'page' : undefined}
-					className={cn(
-						'rounded-md px-2 py-1.5 text-sm transition-colors duration-(--motion-duration-fast)',
-						active === item.id
-							? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground'
-							: 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-					)}
-				>
-					{t(item.label)}
-				</a>
-			))}
+			<div className="flex items-center justify-between px-2 pb-3">
+				<span className="truncate text-sm font-semibold">{workspaceName ?? t('app.name')}</span>
+			</div>
+
+			{NAV.map((item) => {
+				const Icon = item.icon
+				const isActive = active === item.id
+				const badgeCount = item.id === 'inbox' && inboxUnreadCount > 0 ? inboxUnreadCount : 0
+
+				if (onSelect) {
+					return (
+						<button
+							key={item.id}
+							type="button"
+							aria-current={isActive ? 'page' : undefined}
+							onClick={() => onSelect(item.id)}
+							className={cn(
+								'flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm transition-colors duration-(--motion-duration-fast)',
+								isActive
+									? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground'
+									: 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+							)}
+						>
+							<span className="flex items-center gap-2">
+								<Icon className="size-4 shrink-0" aria-hidden />
+								<span>{t(item.label)}</span>
+							</span>
+							{badgeCount > 0 ? (
+								<span className="rounded-full bg-primary/15 px-1.5 py-0.5 font-mono text-xs font-medium text-primary tnum">
+									{badgeCount}
+								</span>
+							) : null}
+						</button>
+					)
+				}
+
+				return (
+					<a
+						key={item.id}
+						href={`#${item.id}`}
+						aria-current={isActive ? 'page' : undefined}
+						className={cn(
+							'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors duration-(--motion-duration-fast)',
+							isActive
+								? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground'
+								: 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+						)}
+					>
+						<Icon className="size-4 shrink-0" aria-hidden />
+						<span>{t(item.label)}</span>
+					</a>
+				)
+			})}
+
+			{onOpenShortcuts ? (
+				<div className="mt-auto pt-2">
+					<Button
+						size="sm"
+						tone="ghost"
+						className="w-full justify-start text-muted-foreground"
+						onClick={onOpenShortcuts}
+					>
+						<Keyboard className="size-4" aria-hidden />
+						<span>{t('shell.shortcuts-button')}</span>
+						<span className="ml-auto font-mono text-xs">?</span>
+					</Button>
+				</div>
+			) : null}
 		</nav>
 	)
 }

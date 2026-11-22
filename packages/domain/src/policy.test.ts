@@ -318,6 +318,43 @@ const CASES: Case[] = [
 		action: 'member.manage',
 		resource: wsResource,
 		expect: { effect: 'deny', reason: 'agent_scope' }
+	},
+
+	// --- imports -------------------------------------------------------------
+	{
+		name: 'owner can run bulk imports',
+		actor: actor({ roleKey: 'owner', roleRank: ROLE_RANKS.owner, permissions: new Set(ACTIONS) }),
+		action: 'import.run',
+		resource: wsResource,
+		expect: { effect: 'allow', via: 'role' }
+	},
+	{
+		name: 'admin can run bulk imports',
+		actor: adminActor(),
+		action: 'import.run',
+		resource: wsResource,
+		expect: { effect: 'allow', via: 'role' }
+	},
+	{
+		name: 'member cannot run bulk imports',
+		actor: actor(),
+		action: 'import.run',
+		resource: wsResource,
+		expect: { effect: 'deny', reason: 'insufficient_role' }
+	},
+	{
+		name: 'guest cannot run bulk imports',
+		actor: actor({ roleKey: 'guest', roleRank: ROLE_RANKS.guest, permissions: new Set() }),
+		action: 'import.run',
+		resource: wsResource,
+		expect: { effect: 'deny', reason: 'insufficient_role' }
+	},
+	{
+		name: 'agent ceiling blocks import.run unless explicitly granted',
+		actor: adminActor({ kind: 'agent', agentScopeCeiling: new Set(['issue.read']) }),
+		action: 'import.run',
+		resource: wsResource,
+		expect: { effect: 'deny', reason: 'agent_scope' }
 	}
 ]
 

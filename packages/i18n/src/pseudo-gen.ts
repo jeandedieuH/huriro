@@ -36,7 +36,18 @@ function pseudoize(s: string): string {
 
 const src = readFileSync(join(DIR, 'en.ts'), 'utf8')
 const pairs = [...src.matchAll(/'([^']+)':\s*'((?:[^'\\]|\\.)*)'/g)]
-const body = pairs.map((m) => `\t'${m[1]}': '${pseudoize(m[2] ?? '').replaceAll("'", "\\'")}'`).join(',\n')
+const body = pairs
+	.map((m, idx) => {
+		const val = `'${pseudoize(m[2] ?? '').replaceAll("'", "\\'")}'`
+		const single = `\t'${m[1]}': ${val}`
+		// Match Biome's 110-col formatter (indentWidth: 2, trailing comma except last)
+		const visualWidth = 2 + (single.length - 1) + (idx < pairs.length - 1 ? 1 : 0)
+		if (visualWidth > 110) {
+			return `\t'${m[1]}':\n\t\t${val}`
+		}
+		return single
+	})
+	.join(',\n')
 
 const out = `// GENERATED from en.ts by pseudo-gen.ts — do not edit (bun run gen)
 export const pseudo = {

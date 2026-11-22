@@ -1,5 +1,16 @@
 // @huriro/domain public surface — pure, no I/O (§7.2).
 
+export type { MergeResolution } from './conflict'
+export { resolveFieldMerge } from './conflict'
+export {
+	comparePositions,
+	DEFAULT_REBALANCE_MAX_LENGTH,
+	generateKeyBetween,
+	generateNKeysBetween,
+	isValidPositionKey,
+	needsRebalance,
+	rebalanceKeys
+} from './fractional-index'
 export type { Action, SystemRoleKey } from './permissions'
 export {
 	ACTIONS,
@@ -18,3 +29,5 @@ export type {
 	ResourceRef
 } from './policy'
 export { ACL_RESOURCE_TYPES, aclSatisfies, can, needsAcl, requiredAclLevel } from './policy'
+export type { ParsedSearchQuery, SearchMode } from './search-query'
+export { parseSearchQuery } from './search-query'

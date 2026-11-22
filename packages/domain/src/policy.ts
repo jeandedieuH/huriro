@@ -85,7 +85,8 @@ const WORKSPACE_ACTIONS = new Set<Action>([
 	'agent.manage',
 	'approval.decide',
 	'audit.read',
-	'settings.manage'
+	'settings.manage',
+	'import.run'
 ])
 
 /** resource_type → the workspace-level permission that manages it (admin bypass key). */

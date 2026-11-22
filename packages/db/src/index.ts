@@ -9,7 +9,7 @@ export type { WorkspaceContext } from './context'
 export { currentContext, NIL_UUID, TenantContextError, withSystem, withWorkspace } from './context'
 export { isAcceptableClientId, isUuid, isUuidV7, uuid7, uuid7TimestampMs } from './ids'
 export type { AppliedMigration } from './migrate'
-export { listMigrationFiles, migrate, pendingMigrations } from './migrate'
+export { listMigrationFiles, migrate, migrationsDir, pendingMigrations } from './migrate'
 export { agentPrincipals } from './schema/agents'
 export {
 	authAccounts,
@@ -21,6 +21,10 @@ export {
 	betterAuthSchema
 } from './schema/auth'
 export { users } from './schema/identity'
+export { importJobs, importMappings } from './schema/imports'
+export { notifications } from './schema/notifications'
+export { searchDocuments } from './schema/search'
+export { realtimeTickets } from './schema/sync'
 export {
 	auditLog,
 	changeLog,
@@ -34,4 +38,16 @@ export {
 	syncCursors,
 	workspaceSeq
 } from './schema/system'
+export {
+	cycles,
+	issueComments,
+	issueCounters,
+	issueLabels,
+	issueRelations,
+	issues,
+	labels,
+	projectStatuses,
+	projects,
+	savedViews
+} from './schema/tasks'
 export { aclEntries, invitations, memberships, rolePermissions, roles, workspaces } from './schema/tenancy'

@@ -7,8 +7,40 @@
  * Workspace creation is an instance-level entitlement (authenticated user +
  * feature flag on cloud), enforced in the setup service.
  */
-import { type ActorContext, can } from '@huriro/domain'
+import {
+	type AclLevel,
+	type AclResourceType,
+	type Action,
+	type ActorContext,
+	can,
+	type Decision
+} from '@huriro/domain'
 
 export function canManageWorkspace(actor: ActorContext): boolean {
 	return can(actor, 'workspace.manage', { type: 'workspace' }).effect === 'allow'
+}
+
+export function canReadMembers(actor: ActorContext): Decision {
+	return can(actor, 'member.read', { type: 'workspace' })
+}
+
+const MANAGE_ACTION_FOR_RESOURCE: Record<AclResourceType, Action> = {
+	project: 'project.manage',
+	doc_page: 'doc.share',
+	channel: 'channel.manage',
+	mail_account: 'mail.assign'
+}
+
+export function canManageResourceAcl(
+	actor: ActorContext,
+	resourceType: AclResourceType,
+	resourceId: string,
+	acl: AclLevel | null
+): Decision {
+	return can(actor, MANAGE_ACTION_FOR_RESOURCE[resourceType], {
+		type: resourceType,
+		id: resourceId,
+		visibility: 'private',
+		acl
+	})
 }

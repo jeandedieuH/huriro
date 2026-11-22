@@ -203,3 +203,219 @@ export async function putSetting(tx: Queryable, key: string, value: unknown) {
 		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
 	`
 }
+
+// ---------- Actor & ACL resolution (§12.3, §12.5) ----------
+
+export interface MembershipSummaryRow {
+	readonly userId: string
+	readonly email: string
+	readonly displayName: string
+	readonly avatarUrl: string | null
+	readonly roleId: string
+	readonly roleKey: string
+	readonly roleRank: number
+	readonly status: 'active' | 'suspended'
+}
+
+export async function getActorMembershipAndPermissions(
+	tx: Queryable,
+	workspaceId: string,
+	userId: string
+): Promise<{
+	roleId: string
+	roleKey: string
+	roleRank: number
+	status: 'active' | 'suspended'
+	permissions: string[]
+} | null> {
+	const [row] = await tx<
+		{
+			roleId: string
+			roleKey: string
+			roleRank: number
+			status: 'active' | 'suspended'
+		}[]
+	>`
+		SELECT m.role_id AS "roleId", r.key AS "roleKey", r.rank AS "roleRank", m.status
+		FROM memberships m
+		JOIN roles r ON r.workspace_id = m.workspace_id AND r.id = m.role_id
+		WHERE m.workspace_id = ${workspaceId} AND m.user_id = ${userId}
+	`
+	if (!row) return null
+
+	const perms = await tx<{ permission: string }[]>`
+		SELECT permission FROM role_permissions
+		WHERE workspace_id = ${workspaceId} AND role_id = ${row.roleId}
+	`
+	return {
+		...row,
+		permissions: perms.map((p) => p.permission)
+	}
+}
+
+export async function listResourceAclLevelsForUser(
+	tx: Queryable,
+	args: {
+		workspaceId: string
+		resourceType: 'project' | 'doc_page' | 'channel' | 'mail_account'
+		resourceId: string
+		userId: string
+	}
+): Promise<('read' | 'comment' | 'write' | 'manage')[]> {
+	const rows = await tx<{ permission: 'read' | 'comment' | 'write' | 'manage' }[]>`
+		SELECT a.permission
+		FROM acl_entries a
+		WHERE a.workspace_id = ${args.workspaceId}
+			AND a.resource_type = ${args.resourceType}
+			AND a.resource_id = ${args.resourceId}
+			AND (
+				(a.principal_type = 'user' AND a.principal_id = ${args.userId})
+				OR a.principal_type = 'workspace'
+				OR (
+					a.principal_type = 'role'
+					AND a.principal_id = (
+						SELECT m.role_id FROM memberships m
+						WHERE m.workspace_id = ${args.workspaceId}
+							AND m.user_id = ${args.userId}
+							AND m.status = 'active'
+					)
+				)
+			)
+	`
+	return rows.map((r) => r.permission)
+}
+
+export interface AclEntryRow {
+	readonly id: string
+	readonly workspaceId: string
+	readonly resourceType: 'project' | 'doc_page' | 'channel' | 'mail_account'
+	readonly resourceId: string
+	readonly principalType: 'user' | 'role' | 'workspace'
+	readonly principalId: string | null
+	readonly permission: 'read' | 'comment' | 'write' | 'manage'
+	readonly grantedBy: string | null
+	readonly createdAt: string
+}
+
+export async function insertAclEntry(
+	tx: Queryable,
+	args: {
+		workspaceId: string
+		resourceType: 'project' | 'doc_page' | 'channel' | 'mail_account'
+		resourceId: string
+		principalType: 'user' | 'role' | 'workspace'
+		principalId: string | null
+		permission: 'read' | 'comment' | 'write' | 'manage'
+		grantedBy: string
+	}
+): Promise<AclEntryRow> {
+	const [existing] = await tx<AclEntryRow[]>`
+		SELECT
+			id,
+			workspace_id AS "workspaceId",
+			resource_type AS "resourceType",
+			resource_id AS "resourceId",
+			principal_type AS "principalType",
+			principal_id AS "principalId",
+			permission,
+			granted_by AS "grantedBy",
+			created_at::text AS "createdAt"
+		FROM acl_entries
+		WHERE workspace_id = ${args.workspaceId}
+			AND resource_type = ${args.resourceType}
+			AND resource_id = ${args.resourceId}
+			AND principal_type = ${args.principalType}
+			AND COALESCE(principal_id, '00000000-0000-7000-8000-000000000000'::uuid) =
+				COALESCE(${args.principalId}::uuid, '00000000-0000-7000-8000-000000000000'::uuid)
+			AND permission = ${args.permission}
+	`
+	if (existing) return existing
+
+	const [row] = await tx<AclEntryRow[]>`
+		INSERT INTO acl_entries (
+			workspace_id, resource_type, resource_id, principal_type, principal_id, permission, granted_by
+		)
+		VALUES (
+			${args.workspaceId}, ${args.resourceType}, ${args.resourceId},
+			${args.principalType}, ${args.principalId}, ${args.permission}, ${args.grantedBy}
+		)
+		RETURNING
+			id,
+			workspace_id AS "workspaceId",
+			resource_type AS "resourceType",
+			resource_id AS "resourceId",
+			principal_type AS "principalType",
+			principal_id AS "principalId",
+			permission,
+			granted_by AS "grantedBy",
+			created_at::text AS "createdAt"
+	`
+	if (!row) throw new Error('Failed to insert acl_entries row')
+	return row
+}
+
+export async function listResourceAclEntries(
+	tx: Queryable,
+	workspaceId: string,
+	resourceType: string,
+	resourceId: string
+): Promise<AclEntryRow[]> {
+	return tx<AclEntryRow[]>`
+		SELECT
+			id,
+			workspace_id AS "workspaceId",
+			resource_type AS "resourceType",
+			resource_id AS "resourceId",
+			principal_type AS "principalType",
+			principal_id AS "principalId",
+			permission,
+			granted_by AS "grantedBy",
+			created_at::text AS "createdAt"
+		FROM acl_entries
+		WHERE workspace_id = ${workspaceId}
+			AND resource_type = ${resourceType}
+			AND resource_id = ${resourceId}
+		ORDER BY created_at ASC
+	`
+}
+
+export async function deleteAclEntryById(
+	tx: Queryable,
+	workspaceId: string,
+	aclId: string
+): Promise<AclEntryRow | null> {
+	const [row] = await tx<AclEntryRow[]>`
+		DELETE FROM acl_entries
+		WHERE workspace_id = ${workspaceId} AND id = ${aclId}
+		RETURNING
+			id,
+			workspace_id AS "workspaceId",
+			resource_type AS "resourceType",
+			resource_id AS "resourceId",
+			principal_type AS "principalType",
+			principal_id AS "principalId",
+			permission,
+			granted_by AS "grantedBy",
+			created_at::text AS "createdAt"
+	`
+	return row ?? null
+}
+
+export async function listMembers(tx: Queryable, workspaceId: string): Promise<MembershipSummaryRow[]> {
+	return tx<MembershipSummaryRow[]>`
+		SELECT
+			m.user_id AS "userId",
+			u.email::text AS email,
+			u.display_name AS "displayName",
+			u.avatar_url AS "avatarUrl",
+			m.role_id AS "roleId",
+			r.key AS "roleKey",
+			r.rank AS "roleRank",
+			m.status
+		FROM memberships m
+		JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL
+		JOIN roles r ON r.workspace_id = m.workspace_id AND r.id = m.role_id
+		WHERE m.workspace_id = ${workspaceId}
+		ORDER BY u.display_name ASC, u.email ASC
+	`
+}

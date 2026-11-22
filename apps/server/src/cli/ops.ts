@@ -5,12 +5,12 @@
  */
 
 import { mkdir } from 'node:fs/promises'
-import { migrate } from '@huriro/db'
+import { migrate, migrationsDir } from '@huriro/db'
 import postgres from 'postgres'
 import { loadEnv } from '../env'
 
 export async function migrateCmd(args: string[]): Promise<void> {
-	const dir = flag(args, '--dir') ?? 'packages/db/migrations'
+	const dir = flag(args, '--dir') ?? migrationsDir
 	const env = await loadEnv()
 	const sql = postgres(env.databaseAdminUrl, { max: 1 })
 	try {

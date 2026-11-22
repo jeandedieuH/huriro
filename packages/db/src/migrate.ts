@@ -23,6 +23,9 @@ export interface AppliedMigration {
 
 const FILE_RE = /^(\d{4})_[a-z0-9_]+\.sql$/
 
+/** Canonical migrations dir — resolved from this file so callers work from any cwd. */
+export const migrationsDir = join(import.meta.dir, '..', 'migrations')
+
 export function listMigrationFiles(dir: string): { version: number; name: string; path: string }[] {
 	return readdirSync(dir)
 		.filter((f) => FILE_RE.test(f))

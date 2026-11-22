@@ -1,5 +1,16 @@
 import { describe, expect, test } from 'bun:test'
-import { decodeCursor, ERROR_CODES, ERROR_DOC_BASE, encodeCursor, problem } from './index'
+import Value from 'typebox/value'
+import {
+	CreateIssueBody,
+	CreateProjectBody,
+	decodeCursor,
+	ERROR_CODES,
+	ERROR_DOC_BASE,
+	encodeCursor,
+	ImportDryRunBody,
+	MutationEnvelope,
+	problem
+} from './index'
 
 describe('problem()', () => {
 	test('builds RFC 9457 body with stable code and doc URL', () => {
@@ -41,5 +52,37 @@ describe('cursors', () => {
 	test('decode returns undefined for empty/garbage input', () => {
 		expect(decodeCursor(undefined)).toBeUndefined()
 		expect(decodeCursor('not-a-cursor!!!')).toBeUndefined()
+	})
+})
+
+describe('M1 wire contracts', () => {
+	test('CreateProjectBody validates key format', () => {
+		expect(Value.Check(CreateProjectBody, { key: 'ENG', name: 'Engineering' })).toBe(true)
+		expect(Value.Check(CreateProjectBody, { key: 'bad-key', name: 'Engineering' })).toBe(false)
+	})
+
+	test('CreateIssueBody validates priority bounds', () => {
+		const projectId = '0190a0b1-9a9a-7000-8000-000000000001'
+		expect(Value.Check(CreateIssueBody, { projectId, title: 'Fix bug', priority: 3 })).toBe(true)
+		expect(Value.Check(CreateIssueBody, { projectId, title: 'Fix bug', priority: 9 })).toBe(false)
+	})
+
+	test('MutationEnvelope validates op and entity enums', () => {
+		expect(
+			Value.Check(MutationEnvelope, {
+				mutationId: '0190a0b1-9a9a-7000-8000-000000000001',
+				workspaceId: '0190a0b1-9a9a-7000-8000-000000000002',
+				entity: 'issue',
+				entityId: '0190a0b1-9a9a-7000-8000-000000000003',
+				op: 'update',
+				patch: { title: 'New' },
+				baseVersion: 1
+			})
+		).toBe(true)
+	})
+
+	test('ImportDryRunBody validates source union', () => {
+		expect(Value.Check(ImportDryRunBody, { source: 'linear' })).toBe(true)
+		expect(Value.Check(ImportDryRunBody, { source: 'jira' })).toBe(false)
 	})
 })

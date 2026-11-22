@@ -87,4 +87,84 @@ describe('api contract', () => {
 		const body = (await res.json()) as { code?: string }
 		expect(body.code).toBe('validation_failed')
 	})
+
+	// ---- M1 route contracts & security headers ----
+
+	test('security headers are attached to responses', async () => {
+		const res = await app.handle(new Request('http://t/health'))
+		expect(res.headers.get('x-content-type-options')).toBe('nosniff')
+		expect(res.headers.get('x-frame-options')).toBe('DENY')
+		expect(res.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin')
+	})
+
+	test('GET /projects without auth → 501 problem+json', async () => {
+		const res = await app.handle(
+			new Request('http://t/api/v1/projects', {
+				headers: { 'x-workspace-id': crypto.randomUUID() }
+			})
+		)
+		expect(res.status).toBe(501)
+		expect(res.headers.get('content-type')).toContain('application/problem+json')
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('not_implemented')
+	})
+
+	test('POST /issues rejects invalid project key / priority before auth or returns 422/501', async () => {
+		const res = await app.handle(
+			new Request('http://t/api/v1/issues', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', 'x-workspace-id': crypto.randomUUID() },
+				body: JSON.stringify({ projectId: crypto.randomUUID(), title: 'Bad', priority: 9 })
+			})
+		)
+		expect(res.status).toBe(422)
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('validation_failed')
+	})
+
+	test('GET /sync/changes without auth → 501 problem+json', async () => {
+		const res = await app.handle(
+			new Request('http://t/api/v1/sync/changes?since=0', {
+				headers: { 'x-workspace-id': crypto.randomUUID() }
+			})
+		)
+		expect(res.status).toBe(501)
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('not_implemented')
+	})
+
+	test('GET /search without auth → 501 problem+json', async () => {
+		const res = await app.handle(
+			new Request('http://t/api/v1/search?q=bug', {
+				headers: { 'x-workspace-id': crypto.randomUUID() }
+			})
+		)
+		expect(res.status).toBe(501)
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('not_implemented')
+	})
+
+	test('GET /notifications without auth → 501 problem+json', async () => {
+		const res = await app.handle(
+			new Request('http://t/api/v1/notifications', {
+				headers: { 'x-workspace-id': crypto.randomUUID() }
+			})
+		)
+		expect(res.status).toBe(501)
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('not_implemented')
+	})
+
+	test('POST /imports/dry-run validates source union', async () => {
+		const res = await app.handle(
+			new Request('http://t/api/v1/imports/dry-run', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', 'x-workspace-id': crypto.randomUUID() },
+				body: JSON.stringify({ source: 'jira' })
+			})
+		)
+		expect(res.status).toBe(422)
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('validation_failed')
+	})
 })

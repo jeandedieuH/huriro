@@ -5,17 +5,35 @@
 
 import { createHash, randomBytes } from 'node:crypto'
 import type { Queryable } from '@huriro/db'
-import { SYSTEM_ROLES } from '@huriro/domain'
+import {
+	type AclLevel,
+	type AclResourceType,
+	type Action,
+	type ActorContext,
+	aclSatisfies,
+	isAction,
+	SYSTEM_ROLES
+} from '@huriro/domain'
+import { appendChange } from '../../api/changelog'
+import { HttpError } from '../../api/error'
 import { TENANCY_EVENTS } from './events'
 import {
+	type AclEntryRow,
 	audit,
+	deleteAclEntryById,
 	emitEvent,
 	findPendingInvitation,
+	getActorMembershipAndPermissions,
+	insertAclEntry,
 	insertInvitation,
 	insertMembership,
 	insertRole,
 	insertRolePermission,
 	insertWorkspace,
+	listMembers,
+	listResourceAclEntries,
+	listResourceAclLevelsForUser,
+	type MembershipSummaryRow,
 	markInvitationAccepted
 } from './repo'
 // insertMembership is used by seedWorkspace; the accept path needs ON CONFLICT
@@ -201,4 +219,206 @@ export async function acceptInvitation(
 	})
 
 	return { workspaceId: invite.workspaceId, membershipCreated: inserted.length > 0 }
+}
+
+// ---------- Actor, ACL & member resolution ----------
+
+export async function resolveActor(
+	tx: Queryable,
+	args: { readonly workspaceId: string; readonly userId: string; readonly requestId?: string | undefined }
+): Promise<ActorContext> {
+	const row = await getActorMembershipAndPermissions(tx, args.workspaceId, args.userId)
+	if (!row) {
+		return {
+			principalId: args.userId,
+			workspaceId: args.workspaceId,
+			kind: 'user',
+			membership: 'none',
+			roleKey: null,
+			roleRank: 0,
+			permissions: new Set<Action>(),
+			requestId: args.requestId
+		}
+	}
+
+	const permissions = new Set<Action>()
+	for (const perm of row.permissions) {
+		if (isAction(perm)) permissions.add(perm)
+	}
+
+	return {
+		principalId: args.userId,
+		workspaceId: args.workspaceId,
+		kind: 'user',
+		membership: row.status,
+		roleKey: row.roleKey,
+		roleRank: row.roleRank,
+		permissions,
+		requestId: args.requestId
+	}
+}
+
+export async function resolveResourceAcl(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly resourceType: AclResourceType
+		readonly resourceId: string
+		readonly userId: string
+	}
+): Promise<AclLevel | null> {
+	const levels = await listResourceAclLevelsForUser(tx, args)
+	if (levels.length === 0) return null
+	let best: AclLevel = 'read'
+	for (const level of levels) {
+		if (aclSatisfies(level, best)) best = level
+	}
+	return best
+}
+
+export async function listWorkspaceMembers(
+	tx: Queryable,
+	workspaceId: string
+): Promise<MembershipSummaryRow[]> {
+	return listMembers(tx, workspaceId)
+}
+
+export async function listAclEntriesForResource(
+	tx: Queryable,
+	workspaceId: string,
+	resourceType: AclResourceType,
+	resourceId: string
+): Promise<AclEntryRow[]> {
+	return listResourceAclEntries(tx, workspaceId, resourceType, resourceId)
+}
+
+export async function grantAcl(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly resourceType: AclResourceType
+		readonly resourceId: string
+		readonly principalType: 'user' | 'role' | 'workspace'
+		readonly principalId: string | null
+		readonly permission: AclLevel
+		readonly grantedBy: string
+	}
+): Promise<{ readonly entry: AclEntryRow; readonly cursor: number }> {
+	if (args.principalType === 'workspace' && args.principalId !== null) {
+		throw new HttpError(422, 'validation_failed', 'principalId must be null for workspace ACL')
+	}
+	if (args.principalType !== 'workspace' && !args.principalId) {
+		throw new HttpError(422, 'validation_failed', 'principalId is required for user/role ACL')
+	}
+
+	const entry = await insertAclEntry(tx, args)
+
+	await emitEvent(tx, {
+		aggregate: 'acl',
+		aggregateId: entry.id,
+		eventType: TENANCY_EVENTS.AclGranted,
+		workspaceId: args.workspaceId,
+		payload: {
+			aclId: entry.id,
+			resourceType: args.resourceType,
+			resourceId: args.resourceId,
+			principalType: args.principalType,
+			principalId: args.principalId,
+			permission: args.permission,
+			grantedBy: args.grantedBy
+		}
+	})
+
+	await audit(tx, {
+		workspaceId: args.workspaceId,
+		actorType: 'user',
+		actorId: args.grantedBy,
+		action: 'acl.grant',
+		targetType: args.resourceType,
+		targetId: args.resourceId,
+		metadata: {
+			principalType: args.principalType,
+			principalId: args.principalId,
+			permission: args.permission
+		}
+	})
+
+	// Map resourceType to SyncEntityType for change_log grant event (§9.3).
+	const syncEntityType = args.resourceType === 'project' ? 'project' : 'project'
+	const scope = [`${args.resourceType}:${args.resourceId}`]
+	const cursor = await appendChange(tx, args.workspaceId, {
+		entityType: syncEntityType,
+		entityId: args.resourceId,
+		action: 'grant',
+		scope,
+		payload: {
+			resourceType: args.resourceType,
+			resourceId: args.resourceId,
+			principalType: args.principalType,
+			principalId: args.principalId,
+			permission: args.permission
+		},
+		actorId: args.grantedBy
+	})
+
+	return { entry, cursor }
+}
+
+export async function revokeAcl(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly aclId: string
+		readonly revokedBy: string
+	}
+): Promise<{ readonly entry: AclEntryRow; readonly cursor: number }> {
+	const entry = await deleteAclEntryById(tx, args.workspaceId, args.aclId)
+	if (!entry) {
+		throw new HttpError(404, 'not_found', 'ACL entry not found')
+	}
+
+	await emitEvent(tx, {
+		aggregate: 'acl',
+		aggregateId: entry.id,
+		eventType: TENANCY_EVENTS.AclRevoked,
+		workspaceId: args.workspaceId,
+		payload: {
+			aclId: entry.id,
+			resourceType: entry.resourceType,
+			resourceId: entry.resourceId,
+			principalType: entry.principalType,
+			principalId: entry.principalId,
+			revokedBy: args.revokedBy
+		}
+	})
+
+	await audit(tx, {
+		workspaceId: args.workspaceId,
+		actorType: 'user',
+		actorId: args.revokedBy,
+		action: 'acl.revoke',
+		targetType: entry.resourceType,
+		targetId: entry.resourceId,
+		metadata: {
+			principalType: entry.principalType,
+			principalId: entry.principalId,
+			permission: entry.permission
+		}
+	})
+
+	const cursor = await appendChange(tx, args.workspaceId, {
+		entityType: 'project',
+		entityId: entry.resourceId,
+		action: 'revoke',
+		scope: [`${entry.resourceType}:${entry.resourceId}`],
+		payload: {
+			resourceType: entry.resourceType,
+			resourceId: entry.resourceId,
+			principalType: entry.principalType,
+			principalId: entry.principalId
+		},
+		actorId: args.revokedBy
+	})
+
+	return { entry, cursor }
 }

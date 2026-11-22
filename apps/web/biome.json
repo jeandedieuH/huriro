@@ -4,13 +4,28 @@
 	"files": {
 		"includes": [
 			"src",
+			"scripts",
 			".storybook",
 			"visual",
 			"vite.config.ts",
 			"playwright.config.ts",
 			"!dist",
+			"!.output",
 			"!storybook-static",
-			"!src/styles"
+			"!src/styles",
+			"!src/routeTree.gen.ts"
 		]
-	}
+	},
+	"overrides": [
+		{
+			"includes": ["scripts/**"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noConsole": "off"
+					}
+				}
+			}
+		}
+	]
 }

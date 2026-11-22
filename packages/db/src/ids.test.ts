@@ -42,7 +42,7 @@ describe('listMigrationFiles', () => {
 	test('returns ordered NNNN_name.sql entries', () => {
 		const files = listMigrationFiles(migrationsDir)
 		expect(files.length).toBeGreaterThanOrEqual(4)
-		expect(files.map((f) => f.version)).toEqual([1, 2, 3, 4, 5])
+		expect(files.map((f) => f.version)).toEqual([1, 2, 3, 4, 5, 6])
 		expect(files[0]?.name).toBe('0001_foundation.sql')
 	})
 })

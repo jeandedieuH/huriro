@@ -40,7 +40,9 @@ export const ACTIONS = [
 	'approval.decide',
 	// audit & admin
 	'audit.read',
-	'settings.manage'
+	'settings.manage',
+	// imports
+	'import.run'
 ] as const
 
 export type Action = (typeof ACTIONS)[number]

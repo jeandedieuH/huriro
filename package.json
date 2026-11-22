@@ -24,8 +24,8 @@
 		"check:licenses": "bun scripts/check-licenses.ts",
 		"smoke:compose": "bun scripts/compose-smoke.ts",
 		"verify": "turbo lint typecheck test build gen:check && bun run check:boundaries && bun run check:licenses",
-		"migrate": "bun apps/server/src/index.ts migrate",
-		"doctor": "bun apps/server/src/index.ts doctor"
+		"migrate": "bun --cwd apps/server src/index.ts migrate",
+		"doctor": "bun --cwd apps/server src/index.ts doctor"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.6.8",
@@ -33,6 +33,10 @@
 		"dependency-cruiser": "18.8.0",
 		"turbo": "2.11.11",
 		"typescript": "^7.1.0-beta"
+	},
+	"overrides": {
+		"vite": "npm:@voidzero-dev/vite-plus-core@8.3.8000",
+		"vitest": "5.1.0"
 	},
 	"packageManager": "bun@1.4.5"
 }

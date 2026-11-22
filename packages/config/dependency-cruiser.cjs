@@ -108,14 +108,18 @@ module.exports = {
 			name: 'no-server-only-in-clients',
 			severity: 'error',
 			comment: 'Server-only code must never reach a client bundle (§7.4)',
-			from: { path: 'apps/(web|mobile)/' },
-			to: { path: 'packages/(db|test-utils)/' }
+			from: { path: '(apps/(web|mobile)|packages/sync-client)/' },
+			to: { path: '(packages/(db|test-utils)|apps/server)/' }
 		},
 		...appPairRules,
 		...moduleInternalRules,
 		...schemaBoundaryRules
 	],
 	options: {
+		// Generated/bundled artifacts are not source: Nitro output (apps/web/.output),
+		// the static Storybook bundle, and TanStack's generated route tree
+		// (type-only back-imports by design).
+		exclude: { path: '\\.output/|storybook-static/|routeTree\\.gen\\.[tj]sx?$' },
 		doNotFollow: { path: 'node_modules' },
 		tsPreCompilationDeps: true,
 		enhancedResolveOptions: {

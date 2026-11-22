@@ -18,7 +18,22 @@ export const TENANT_TABLES = [
 	'change_log',
 	'sync_cursors',
 	'idempotency_keys',
-	'files'
+	'files',
+	'realtime_tickets',
+	'projects',
+	'project_statuses',
+	'labels',
+	'cycles',
+	'issue_counters',
+	'issues',
+	'issue_labels',
+	'issue_relations',
+	'issue_comments',
+	'saved_views',
+	'search_documents',
+	'notifications',
+	'import_jobs',
+	'import_mappings'
 ] as const
 
 /**

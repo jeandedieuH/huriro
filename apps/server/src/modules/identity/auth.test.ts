@@ -17,8 +17,8 @@ const fakeConfig = {
 	secretKey: 'a'.repeat(48),
 	betterAuthSecret: 'b'.repeat(48),
 	PASSKEY_RP_NAME: 'Huriro',
-	PORT: 3000,
-	WS_PORT: 3001,
+	PORT: 3001,
+	WS_PORT: 3005,
 	LOG_LEVEL: 'error',
 	BLOB_STORE: 'fs',
 	BLOB_DIR: '/tmp'

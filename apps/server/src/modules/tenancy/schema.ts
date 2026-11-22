@@ -34,3 +34,43 @@ export const ReadyResponse = Type.Object({
 		migrationsPending: Type.Integer()
 	})
 })
+
+export const InviteBody = Type.Object({
+	workspaceId: Type.String({ format: 'uuid' }),
+	email: Type.String({ format: 'email' }),
+	role: Type.Union([Type.Literal('admin'), Type.Literal('member'), Type.Literal('guest')])
+})
+
+export const AcceptBody = Type.Object({ token: Type.String({ minLength: 20 }) })
+
+export const AclListQuery = Type.Object({
+	resourceType: Type.Union([
+		Type.Literal('project'),
+		Type.Literal('doc_page'),
+		Type.Literal('channel'),
+		Type.Literal('mail_account')
+	]),
+	resourceId: Type.String({ format: 'uuid' })
+})
+
+export const AclIdParam = Type.Object({
+	id: Type.String({ format: 'uuid' })
+})
+
+export const GrantAclBody = Type.Object({
+	resourceType: Type.Union([
+		Type.Literal('project'),
+		Type.Literal('doc_page'),
+		Type.Literal('channel'),
+		Type.Literal('mail_account')
+	]),
+	resourceId: Type.String({ format: 'uuid' }),
+	principalType: Type.Union([Type.Literal('user'), Type.Literal('role'), Type.Literal('workspace')]),
+	principalId: Type.Optional(Type.Union([Type.String({ format: 'uuid' }), Type.Null()])),
+	permission: Type.Union([
+		Type.Literal('read'),
+		Type.Literal('comment'),
+		Type.Literal('write'),
+		Type.Literal('manage')
+	])
+})

@@ -73,9 +73,9 @@ Single source of truth: **DTCG-format JSON** (2025.10 stable spec) in `packages/
 
 /* Layer 1 — primitives (raw ramp, generated in OKLCH) */
 @theme {
-  --color-brand-50:  oklch(0.97 0.02 265);
-  --color-brand-500: oklch(0.62 0.19 265);
-  --color-brand-600: oklch(0.55 0.20 265);
+  --color-brand-50:  oklch(0.97 0.015 12.21);
+  --color-brand-500: oklch(0.6656 0.2067 12.21);
+  --color-brand-600: oklch(0.575 0.215 12.21);
   --color-neutral-0: oklch(1.00 0 0);
   --color-neutral-50: oklch(0.98 0.002 265);
   /* … */
@@ -106,7 +106,7 @@ Single source of truth: **DTCG-format JSON** (2025.10 stable spec) in `packages/
   --color-ink-primary: oklch(0.96 0.003 265);
   --color-ink-secondary: oklch(0.82 0.004 265);
   --color-border-subtle: oklch(0.30 0.008 265);
-  --color-accent: oklch(0.72 0.16 265);   /* lighter for dark surfaces */
+  --color-accent: oklch(0.72 0.17 12.21);   /* lighter for dark surfaces */
 }
 ```
 

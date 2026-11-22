@@ -4,10 +4,16 @@
  * `.listen()` lives in the process entrypoint only.
  */
 import { openapi } from '@elysia/openapi'
-import { pendingMigrations, type Sql } from '@huriro/db'
+import { pendingMigrations, type Sql, withSystem } from '@huriro/db'
 import { Elysia } from 'elysia'
 import type { Auth } from '../modules/identity'
-import { tenancyGroup } from '../modules/tenancy'
+import { importsModule } from '../modules/imports'
+import { notificationsModule } from '../modules/notifications'
+import { searchModule } from '../modules/search'
+import { syncModule } from '../modules/sync'
+import { tasksModule } from '../modules/tasks'
+import { tenancyModule } from '../modules/tenancy'
+import type { RealtimePubSub } from '../realtime/pubsub'
 import { HttpError, toProblem } from './error'
 import { log, metrics, observability } from './observability'
 
@@ -16,13 +22,21 @@ export interface AppDeps {
 	readonly migrationsDir: string
 	readonly mode: 'selfhost' | 'cloud'
 	readonly auth: Auth | null
+	readonly pubsub?: RealtimePubSub
 }
 
 export function createApp(deps: AppDeps) {
-	const { sql, migrationsDir, mode, auth } = deps
+	const { sql, migrationsDir, mode, auth, pubsub } = deps
 
 	const base = new Elysia({ name: 'huriro.api' })
 		.use(observability)
+		.onAfterHandle(({ set }) => {
+			// Security headers closing M0 threat-model open risk #4 (§12.6).
+			set.headers['x-content-type-options'] = 'nosniff'
+			set.headers['x-frame-options'] = 'DENY'
+			set.headers['referrer-policy'] = 'strict-origin-when-cross-origin'
+			set.headers['permissions-policy'] = 'camera=(), microphone=(), geolocation=()'
+		})
 		// ---- error contract: everything out the door is problem+json (§16.2) ----
 		.onError(({ error, store, request, set }) => {
 			const path = new URL(request.url).pathname
@@ -40,7 +54,14 @@ export function createApp(deps: AppDeps) {
 			openapi({
 				documentation: {
 					info: { title: 'Huriro API', version: '0.1.0', description: 'Workspace platform API (v1)' },
-					tags: [{ name: 'tenancy', description: 'Workspaces, membership, bootstrap' }]
+					tags: [
+						{ name: 'tenancy', description: 'Workspaces, membership, bootstrap, ACLs' },
+						{ name: 'tasks', description: 'Projects, statuses, labels, cycles, issues, views' },
+						{ name: 'sync', description: 'Change log delta, snapshots, batch mutations, realtime tickets' },
+						{ name: 'search', description: 'Unified workspace FTS + trigram search' },
+						{ name: 'notifications', description: 'In-app triage notifications' },
+						{ name: 'imports', description: 'Linear and GitHub Issues importers' }
+					]
 				}
 			})
 		)
@@ -66,12 +87,26 @@ export function createApp(deps: AppDeps) {
 		})
 		// ---- feature flags (ADR-0013: typed, server-evaluated; read-only here) ----
 		.get('/api/v1/flags', async () => {
-			const rows = await sql<{ key: string; enabled: boolean; rollout: number }[]>`
-				SELECT key, enabled, rollout FROM feature_flags ORDER BY key
-			`
+			const rows = await withSystem(
+				sql,
+				(tx) =>
+					tx<{ key: string; enabled: boolean; rollout: number }[]>`
+						SELECT key, enabled, rollout FROM feature_flags ORDER BY key
+					`
+			)
 			return Object.fromEntries(rows.map((r) => [r.key, { enabled: r.enabled, rollout: r.rollout }]))
 		})
-		.group('/api/v1', tenancyGroup(sql, mode, auth))
+		// 1 Elysia instance = 1 controller (elysiajs.com/essential/best-practice):
+		// each module derives its workspace context via `workspaceDerive`.
+		.group('/api/v1', (api) =>
+			api
+				.use(tenancyModule(sql, mode, auth, pubsub))
+				.use(tasksModule(sql, auth, pubsub))
+				.use(syncModule(sql, auth, pubsub))
+				.use(searchModule(sql, auth))
+				.use(notificationsModule(sql, auth, pubsub))
+				.use(importsModule(sql, auth, pubsub))
+		)
 
 	// better-auth mounts its own router at /api/auth/* when configured — it
 	// owns its response shapes there; /api/v1 keeps the problem+json contract.

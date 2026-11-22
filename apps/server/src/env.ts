@@ -1,98 +1,13 @@
 /**
- * Environment schema (§7.5): the process refuses to boot on a missing/invalid
- * variable and prints exactly which and why. `*_FILE` indirection so secrets
- * never appear in `docker inspect`. `.env['example']` is GENERATED from this
- * schema by `cli/genenv['ts']` — update the schema, never the file.
+ * Server config loader (§7.5): the zod contract lives in @huriro/env/server
+ * (parsed via t3-env — a bad boot lists every invalid variable); this module
+ * adds `*_FILE` indirection so secrets never appear in `docker inspect`, plus
+ * the cross-field rules a schema can't express. `.env['example']` is GENERATED
+ * by `cli/genenv['ts']` — update @huriro/env, never the file.
  */
-import { type Static, Type } from 'typebox'
+import { createServerEnv, type ServerEnv } from '@huriro/env/server'
 
-export const EnvSchema = Type.Object({
-	// ---- identity of the instance ----
-	HURIRO_URL: Type.String({
-		description: 'Public base URL, e.g. https://app.example.com',
-		default: 'http://localhost:3000'
-	}),
-	HURIRO_DOMAIN: Type.Optional(
-		Type.String({ description: 'Public hostname (Caddyfile/ingress). Set by `huriro init`.' })
-	),
-	HURIRO_ENV: Type.Union([Type.Literal('development'), Type.Literal('production'), Type.Literal('test')], {
-		default: 'development',
-		description: 'development | production | test'
-	}),
-	HURIRO_MODE: Type.Union([Type.Literal('selfhost'), Type.Literal('cloud')], {
-		default: 'selfhost',
-		description: 'Cloud-only code paths (billing, abuse controls) require `cloud` (§2.5)'
-	}),
-
-	// ---- data ----
-	DATABASE_URL: Type.Optional(Type.String({ description: 'postgres://… as role huriro_app (or use _FILE)' })),
-	DATABASE_URL_FILE: Type.Optional(
-		Type.String({ description: 'Path to file containing DATABASE_URL (Docker secret)' })
-	),
-	DATABASE_ADMIN_URL: Type.Optional(
-		Type.String({ description: 'postgres://… privileged role for migrations/pg-boss/CLI' })
-	),
-	DATABASE_ADMIN_URL_FILE: Type.Optional(Type.String()),
-	DATABASE_AUTH_URL: Type.Optional(
-		Type.String({ description: 'postgres://… as role huriro_auth — identity/session lookups only' })
-	),
-	DATABASE_AUTH_URL_FILE: Type.Optional(Type.String()),
-
-	// ---- auth (better-auth: email/password + passkey + TOTP, ADR-0003) ----
-	BETTER_AUTH_SECRET: Type.Optional(
-		Type.String({
-			description: 'Cookie/session signing secret (≥32 chars); falls back to HKDF of HURIRO_SECRET_KEY'
-		})
-	),
-	BETTER_AUTH_SECRET_FILE: Type.Optional(Type.String()),
-	PASSKEY_RP_ID: Type.Optional(
-		Type.String({ description: 'WebAuthn relying-party id — defaults to HURIRO_URL hostname' })
-	),
-	PASSKEY_RP_NAME: Type.String({ default: 'Huriro', description: 'Shown in the authenticator prompt' }),
-	PASSKEY_ORIGIN: Type.Optional(
-		Type.String({ description: 'Allowed passkey origin(s), comma-separated — defaults to HURIRO_URL' })
-	),
-
-	HURIRO_SECRET_KEY: Type.Optional(
-		Type.String({ description: 'Root key; per-purpose keys derived via HKDF' })
-	),
-	HURIRO_SECRET_KEY_FILE: Type.Optional(Type.String()),
-
-	// ---- storage ----
-	BLOB_STORE: Type.Union([Type.Literal('fs'), Type.Literal('s3')], {
-		default: 'fs',
-		description: 'fs (local volume) | s3'
-	}),
-	BLOB_DIR: Type.String({
-		default: '/var/lib/huriro/files',
-		description: 'Filesystem blob root when BLOB_STORE=fs'
-	}),
-	S3_ENDPOINT: Type.Optional(Type.String()),
-	S3_BUCKET: Type.Optional(Type.String()),
-	S3_ACCESS_KEY: Type.Optional(Type.String()),
-	S3_SECRET_KEY: Type.Optional(Type.String()),
-
-	// ---- service ----
-	PORT: Type.Integer({ default: 3000, description: 'HTTP port for the api role' }),
-	WS_PORT: Type.Integer({ default: 3001, description: 'WebSocket port for the realtime role' }),
-	LOG_LEVEL: Type.Union(
-		[Type.Literal('debug'), Type.Literal('info'), Type.Literal('warn'), Type.Literal('error')],
-		{
-			default: 'info'
-		}
-	),
-
-	// ---- optional observability (ADR-0014: never required on self-host) ----
-	OTEL_ENDPOINT: Type.Optional(
-		Type.String({ description: 'OTLP collector endpoint; unset = no tracing export' })
-	),
-	ERROR_DSN: Type.Optional(Type.String({ description: 'GlitchTip/Sentry DSN; unset = no error reporting' })),
-	HEARTBEAT_URL: Type.Optional(
-		Type.String({ description: 'Dead-man-switch URL the worker pings on job health' })
-	)
-})
-
-export type Env = Static<typeof EnvSchema>
+export type Env = ServerEnv
 
 async function readSecretFile(path: string | undefined): Promise<string | undefined> {
 	if (!path) return undefined
@@ -121,73 +36,24 @@ let cached: Config | null = null
 export async function loadEnv(source: Record<string, string | undefined> = process.env): Promise<Config> {
 	if (cached) return cached
 
+	// t3-env + zod does per-variable validation (types, enums, formats,
+	// defaults); what remains here is _FILE resolution and cross-field rules.
+	const env = createServerEnv(source)
 	const problems: string[] = []
-	const env: Record<string, string | undefined> = {}
-	for (const key of Object.keys(EnvSchema.properties)) {
-		env[key] = source[key]
-	}
 
-	// Apply defaults and required checks manually (TypeBox Value would also work;
-	// manual keeps error messages operator-friendly).
-	const parsed = {
-		HURIRO_URL: env['HURIRO_URL'] ?? 'http://localhost:3000',
-		HURIRO_DOMAIN: env['HURIRO_DOMAIN'],
-		HURIRO_ENV: env['HURIRO_ENV'] ?? 'development',
-		HURIRO_MODE: env['HURIRO_MODE'] ?? 'selfhost',
-		DATABASE_URL: env['DATABASE_URL'],
-		DATABASE_URL_FILE: env['DATABASE_URL_FILE'],
-		DATABASE_ADMIN_URL: env['DATABASE_ADMIN_URL'],
-		DATABASE_ADMIN_URL_FILE: env['DATABASE_ADMIN_URL_FILE'],
-		DATABASE_AUTH_URL: env['DATABASE_AUTH_URL'],
-		DATABASE_AUTH_URL_FILE: env['DATABASE_AUTH_URL_FILE'],
-		BETTER_AUTH_SECRET: env['BETTER_AUTH_SECRET'],
-		BETTER_AUTH_SECRET_FILE: env['BETTER_AUTH_SECRET_FILE'],
-		PASSKEY_RP_ID: env['PASSKEY_RP_ID'],
-		PASSKEY_RP_NAME: env['PASSKEY_RP_NAME'] ?? 'Huriro',
-		PASSKEY_ORIGIN: env['PASSKEY_ORIGIN'],
-		HURIRO_SECRET_KEY: env['HURIRO_SECRET_KEY'],
-		HURIRO_SECRET_KEY_FILE: env['HURIRO_SECRET_KEY_FILE'],
-		BLOB_STORE: env['BLOB_STORE'] ?? 'fs',
-		BLOB_DIR: env['BLOB_DIR'] ?? '/var/lib/huriro/files',
-		S3_ENDPOINT: env['S3_ENDPOINT'],
-		S3_BUCKET: env['S3_BUCKET'],
-		S3_ACCESS_KEY: env['S3_ACCESS_KEY'],
-		S3_SECRET_KEY: env['S3_SECRET_KEY'],
-		PORT: env['PORT'] ? Number.parseInt(env['PORT'], 10) : 3000,
-		WS_PORT: env['WS_PORT'] ? Number.parseInt(env['WS_PORT'], 10) : 3001,
-		LOG_LEVEL: env['LOG_LEVEL'] ?? 'info',
-		OTEL_ENDPOINT: env['OTEL_ENDPOINT'],
-		ERROR_DSN: env['ERROR_DSN'],
-		HEARTBEAT_URL: env['HEARTBEAT_URL']
-	} satisfies Record<string, string | number | undefined>
-
-	if (!['development', 'production', 'test'].includes(String(parsed.HURIRO_ENV))) {
-		problems.push(`HURIRO_ENV must be development|production|test, got "${parsed.HURIRO_ENV}"`)
-	}
-	if (!['selfhost', 'cloud'].includes(String(parsed.HURIRO_MODE))) {
-		problems.push(`HURIRO_MODE must be selfhost|cloud, got "${parsed.HURIRO_MODE}"`)
-	}
-
-	const databaseUrl =
-		parsed.DATABASE_URL ?? (await readSecretFile(parsed.DATABASE_URL_FILE as string | undefined))
+	const databaseUrl = env.DATABASE_URL ?? (await readSecretFile(env.DATABASE_URL_FILE))
 	const databaseAdminUrl =
-		parsed.DATABASE_ADMIN_URL ??
-		(await readSecretFile(parsed.DATABASE_ADMIN_URL_FILE as string | undefined)) ??
-		databaseUrl // minimal self-host: one privileged URL acceptable, doctor warns
+		env.DATABASE_ADMIN_URL ?? (await readSecretFile(env.DATABASE_ADMIN_URL_FILE)) ?? databaseUrl // minimal self-host: one privileged URL acceptable, doctor warns
 	const databaseAuthUrl =
-		parsed.DATABASE_AUTH_URL ??
-		(await readSecretFile(parsed.DATABASE_AUTH_URL_FILE as string | undefined)) ??
-		databaseUrl // dev fallback: session lookups through the app role's own URL
-	const secretKey =
-		parsed.HURIRO_SECRET_KEY ?? (await readSecretFile(parsed.HURIRO_SECRET_KEY_FILE as string | undefined))
-	const betterAuthSecret =
-		parsed.BETTER_AUTH_SECRET ?? (await readSecretFile(parsed.BETTER_AUTH_SECRET_FILE as string | undefined))
+		env.DATABASE_AUTH_URL ?? (await readSecretFile(env.DATABASE_AUTH_URL_FILE)) ?? databaseUrl // dev fallback: session lookups through the app role's own URL
+	const secretKey = env.HURIRO_SECRET_KEY ?? (await readSecretFile(env.HURIRO_SECRET_KEY_FILE))
+	const betterAuthSecret = env.BETTER_AUTH_SECRET ?? (await readSecretFile(env.BETTER_AUTH_SECRET_FILE))
 
 	if (!databaseUrl) problems.push('DATABASE_URL or DATABASE_URL_FILE is required')
-	if (parsed.HURIRO_ENV === 'production' && !secretKey) {
+	if (env.HURIRO_ENV === 'production' && !secretKey) {
 		problems.push('HURIRO_SECRET_KEY or HURIRO_SECRET_KEY_FILE is required in production')
 	}
-	if (parsed.BLOB_STORE === 's3' && (!parsed.S3_ENDPOINT || !parsed.S3_BUCKET)) {
+	if (env.BLOB_STORE === 's3' && (!env.S3_ENDPOINT || !env.S3_BUCKET)) {
 		problems.push('S3_ENDPOINT and S3_BUCKET are required when BLOB_STORE=s3')
 	}
 
@@ -198,7 +64,7 @@ export async function loadEnv(source: Record<string, string | undefined> = proce
 	}
 
 	cached = {
-		...(parsed as Env),
+		...env,
 		databaseUrl: databaseUrl!,
 		databaseAdminUrl: databaseAdminUrl!,
 		databaseAuthUrl: databaseAuthUrl!,

@@ -5,45 +5,101 @@
  * with the admin URL. Job HANDLERS do tenant work through the huriro_app pool
  * inside withWorkspace, same as the API (§12.4).
  */
-import type { Sql } from '@huriro/db'
+import { type Sql, withWorkspace } from '@huriro/db'
 import { PgBoss } from 'pg-boss'
 import { log, outboxLag } from '../api/observability'
+import { processNotificationOutboxEvent } from '../modules/notifications'
+import { processSearchOutboxEvent } from '../modules/search'
+import type { RealtimePubSub } from '../realtime/pubsub'
 
 export interface WorkerDeps {
 	readonly adminUrl: string
 	readonly app: Sql
+	readonly pubsub?: RealtimePubSub
 	readonly heartbeatUrl?: string | undefined
 	readonly outboxIntervalMs?: number
 }
 
 const OUTBOX_BATCH = 200
 
+interface PendingOutboxRow {
+	readonly id: string
+	readonly workspaceId: string | null
+	readonly eventType: string
+	readonly payload: Record<string, unknown>
+}
+
 /**
- * Drain pending outbox rows: mark published + record in processed_events so
- * consumers stay idempotent (at-least-once → effect-once, §4.3).
+ * Drain pending outbox rows: dispatch to search & notifications consumers
+ * inside `withWorkspace`, record in `processed_events`, and mark published.
+ * Exported so integration tests can drain synchronously without polling.
  */
-async function drainOutbox(app: Sql): Promise<number> {
-	return app.begin(async (tx) => {
-		const rows = await tx<{ id: string; eventType: string; workspaceId: string | null }[]>`
-			SELECT id, event_type AS "eventType", workspace_id AS "workspaceId"
+export async function drainOutboxOnce(app: Sql, pubsub?: RealtimePubSub): Promise<number> {
+	const rows = await app.begin(async (tx) => {
+		const picked = await tx<PendingOutboxRow[]>`
+			SELECT id, workspace_id AS "workspaceId", event_type AS "eventType", payload
 			FROM outbox
 			WHERE published_at IS NULL
-			ORDER BY created_at
+			ORDER BY created_at ASC
 			LIMIT ${OUTBOX_BATCH}
 			FOR UPDATE SKIP LOCKED
 		`
-		if (rows.length === 0) return 0
-		for (const row of rows) {
-			await tx`
-				INSERT INTO processed_events (consumer, event_id)
-				VALUES ('outbox-drain', ${row.id})
-				ON CONFLICT (consumer, event_id) DO NOTHING
-			`
-			await tx`UPDATE outbox SET published_at = now() WHERE id = ${row.id}`
-		}
-		log.info({ count: rows.length }, 'outbox drained')
-		return rows.length
+		return picked
 	})
+
+	if (rows.length === 0) return 0
+
+	let processedCount = 0
+	const cursorsToPublish = new Map<string, number>()
+
+	for (const row of rows) {
+		try {
+			if (row.workspaceId) {
+				const cursor = await withWorkspace(app, { workspaceId: row.workspaceId }, async (tx) => {
+					await processSearchOutboxEvent(tx, row)
+					const notifRes = await processNotificationOutboxEvent(tx, row)
+					await tx`
+						INSERT INTO processed_events (consumer, event_id)
+						VALUES ('outbox-drain', ${row.id})
+						ON CONFLICT (consumer, event_id) DO NOTHING
+					`
+					await tx`UPDATE outbox SET published_at = now() WHERE id = ${row.id}`
+					return notifRes.cursor
+				})
+				if (cursor !== null) {
+					const prev = cursorsToPublish.get(row.workspaceId)
+					cursorsToPublish.set(row.workspaceId, prev === undefined ? cursor : Math.max(prev, cursor))
+				}
+			} else {
+				await app.begin(async (tx) => {
+					await tx`
+						INSERT INTO processed_events (consumer, event_id)
+						VALUES ('outbox-drain', ${row.id})
+						ON CONFLICT (consumer, event_id) DO NOTHING
+					`
+					await tx`UPDATE outbox SET published_at = now() WHERE id = ${row.id}`
+				})
+			}
+			processedCount++
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err)
+			log.error({ err, outboxId: row.id, eventType: row.eventType }, 'outbox consumer failed')
+			await app`
+				UPDATE outbox
+				SET attempts = attempts + 1, last_error = ${msg}
+				WHERE id = ${row.id}
+			`.catch(() => {})
+		}
+	}
+
+	if (pubsub) {
+		for (const [wsId, cursor] of cursorsToPublish.entries()) {
+			await pubsub.publishCursor(wsId, cursor).catch(() => {})
+		}
+	}
+
+	if (processedCount > 0) log.info({ count: processedCount }, 'outbox drained')
+	return processedCount
 }
 
 async function updateLagMetric(app: Sql) {
@@ -59,7 +115,7 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 	await boss.createQueue('outbox-drain')
 	await boss.schedule('outbox-drain', '*/5 * * * * *', {}, { tz: 'UTC' })
 	await boss.work('outbox-drain', async () => {
-		await drainOutbox(deps.app)
+		await drainOutboxOnce(deps.app, deps.pubsub)
 		await updateLagMetric(deps.app)
 	})
 
@@ -67,7 +123,9 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 	const heartbeatMs = 60_000
 	const heartbeat = deps.heartbeatUrl
 		? setInterval(() => {
-				fetch(deps.heartbeatUrl!).catch((err) => log.warn({ err }, 'heartbeat ping failed'))
+				if (deps.heartbeatUrl) {
+					fetch(deps.heartbeatUrl).catch((err) => log.warn({ err }, 'heartbeat ping failed'))
+				}
 			}, heartbeatMs)
 		: null
 
