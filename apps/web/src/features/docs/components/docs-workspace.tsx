@@ -17,7 +17,6 @@ import { CreateDocDialog } from './create-doc-dialog'
 import { DocImportDialog } from './doc-import-dialog'
 import { DocShareDialog } from './doc-share-dialog'
 import { EditorShell } from './editor-shell'
-import { PageTreeSidebar } from './page-tree-sidebar'
 import { TocRail } from './toc-rail'
 import { VersionTimelinePanel } from './version-timeline-panel'
 
@@ -42,7 +41,6 @@ export function DocsWorkspace({
 	const activePanel = useUiStore((s) => s.activeDocSidePanel)
 	const setActivePanel = useUiStore((s) => s.setActiveDocSidePanel)
 	const setCreateDocOpen = useUiStore((s) => s.setCreateDocOpen)
-	const setDocImportOpen = useUiStore((s) => s.setDocImportOpen)
 	const pushToast = useUiStore((s) => s.pushToast)
 
 	const [members, setMembers] = useState<WorkspaceMemberSummary[]>([])
@@ -117,17 +115,6 @@ export function DocsWorkspace({
 		[onSelectSlug]
 	)
 
-	async function handleMovePage(pageId: string, parentId: string | null) {
-		await engine.moveDocPage(pageId, { parentId })
-	}
-
-	async function handleArchivePage(pageId: string) {
-		await engine.deleteDocPage(pageId)
-		if (detail?.page.id === pageId) {
-			setDetail(null)
-		}
-	}
-
 	async function handleExportMarkdown() {
 		if (!detail) return
 		const res = await api.exportDocMarkdown(detail.page.id)
@@ -145,17 +132,7 @@ export function DocsWorkspace({
 
 	return (
 		<div className="flex h-full min-h-0 flex-1 overflow-hidden">
-			<PageTreeSidebar
-				pages={docPages}
-				activeSlug={activeSlug}
-				onSelectSlug={selectSlug}
-				onCreatePage={() => setCreateDocOpen(true)}
-				onOpenImport={() => setDocImportOpen(true)}
-				onMovePage={handleMovePage}
-				onArchivePage={handleArchivePage}
-			/>
-
-			<main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+			<div className="flex min-w-0 flex-1 flex-col overflow-hidden">
 				{!activeSlug ? (
 					<EmptyState
 						className="m-8"
@@ -220,7 +197,7 @@ export function DocsWorkspace({
 						onHeadingsChange={setHeadings}
 					/>
 				) : null}
-			</main>
+			</div>
 
 			{detail && activePanel ? (
 				<aside

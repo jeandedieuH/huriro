@@ -49,6 +49,15 @@ describe('createServerEnv', () => {
 		expect(env.GITHUB_CLIENT_ID).toBeUndefined()
 		expect(env.APPLE_CLIENT_ID).toBe('apple-id')
 	})
+
+	test('M4 env defaults and optional fields apply cleanly', () => {
+		const env = createServerEnv(REQUIRED_SOURCE)
+		expect(env.CLAMAV_PORT).toBe(3310)
+		expect(env.SMTP_FROM).toBe('noreply@huriro.local')
+		expect(env.VAPID_SUBJECT).toBe('mailto:admin@huriro.local')
+		expect(env.CLAMAV_HOST).toBeUndefined()
+		expect(env.GITHUB_APP_WEBHOOK_SECRET).toBeUndefined()
+	})
 })
 
 describe('describeEnvSchemas', () => {

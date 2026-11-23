@@ -1,7 +1,7 @@
 import { t } from '@huriro/i18n'
 import { useCollectionItems, useSyncEngine } from '@huriro/sync-client'
 import { Archive, Bell, Check, CheckCheck } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -20,13 +20,21 @@ export function InboxView({ api }: InboxViewProps) {
 	const setDestination = useUiStore((s) => s.setDestination)
 	const selectIssue = useUiStore((s) => s.selectIssue)
 
-	const [tab, setTab] = useState<'unread' | 'all'>('unread')
+	const inboxFilter = useUiStore((s) => s.inboxFilter)
+	const setInboxFilter = useUiStore((s) => s.setInboxFilter)
 
 	const visible = useMemo(() => {
 		return notifications
-			.filter((n) => n.archivedAt === null && (tab === 'all' || n.readAt === null))
+			.filter((n) => {
+				if (inboxFilter === 'archived') return n.archivedAt !== null
+				if (n.archivedAt !== null) return false
+				if (inboxFilter === 'unread') return n.readAt === null
+				if (inboxFilter === 'assigned') return n.kind.includes('assigned')
+				if (inboxFilter === 'mentions') return n.kind.includes('mention')
+				return true
+			})
 			.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-	}, [notifications, tab])
+	}, [inboxFilter, notifications])
 
 	const unreadCount = useMemo(
 		() => notifications.filter((n) => n.archivedAt === null && n.readAt === null).length,
@@ -42,7 +50,10 @@ export function InboxView({ api }: InboxViewProps) {
 				</div>
 
 				<div className="flex items-center gap-2">
-					<Tabs value={tab} onValueChange={(v) => setTab(v as 'unread' | 'all')}>
+					<Tabs
+						value={inboxFilter === 'unread' ? 'unread' : 'all'}
+						onValueChange={(v) => setInboxFilter(v as 'unread' | 'all')}
+					>
 						<TabsList>
 							<TabsTrigger value="unread">{t('inbox.for-me')}</TabsTrigger>
 							<TabsTrigger value="all">{t('inbox.all')}</TabsTrigger>

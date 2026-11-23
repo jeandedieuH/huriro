@@ -74,6 +74,8 @@ describe('rls coverage', () => {
 		}
 	})
 
+	// Sweeps every tenant table sequentially — table count grows each milestone,
+	// so the default 5s timeout is too tight on cold/dev DBs.
 	test('no context → zero rows on every tenant table, as huriro_app', async () => {
 		if (skip()) return
 		// Fixture rows exist (owner pool, bypasses RLS).
@@ -89,11 +91,11 @@ describe('rls coverage', () => {
 			const [row] = await db!.app.unsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM ${t}`)
 			expect(row!.n, `${t} leaked rows without tenant context`).toBe(0)
 		}
-	})
+	}, 30_000)
 
 	test('two tenants cannot see across the boundary, as huriro_app', async () => {
 		if (skip()) return
-		const { wsA, wsB, userA } = await seedTwoTenants(db!.owner)
+		const { wsA, wsB, userA, userB } = await seedTwoTenants(db!.owner)
 
 		// A doc shared with userA in wsA; wsB must never see it.
 		const docId = randomUUID()
@@ -120,11 +122,13 @@ describe('rls coverage', () => {
 				return r!.n
 			})
 
-		// roles: each workspace seeds 4 system roles — ctx sees its own only.
+		// roles: each workspace seeds 4 system roles; 0010 allows active members to read
+		// roles of workspaces they belong to (for /workspaces/current discovery), while
+		// workspaces where the user has no membership remain invisible.
 		expect(await countIn('roles', wsA.id, userA.id)).toBe(4)
-		expect(await countIn('roles', wsB.id, userA.id)).toBe(4)
-		expect(await foreignIn('roles', wsB.id, wsA.id, userA.id)).toBe(0)
+		expect(await countIn('roles', wsB.id, userB.id)).toBe(4)
 		expect(await foreignIn('roles', wsA.id, wsB.id, userA.id)).toBe(0)
+		expect(await foreignIn('roles', wsB.id, wsA.id, userB.id)).toBe(0)
 
 		// acl_entries: the shared doc exists only under wsA's context.
 		expect(await countIn('acl_entries', wsA.id, userA.id)).toBe(1)
@@ -139,7 +143,7 @@ describe('rls coverage', () => {
 		})
 		expect(await countIn('change_log', wsA.id, userA.id)).toBe(1)
 		expect(await countIn('change_log', wsB.id, userA.id)).toBe(0)
-	})
+	}, 30_000)
 
 	test('memberships: a user sees their own rows across workspaces', async () => {
 		if (skip()) return

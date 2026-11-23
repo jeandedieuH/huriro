@@ -3,9 +3,9 @@
  * Recognizes:
  *   - leading `>` → actions mode
  *   - exact issue identifier (`ENG-142`)
- *   - typed operators: `in:<projectKey>`, `is:open|closed`, `@<person>`,
+ *   - typed operators: `in:<projectKey>`, `is:open|closed`, `@<person>`, `#<channel>`,
  *     `label:<name|"quoted">`, `priority:<0..4|none|urgent|high|medium|low>`,
- *     `type:<issue|project|comment|doc|doc_page>`
+ *     `type:<issue|project|comment|doc|doc_page|message|chat>`
  */
 
 export type SearchMode = 'all' | 'actions'
@@ -16,11 +16,12 @@ export interface ParsedSearchQuery {
 	readonly freeText: string
 	readonly issueIdentifier: { readonly projectKey: string; readonly number: number } | null
 	readonly projectKey: string | null
+	readonly channelName: string | null
 	readonly state: 'open' | 'closed' | null
 	readonly assigneeHandle: string | null
 	readonly labels: readonly string[]
 	readonly priority: number | null
-	readonly entityType: 'issue' | 'project' | 'comment' | 'doc_page' | null
+	readonly entityType: 'issue' | 'project' | 'comment' | 'doc_page' | 'message' | null
 }
 
 const PRIORITY_MAP: Record<string, number> = {
@@ -52,6 +53,7 @@ export function parseSearchQuery(rawInput: string): ParsedSearchQuery {
 			freeText: raw.slice(1).trim(),
 			issueIdentifier: null,
 			projectKey: null,
+			channelName: null,
 			state: null,
 			assigneeHandle: null,
 			labels: [],
@@ -64,16 +66,21 @@ export function parseSearchQuery(rawInput: string): ParsedSearchQuery {
 	const freeTokens: string[] = []
 	let issueIdentifier: { readonly projectKey: string; readonly number: number } | null = null
 	let projectKey: string | null = null
+	let channelName: string | null = null
 	let state: 'open' | 'closed' | null = null
 	let assigneeHandle: string | null = null
 	const labels: string[] = []
 	let priority: number | null = null
-	let entityType: 'issue' | 'project' | 'comment' | 'doc_page' | null = null
+	let entityType: 'issue' | 'project' | 'comment' | 'doc_page' | 'message' | null = null
 
 	for (const token of tokens) {
 		const lower = token.toLowerCase()
 		if (lower.startsWith('in:') && token.length > 3) {
 			projectKey = unquote(token.slice(3)).toUpperCase()
+			continue
+		}
+		if (token.startsWith('#') && token.length > 1) {
+			channelName = unquote(token.slice(1)).toLowerCase()
 			continue
 		}
 		if (lower === 'is:open' || lower === 'is:closed') {
@@ -98,8 +105,12 @@ export function parseSearchQuery(rawInput: string): ParsedSearchQuery {
 		}
 		if (lower.startsWith('type:') && token.length > 5) {
 			const t = unquote(token.slice(5)).toLowerCase()
-			if (t === 'issue' || t === 'project' || t === 'comment') {
+			if (t === 'issue' || t === 'project' || t === 'comment' || t === 'message') {
 				entityType = t
+				continue
+			}
+			if (t === 'chat') {
+				entityType = 'message'
 				continue
 			}
 			if (t === 'doc' || t === 'doc_page') {
@@ -126,6 +137,7 @@ export function parseSearchQuery(rawInput: string): ParsedSearchQuery {
 		freeText: freeTokens.join(' '),
 		issueIdentifier,
 		projectKey,
+		channelName,
 		state,
 		assigneeHandle,
 		labels,

@@ -1,8 +1,8 @@
 // System & infrastructure tables (§8.5–8.7, ADR-0013).
 // Classification: tenant RLS = workspace_seq, change_log, sync_cursors,
-// idempotency_keys, files. Instance/system = outbox, processed_events,
+// idempotency_keys. Instance/system = outbox, processed_events,
 // audit_log (scoped select), feature_flags(+overrides), instance_settings —
-// see migrations/0004_security.sql.
+// see migrations/0004_security.sql. (`files` is owned by schema/files.ts.)
 import { sql } from 'drizzle-orm'
 import {
 	bigint,
@@ -13,10 +13,8 @@ import {
 	primaryKey,
 	text,
 	timestamp,
-	unique,
 	uuid
 } from 'drizzle-orm/pg-core'
-import { users } from './identity'
 import { workspaces } from './tenancy'
 
 export const workspaceSeq = pgTable('workspace_seq', {
@@ -110,30 +108,6 @@ export const idempotencyKeys = pgTable(
 		expiresAt: timestamp('expires_at', { withTimezone: true }).notNull()
 	},
 	(t) => [primaryKey({ columns: [t.workspaceId, t.key] })]
-)
-
-export const files = pgTable(
-	'files',
-	{
-		id: uuid('id').primaryKey().default(sql`uuidv7()`),
-		workspaceId: uuid('workspace_id')
-			.notNull()
-			.references(() => workspaces.id, { onDelete: 'cascade' }),
-		uploadedBy: uuid('uploaded_by').references(() => users.id, { onDelete: 'set null' }),
-		storageKey: text('storage_key').notNull(),
-		filename: text('filename').notNull(),
-		contentType: text('content_type').notNull(),
-		byteSize: bigint('byte_size', { mode: 'bigint' }).notNull(),
-		checksum: text('checksum').notNull(),
-		scanStatus: text('scan_status', {
-			enum: ['pending', 'clean', 'infected', 'failed', 'unscanned']
-		})
-			.notNull()
-			.default('pending'),
-		isPublic: boolean('is_public').notNull().default(false),
-		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-	},
-	(t) => [unique('uq_files_ws_id').on(t.workspaceId, t.id), unique('uq_files_storage_key').on(t.storageKey)]
 )
 
 export const featureFlags = pgTable('feature_flags', {

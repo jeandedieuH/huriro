@@ -20,7 +20,7 @@ export interface NormalizedImportIssue {
 }
 
 export interface NormalizedImportDataset {
-	readonly source: 'linear' | 'github'
+	readonly source: 'linear' | 'github' | 'jira'
 	readonly projectKey: string
 	readonly projectName: string
 	readonly issues: readonly NormalizedImportIssue[]

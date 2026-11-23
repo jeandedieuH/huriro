@@ -519,7 +519,8 @@ describe('M2 docs integration (PostgreSQL 18 + FORCE RLS)', () => {
 			expect(commentRes.status).toBe(201)
 
 			// Drain outbox -> updates search_documents and notifications
-			await drainOutboxOnce(db.app, pubsub)
+			// (scoped: other test files' leftover rows must not starve the batch LIMIT)
+			await drainOutboxOnce(db.app, pubsub, { onlyWorkspaceId: fixture.workspaceId })
 
 			// MemberB sees notification
 			const notifRes = await apiRequest(app, {

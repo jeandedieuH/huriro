@@ -1,13 +1,24 @@
 import type {
 	IssueCommentDto,
 	IssueDto,
+	IssueGithubLinkDto,
 	IssueRelationDto,
 	LabelDto,
 	ProjectStatusDto,
 	RelationKind
 } from '@huriro/contracts'
 import { t } from '@huriro/i18n'
-import { Link2, MessageSquare, Plus, Trash2, X } from 'lucide-react'
+import {
+	AlertTriangle,
+	ExternalLink,
+	GitBranch,
+	Link2,
+	MessageSquare,
+	Plus,
+	RefreshCw,
+	Trash2,
+	X
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -61,6 +72,8 @@ export function IssueDetailPanel({
 	const [commentBody, setCommentBody] = useState('')
 	const [comments, setComments] = useState<IssueCommentDto[]>([])
 	const [relations, setRelations] = useState<IssueRelationDto[]>([])
+	const [githubLinks, setGithubLinks] = useState<IssueGithubLinkDto[]>([])
+	const [retryingLinkId, setRetryingLinkId] = useState<string | null>(null)
 	const [relTargetId, setRelTargetId] = useState('')
 	const [relKind, setRelKind] = useState<RelationKind>('relates_to')
 
@@ -71,11 +84,16 @@ export function IssueDetailPanel({
 
 	useEffect(() => {
 		let cancelled = false
-		void Promise.all([api.listComments(issue.id), api.listRelations(issue.id)])
-			.then(([c, r]) => {
+		void Promise.all([
+			api.listComments(issue.id),
+			api.listRelations(issue.id),
+			api.listIssueGithubLinks(issue.id).catch(() => [] as IssueGithubLinkDto[])
+		])
+			.then(([c, r, g]) => {
 				if (cancelled) return
 				setComments(c)
 				setRelations(r)
+				setGithubLinks(g)
 			})
 			.catch(() => {
 				// Keep empty in offline/degraded mode
@@ -84,6 +102,16 @@ export function IssueDetailPanel({
 			cancelled = true
 		}
 	}, [api, issue.id])
+
+	async function handleRetryGithubPush(linkId: string) {
+		setRetryingLinkId(linkId)
+		try {
+			const updated = await api.retryIssueGithubPush(linkId)
+			setGithubLinks((prev) => prev.map((l) => (l.id === linkId ? updated : l)))
+		} finally {
+			setRetryingLinkId(null)
+		}
+	}
 
 	const projectStatuses = statuses.filter((s) => s.projectId === issue.projectId)
 	const subIssues = allIssues.filter((i) => i.parentId === issue.id)
@@ -369,6 +397,67 @@ export function IssueDetailPanel({
 				</div>
 
 				<Separator />
+
+				{/* GitHub Two-Way Sync Links */}
+				{githubLinks.length > 0 ? (
+					<>
+						<div className="space-y-2">
+							<h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+								<GitBranch className="size-3.5" aria-hidden />
+								<span>{t('tasks.github.title')}</span>
+							</h3>
+							{githubLinks.map((link) => (
+								<div
+									key={link.id}
+									className="space-y-1.5 rounded-md border border-border bg-muted/30 p-2.5 text-xs"
+								>
+									<div className="flex items-center justify-between gap-2">
+										<a
+											href={link.githubUrl}
+											target="_blank"
+											rel="noopener noreferrer"
+											className="inline-flex items-center gap-1 font-mono font-medium hover:underline"
+										>
+											<span>
+												{link.repoFullName}#{link.githubIssueNumber}
+											</span>
+											<ExternalLink className="size-3" aria-hidden />
+										</a>
+										<Badge tone={link.syncState === 'push_failed' ? 'danger' : 'secondary'}>
+											{link.syncState === 'push_failed'
+												? t('tasks.github.push-failed')
+												: t('tasks.github.synced')}
+										</Badge>
+									</div>
+									{link.syncState === 'push_failed' ? (
+										<div
+											role="alert"
+											className="flex items-center justify-between gap-2 rounded bg-destructive/10 px-2 py-1.5 text-destructive"
+										>
+											<span className="flex min-w-0 items-center gap-1">
+												<AlertTriangle className="size-3.5 shrink-0" aria-hidden />
+												<span className="truncate">
+													{link.lastSyncError ?? t('tasks.github.push-failed')}
+												</span>
+											</span>
+											<Button
+												size="sm"
+												tone="outline"
+												type="button"
+												loading={retryingLinkId === link.id}
+												onClick={() => void handleRetryGithubPush(link.id)}
+											>
+												<RefreshCw className="size-3" aria-hidden />
+												<span>{t('tasks.github.retry')}</span>
+											</Button>
+										</div>
+									) : null}
+								</div>
+							))}
+						</div>
+						<Separator />
+					</>
+				) : null}
 
 				{/* Comments */}
 				<div className="space-y-2">

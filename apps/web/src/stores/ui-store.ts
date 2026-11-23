@@ -2,7 +2,17 @@ import { create } from 'zustand'
 import type { ToastItem, ToastTone } from '@/components/ui/toast'
 import { navigateToDestination } from '@/lib/navigation'
 
-export type AppDestination = 'inbox' | 'tasks' | 'docs' | 'chat' | 'settings'
+export type AppDestination = 'home' | 'inbox' | 'tasks' | 'docs' | 'chat' | 'settings'
+export type SidebarLevel = 'root' | 'feature'
+export type TasksPreset = 'all' | 'my-tasks' | 'this-week' | 'my-week' | 'overdue' | 'due-soon' | 'trash'
+export type InboxFilter = 'unread' | 'all' | 'assigned' | 'mentions' | 'archived'
+export type SettingsSection =
+	| 'general'
+	| 'notifications'
+	| 'imports'
+	| 'webhooks'
+	| 'integrations'
+	| 'appearance'
 export type TasksLayout = 'list' | 'board' | 'my-work'
 export type DocSidePanel = 'comments' | 'versions' | 'toc' | null
 export type DisplayDensity = 'compact' | 'comfortable'
@@ -28,7 +38,12 @@ export interface UiState {
 	// Primary navigation & workspace view — `destination` mirrors the current
 	// URL (router is the source of truth; __root syncs pathname → store)
 	destination: AppDestination
+	sidebarLevel: SidebarLevel
+	sidebarCollapsed: boolean
 	activeProjectId: string | null
+	tasksPreset: TasksPreset
+	inboxFilter: InboxFilter
+	settingsSection: SettingsSection
 	tasksLayout: TasksLayout
 	density: DisplayDensity
 	theme: ThemeMode
@@ -64,7 +79,13 @@ export interface UiState {
 
 	// Actions
 	setDestination: (dest: AppDestination) => void
+	setSidebarLevel: (level: SidebarLevel) => void
+	setSidebarCollapsed: (collapsed: boolean) => void
+	toggleSidebarCollapsed: () => void
 	setActiveProjectId: (projectId: string | null) => void
+	setTasksPreset: (preset: TasksPreset) => void
+	setInboxFilter: (filter: InboxFilter) => void
+	setSettingsSection: (section: SettingsSection) => void
 	setTasksLayout: (layout: TasksLayout) => void
 	setDensity: (density: DisplayDensity) => void
 	toggleTheme: () => void
@@ -105,8 +126,13 @@ let toastSeq = 0
  * Ephemeral UI state only (M1 rule: replicated server entities live exclusively in TanStack DB).
  */
 export const useUiStore = create<UiState>((set, get) => ({
-	destination: 'tasks',
+	destination: 'home',
+	sidebarLevel: 'root',
+	sidebarCollapsed: false,
 	activeProjectId: null,
+	tasksPreset: 'all',
+	inboxFilter: 'unread',
+	settingsSection: 'imports',
 	tasksLayout: 'list',
 	density: 'comfortable',
 	theme: 'light',
@@ -136,11 +162,27 @@ export const useUiStore = create<UiState>((set, get) => ({
 	toasts: [],
 
 	setDestination: (destination) => {
-		set({ destination })
+		set({
+			destination,
+			sidebarLevel: destination === 'home' ? 'root' : 'feature'
+		})
 		navigateToDestination(destination)
 	},
+	setSidebarLevel: (sidebarLevel) => set({ sidebarLevel }),
+	setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+	toggleSidebarCollapsed: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
 	setActiveProjectId: (activeProjectId) =>
 		set({ activeProjectId, selectedIssueId: null, focusedIssueId: null, selectedIssueIds: [] }),
+	setTasksPreset: (tasksPreset) =>
+		set((s) => ({
+			tasksPreset,
+			filters: { ...s.filters, activeViewId: null },
+			selectedIssueId: null,
+			focusedIssueId: null,
+			selectedIssueIds: []
+		})),
+	setInboxFilter: (inboxFilter) => set({ inboxFilter }),
+	setSettingsSection: (settingsSection) => set({ settingsSection }),
 	setTasksLayout: (tasksLayout) => set({ tasksLayout }),
 	setDensity: (density) => set({ density }),
 	toggleTheme: () =>

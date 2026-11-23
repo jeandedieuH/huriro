@@ -4,6 +4,7 @@
  */
 import { type ErrorCode, type ProblemDetails, problem } from '@huriro/contracts'
 import { NotFound, ParseError, ValidationError } from 'elysia'
+import { SsrfBlockedError } from './egress'
 import type { log as logger } from './observability'
 
 type Log = typeof logger
@@ -36,6 +37,18 @@ export function toProblem(
 	path: string,
 	log: Log
 ): { status: number; body: ProblemDetails } {
+	if (err instanceof SsrfBlockedError) {
+		return {
+			status: 422,
+			body: problem({
+				status: 422,
+				code: 'ssrf_blocked',
+				title: err.message,
+				instance: path,
+				requestId
+			})
+		}
+	}
 	if (err instanceof HttpError) {
 		return {
 			status: err.status,

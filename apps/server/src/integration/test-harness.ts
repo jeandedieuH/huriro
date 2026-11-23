@@ -9,8 +9,12 @@ import { randomUUID } from 'node:crypto'
 import type { Sql } from '@huriro/db'
 import { aMembership, aUser, aWorkspace, getTestDb, migrationsDir, type TestDb } from '@huriro/test-utils'
 import { createApp } from '../api/app'
+import type { DnsResolver } from '../api/egress'
 import type { CollabDirectBridge } from '../modules/docs'
+import { type BlobStorage, MemoryBlobStorage } from '../modules/files'
 import type { Auth } from '../modules/identity'
+import type { GithubApiClient } from '../modules/integrations'
+import type { VapidConfig } from '../modules/notifications'
 import { InProcessPubSub, type RealtimePubSub } from '../realtime/pubsub'
 
 export interface M1SeededFixture {
@@ -57,22 +61,38 @@ export function createIntegrationServer(
 		readonly collabBridge?: CollabDirectBridge
 		readonly collabTicketSecret?: string
 		readonly pubsub?: RealtimePubSub
+		readonly blobStorage?: BlobStorage
+		readonly rootSecret?: string
+		readonly githubAppWebhookSecret?: string
+		readonly githubClient?: GithubApiClient
+		readonly vapid?: VapidConfig
+		readonly egressFetch?: typeof fetch
+		readonly egressResolver?: DnsResolver
 	}
 ) {
 	const auth = createTestAuth()
 	// Injected pubsub lets a test share one bus between api, realtime, and the
 	// collab runtime — matching how `serve --role=all` wires them in src/index.ts.
 	const pubsub = opts?.pubsub ?? new InProcessPubSub()
+	const blobStorage = opts?.blobStorage ?? new MemoryBlobStorage()
+	const rootSecret = opts?.rootSecret ?? 'huriro-integration-test-root-secret-32chars'
 	const app = createApp({
 		sql: db.app,
 		migrationsDir: migrationsDir(),
 		mode: 'selfhost',
 		auth,
 		pubsub,
+		blobStorage,
+		rootSecret,
 		...(opts?.collabBridge ? { collabBridge: opts.collabBridge } : {}),
-		...(opts?.collabTicketSecret ? { collabTicketSecret: opts.collabTicketSecret } : {})
+		...(opts?.collabTicketSecret ? { collabTicketSecret: opts.collabTicketSecret } : {}),
+		...(opts?.githubAppWebhookSecret ? { githubAppWebhookSecret: opts.githubAppWebhookSecret } : {}),
+		...(opts?.githubClient ? { githubClient: opts.githubClient } : {}),
+		...(opts?.vapid ? { vapid: opts.vapid } : {}),
+		...(opts?.egressFetch ? { egressFetch: opts.egressFetch } : {}),
+		...(opts?.egressResolver ? { egressResolver: opts.egressResolver } : {})
 	})
-	return { app, auth, pubsub }
+	return { app, auth, pubsub, blobStorage, rootSecret }
 }
 
 export async function apiRequest(

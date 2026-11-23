@@ -40,7 +40,23 @@ export const TENANT_TABLES = [
 	'doc_room_leases',
 	'collab_tickets',
 	'doc_comments',
-	'doc_favorites'
+	'doc_favorites',
+	'chat_channels',
+	'chat_channel_members',
+	'chat_messages',
+	'chat_message_reactions',
+	'chat_read_state',
+	'chat_thread_read_state',
+	'chat_message_attachments',
+	'chat_link_previews',
+	'chat_message_link_previews',
+	'notification_preferences',
+	'notification_delivery_log',
+	'web_push_subscriptions',
+	'webhook_endpoints',
+	'webhook_deliveries',
+	'github_installations',
+	'issue_github_links'
 ] as const
 
 /**
@@ -63,7 +79,8 @@ export const SYSTEM_TABLES = [
 	'feature_flag_overrides',
 	'instance_settings',
 	'huriro_bootstrap',
-	'schema_migrations'
+	'schema_migrations',
+	'github_webhook_events'
 ] as const
 
 export type TableClass = 'tenant' | 'instance_rls' | 'system'

@@ -4,7 +4,9 @@ export const ImportSource = Type.Union([
 	Type.Literal('linear'),
 	Type.Literal('github'),
 	Type.Literal('notion'),
-	Type.Literal('markdown')
+	Type.Literal('markdown'),
+	Type.Literal('slack'),
+	Type.Literal('jira')
 ])
 export type ImportSource = Static<typeof ImportSource>
 
@@ -102,6 +104,71 @@ export const MarkdownImportPayload = Type.Object({
 })
 export type MarkdownImportPayload = Static<typeof MarkdownImportPayload>
 
+export const JiraImportIssue = Type.Object({
+	id: Type.Optional(Type.String({ minLength: 1 })),
+	key: Type.String({ minLength: 1 }),
+	summary: Type.String({ minLength: 1 }),
+	description: Type.Optional(Type.String()),
+	status: Type.Optional(Type.String()),
+	priority: Type.Optional(Type.String()),
+	assigneeEmail: Type.Optional(Type.String()),
+	labels: Type.Optional(Type.Array(Type.String())),
+	url: Type.Optional(Type.String()),
+	comments: Type.Optional(
+		Type.Array(
+			Type.Object({
+				id: Type.Optional(Type.String()),
+				body: Type.String(),
+				authorEmail: Type.Optional(Type.String())
+			})
+		)
+	)
+})
+
+export const JiraImportPayload = Type.Object({
+	projectKey: Type.String({ pattern: '^[A-Z][A-Z0-9]{1,9}$' }),
+	projectName: Type.String({ minLength: 1, maxLength: 120 }),
+	csv: Type.Optional(Type.String()),
+	issues: Type.Optional(Type.Array(JiraImportIssue))
+})
+export type JiraImportPayload = Static<typeof JiraImportPayload>
+
+export const SlackImportUser = Type.Object({
+	id: Type.String({ minLength: 1 }),
+	name: Type.Optional(Type.String()),
+	realName: Type.Optional(Type.String()),
+	email: Type.Optional(Type.String())
+})
+
+export const SlackImportChannel = Type.Object({
+	id: Type.String({ minLength: 1 }),
+	name: Type.String({ minLength: 1 }),
+	isPrivate: Type.Optional(Type.Boolean()),
+	topic: Type.Optional(Type.String())
+})
+
+export const SlackImportMessage = Type.Object({
+	ts: Type.String({ minLength: 1 }),
+	user: Type.Optional(Type.String()),
+	text: Type.String(),
+	threadTs: Type.Optional(Type.String()),
+	reactions: Type.Optional(
+		Type.Array(
+			Type.Object({
+				name: Type.String({ minLength: 1 }),
+				users: Type.Array(Type.String())
+			})
+		)
+	)
+})
+
+export const SlackImportPayload = Type.Object({
+	users: Type.Optional(Type.Array(SlackImportUser)),
+	channels: Type.Array(SlackImportChannel),
+	messagesByChannel: Type.Record(Type.String(), Type.Array(SlackImportMessage))
+})
+export type SlackImportPayload = Static<typeof SlackImportPayload>
+
 export const ImportDryRunBody = Type.Object({
 	source: ImportSource,
 	targetProjectId: Type.Optional(Type.String({ format: 'uuid' })),
@@ -110,10 +177,15 @@ export const ImportDryRunBody = Type.Object({
 	github: Type.Optional(GithubImportPayload),
 	notion: Type.Optional(NotionImportPayload),
 	markdown: Type.Optional(MarkdownImportPayload),
+	slack: Type.Optional(SlackImportPayload),
+	jira: Type.Optional(JiraImportPayload),
 	/** Optional live API parameters — tokens are used transiently and never persisted (§4.2). */
 	apiToken: Type.Optional(Type.String()),
 	teamKey: Type.Optional(Type.String()),
-	repo: Type.Optional(Type.String())
+	repo: Type.Optional(Type.String()),
+	jiraBaseUrl: Type.Optional(Type.String()),
+	jiraProjectKey: Type.Optional(Type.String()),
+	jiraEmail: Type.Optional(Type.String())
 })
 export type ImportDryRunBody = Static<typeof ImportDryRunBody>
 
@@ -127,7 +199,10 @@ export const ImportDryRunPreviewDto = Type.Object({
 		comments: Type.Integer(),
 		labels: Type.Integer(),
 		skippedExisting: Type.Integer(),
-		pages: Type.Optional(Type.Integer())
+		pages: Type.Optional(Type.Integer()),
+		channels: Type.Optional(Type.Integer()),
+		messages: Type.Optional(Type.Integer()),
+		threads: Type.Optional(Type.Integer())
 	}),
 	userMappings: Type.Array(
 		Type.Object({
@@ -148,9 +223,14 @@ export const ImportExecuteBody = Type.Object({
 	github: Type.Optional(GithubImportPayload),
 	notion: Type.Optional(NotionImportPayload),
 	markdown: Type.Optional(MarkdownImportPayload),
+	slack: Type.Optional(SlackImportPayload),
+	jira: Type.Optional(JiraImportPayload),
 	apiToken: Type.Optional(Type.String()),
 	teamKey: Type.Optional(Type.String()),
-	repo: Type.Optional(Type.String())
+	repo: Type.Optional(Type.String()),
+	jiraBaseUrl: Type.Optional(Type.String()),
+	jiraProjectKey: Type.Optional(Type.String()),
+	jiraEmail: Type.Optional(Type.String())
 })
 export type ImportExecuteBody = Static<typeof ImportExecuteBody>
 

@@ -1,5 +1,14 @@
 // @huriro/domain public surface — pure, no I/O (§7.2).
 
+export type { ExtractedChatMentions, ExtractedRichLink } from './chat'
+export {
+	computeDmKey,
+	computeWebhookBackoffMs,
+	extractChatMentions,
+	extractRichLinks,
+	extractUrls,
+	isWithinQuietHours
+} from './chat'
 export type { MergeResolution } from './conflict'
 export { resolveFieldMerge } from './conflict'
 export {

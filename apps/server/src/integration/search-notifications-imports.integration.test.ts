@@ -60,8 +60,9 @@ describe('M1 search, notifications, and imports integration (PostgreSQL 18)', ()
 				}
 			})
 
-			// Drain transactional outbox into search_documents
-			const drained = await drainOutboxOnce(db.app, pubsub)
+			// Drain transactional outbox into search_documents (scoped: other
+			// test files' leftover rows must not starve this batch's LIMIT)
+			const drained = await drainOutboxOnce(db.app, pubsub, { onlyWorkspaceId: fixture.workspaceId })
 			expect(drained).toBeGreaterThanOrEqual(4)
 
 			// Member A sees both Kubernetes issues + exact key match OPEN-1
@@ -138,7 +139,7 @@ describe('M1 search, notifications, and imports integration (PostgreSQL 18)', ()
 				body: { bodyText: `cc @${ownerHandle} please check` }
 			})
 
-			await drainOutboxOnce(db.app, pubsub)
+			await drainOutboxOnce(db.app, pubsub, { onlyWorkspaceId: fixture.workspaceId })
 
 			// Member A has zero self-notifications
 			const nA = await apiRequest(app, {

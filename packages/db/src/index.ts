@@ -21,6 +21,17 @@ export {
 	betterAuthSchema
 } from './schema/auth'
 export {
+	chatChannelMembers,
+	chatChannels,
+	chatLinkPreviews,
+	chatMessageAttachments,
+	chatMessageLinkPreviews,
+	chatMessageReactions,
+	chatMessages,
+	chatReadState,
+	chatThreadReadState
+} from './schema/chat'
+export {
 	collabTickets,
 	docComments,
 	docFavorites,
@@ -29,9 +40,16 @@ export {
 	docState,
 	docVersions
 } from './schema/docs'
+export { files } from './schema/files'
 export { users } from './schema/identity'
 export { importJobs, importMappings } from './schema/imports'
-export { notifications } from './schema/notifications'
+export { githubInstallations, githubWebhookEvents, issueGithubLinks } from './schema/integrations'
+export {
+	notificationDeliveryLog,
+	notificationPreferences,
+	notifications,
+	webPushSubscriptions
+} from './schema/notifications'
 export { searchDocuments } from './schema/search'
 export { realtimeTickets } from './schema/sync'
 export {
@@ -39,7 +57,6 @@ export {
 	changeLog,
 	featureFlagOverrides,
 	featureFlags,
-	files,
 	idempotencyKeys,
 	instanceSettings,
 	outbox,
@@ -60,3 +77,4 @@ export {
 	savedViews
 } from './schema/tasks'
 export { aclEntries, invitations, memberships, rolePermissions, roles, workspaces } from './schema/tenancy'
+export { webhookDeliveries, webhookEndpoints } from './schema/webhooks'

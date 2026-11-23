@@ -10,6 +10,11 @@ export interface WsSignalClientOptions {
 	readonly getCursor: () => number
 	readonly getTicket?: (() => Promise<string | undefined>) | undefined
 	readonly onCursorSignal: (cursor: number) => void
+	readonly onChatSignal?: ((ev: { channelId: string; rev: number; lastMsgSeq: number }) => void) | undefined
+	readonly onPresence?:
+		| ((users: readonly { userId: string; status: 'online' | 'away'; lastSeenAt: number }[]) => void)
+		| undefined
+	readonly onTyping?: ((ev: { channelId: string; userId: string; until: number }) => void) | undefined
 	readonly onRevokeSignal: (reason: string) => void
 	readonly onPollFallback: () => void
 	readonly onConnectionChange?: ((connected: boolean) => void) | undefined
@@ -32,10 +37,28 @@ export class WsSignalClient {
 			try {
 				this.channel = new BroadcastChannel(`huriro-sync:${opts.workspaceId}`)
 				this.channel.onmessage = (ev) => {
-					const data = ev.data as { t?: string; cursor?: number; reason?: string } | null
+					const data = ev.data as {
+						t?: string
+						cursor?: number
+						reason?: string
+						channelId?: string
+						rev?: number
+						lastMsgSeq?: number
+					} | null
 					if (!data) return
 					if (data.t === 'cursor' && typeof data.cursor === 'number') {
 						this.opts.onCursorSignal(data.cursor)
+					} else if (
+						data.t === 'chat' &&
+						typeof data.channelId === 'string' &&
+						typeof data.rev === 'number' &&
+						typeof data.lastMsgSeq === 'number'
+					) {
+						this.opts.onChatSignal?.({
+							channelId: data.channelId,
+							rev: data.rev,
+							lastMsgSeq: data.lastMsgSeq
+						})
 					} else if (data.t === 'revoke' && typeof data.reason === 'string') {
 						this.opts.onRevokeSignal(data.reason)
 					}
@@ -81,6 +104,18 @@ export class WsSignalClient {
 
 	broadcastCursor(cursor: number): void {
 		this.channel?.postMessage({ t: 'cursor', cursor })
+	}
+
+	sendPresence(status: 'online' | 'away'): void {
+		if (this.socket?.readyState === WebSocket.OPEN) {
+			this.socket.send(JSON.stringify({ t: 'presence', status } satisfies WsClientMessage))
+		}
+	}
+
+	sendTyping(channelId: string): void {
+		if (this.socket?.readyState === WebSocket.OPEN) {
+			this.socket.send(JSON.stringify({ t: 'typing', channelId } satisfies WsClientMessage))
+		}
 	}
 
 	private setConnected(next: boolean): void {
@@ -137,6 +172,26 @@ export class WsSignalClient {
 				} else if (msg.t === 'cursor') {
 					this.channel?.postMessage({ t: 'cursor', cursor: msg.cursor })
 					this.opts.onCursorSignal(msg.cursor)
+				} else if (msg.t === 'chat') {
+					this.channel?.postMessage({
+						t: 'chat',
+						channelId: msg.channelId,
+						rev: msg.rev,
+						lastMsgSeq: msg.lastMsgSeq
+					})
+					this.opts.onChatSignal?.({
+						channelId: msg.channelId,
+						rev: msg.rev,
+						lastMsgSeq: msg.lastMsgSeq
+					})
+				} else if (msg.t === 'presence') {
+					this.opts.onPresence?.(msg.users)
+				} else if (msg.t === 'typing') {
+					this.opts.onTyping?.({
+						channelId: msg.channelId,
+						userId: msg.userId,
+						until: msg.until
+					})
 				} else if (msg.t === 'ping') {
 					ws.send(JSON.stringify({ t: 'pong' } satisfies WsClientMessage))
 				} else if (msg.t === 'revoke') {

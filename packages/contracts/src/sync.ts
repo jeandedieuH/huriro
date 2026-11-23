@@ -149,10 +149,31 @@ export type WsClientMessage =
 			readonly ticket?: string
 	  }
 	| { readonly t: 'pong' }
+	| { readonly t: 'presence'; readonly status: 'online' | 'away' }
+	| { readonly t: 'typing'; readonly channelId: string }
+
+export type WsPresenceUser = {
+	readonly userId: string
+	readonly status: 'online' | 'away'
+	readonly lastSeenAt: number
+}
 
 export type WsServerMessage =
 	| { readonly t: 'ready'; readonly serverCursor: number; readonly heartbeatMs: number }
 	| { readonly t: 'cursor'; readonly cursor: number }
+	| {
+			readonly t: 'chat'
+			readonly channelId: string
+			readonly rev: number
+			readonly lastMsgSeq: number
+	  }
+	| { readonly t: 'presence'; readonly users: readonly WsPresenceUser[] }
+	| {
+			readonly t: 'typing'
+			readonly channelId: string
+			readonly userId: string
+			readonly until: number
+	  }
 	| { readonly t: 'revoke'; readonly reason: string }
 	| { readonly t: 'ping' }
 	| { readonly t: 'error'; readonly code: string; readonly message: string }

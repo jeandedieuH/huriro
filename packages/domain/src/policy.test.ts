@@ -398,6 +398,71 @@ const CASES: Case[] = [
 		action: 'import.run',
 		resource: wsResource,
 		expect: { effect: 'deny', reason: 'agent_scope' }
+	},
+
+	// --- M4 chat, files & webhooks/integrations settings ----------------------
+	{
+		name: 'member reads and posts in workspace-visible channel',
+		actor: actor(),
+		action: 'channel.post',
+		resource: { type: 'channel', id: 'c1', visibility: 'workspace', acl: null },
+		expect: { effect: 'allow', via: 'role' }
+	},
+	{
+		name: 'member cannot manage channel without channel.manage perm',
+		actor: actor(),
+		action: 'channel.manage',
+		resource: { type: 'channel', id: 'c1', visibility: 'workspace', acl: null },
+		expect: { effect: 'deny', reason: 'insufficient_role' }
+	},
+	{
+		name: 'member with manage ACL manages private channel',
+		actor: actor(),
+		action: 'channel.manage',
+		resource: privateChannel('manage'),
+		expect: { effect: 'allow', via: 'acl' }
+	},
+	{
+		name: 'member with write ACL cannot manage private channel',
+		actor: actor(),
+		action: 'channel.manage',
+		resource: privateChannel('write'),
+		expect: { effect: 'deny', reason: 'no_acl' }
+	},
+	{
+		name: 'guest with read ACL can read private channel but cannot post',
+		actor: actor({ roleKey: 'guest', roleRank: ROLE_RANKS.guest, permissions: new Set() }),
+		action: 'channel.post',
+		resource: privateChannel('read'),
+		expect: { effect: 'deny', reason: 'no_acl' }
+	},
+	{
+		name: 'guest with write ACL can post to private channel',
+		actor: actor({ roleKey: 'guest', roleRank: ROLE_RANKS.guest, permissions: new Set() }),
+		action: 'channel.post',
+		resource: privateChannel('write'),
+		expect: { effect: 'allow', via: 'acl' }
+	},
+	{
+		name: 'member cannot manage webhooks or GitHub installations (settings.manage)',
+		actor: actor(),
+		action: 'settings.manage',
+		resource: wsResource,
+		expect: { effect: 'deny', reason: 'insufficient_role' }
+	},
+	{
+		name: 'admin can manage webhooks and GitHub installations (settings.manage)',
+		actor: adminActor(),
+		action: 'settings.manage',
+		resource: wsResource,
+		expect: { effect: 'allow', via: 'role' }
+	},
+	{
+		name: 'member can upload and read workspace files',
+		actor: actor(),
+		action: 'file.write',
+		resource: { type: 'channel', id: 'c1', visibility: 'workspace', acl: null },
+		expect: { effect: 'allow', via: 'role' }
 	}
 ]
 

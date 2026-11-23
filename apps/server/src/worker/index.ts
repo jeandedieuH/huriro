@@ -7,18 +7,50 @@
  */
 import { isUuid, type Sql, withSystem, withWorkspace } from '@huriro/db'
 import { PgBoss } from 'pg-boss'
+import { resolveRootEnvelopeSecret } from '../api/crypto'
+import type { DnsResolver } from '../api/egress'
 import { log, outboxLag } from '../api/observability'
+import { processChatLinkPreviewOutboxEvent } from '../modules/chat'
 import { runDocMaintenanceOnce } from '../modules/docs'
-import { processNotificationOutboxEvent } from '../modules/notifications'
+import { type BlobStorage, processFileQuarantineOutboxEvent } from '../modules/files'
+import {
+	type GithubApiClient,
+	processGithubOutboundOutboxEvent,
+	processPendingGithubWebhooksOnce
+} from '../modules/integrations'
+import {
+	dispatchWebPushNotifications,
+	type EmailTransport,
+	processNotificationOutboxEvent,
+	runEmailDigestOnce,
+	type VapidConfig
+} from '../modules/notifications'
 import { processSearchOutboxEvent } from '../modules/search'
+import { enqueueWebhookDeliveriesForOutboxEvent, processDueWebhookDeliveriesOnce } from '../modules/webhooks'
 import type { RealtimePubSub } from '../realtime/pubsub'
 
-export interface WorkerDeps {
+export interface DrainOutboxOptions {
+	readonly blobStorage?: BlobStorage | undefined
+	readonly clamavHost?: string | undefined
+	readonly clamavPort?: number | undefined
+	readonly rootSecret?: string | undefined
+	readonly githubClient?: GithubApiClient | undefined
+	readonly vapid?: VapidConfig | undefined
+	readonly egressFetch?: typeof fetch | undefined
+	readonly egressResolver?: DnsResolver | undefined
+	/** When set, only this workspace's rows are claimed — used by tests so one
+	 * fixture's drain doesn't chew through every other test's backlog. */
+	readonly onlyWorkspaceId?: string | undefined
+}
+
+export interface WorkerDeps extends DrainOutboxOptions {
 	readonly adminUrl: string
 	readonly app: Sql
 	readonly pubsub?: RealtimePubSub
 	readonly heartbeatUrl?: string | undefined
 	readonly outboxIntervalMs?: number
+	readonly emailTransport?: EmailTransport | undefined
+	readonly smtp?: { readonly host?: string; readonly port?: number; readonly from?: string } | undefined
 }
 
 const OUTBOX_BATCH = 200
@@ -31,25 +63,43 @@ interface PendingOutboxRow {
 }
 
 /**
- * Drain pending outbox rows: dispatch to search & notifications consumers
- * inside `withWorkspace`, record in `processed_events`, and mark published.
- * Exported so integration tests can drain synchronously without polling.
+ * Drain pending outbox rows: dispatch to search, notifications, webhook
+ * enqueueing, and file quarantine inside `withWorkspace`, then run external
+ * HTTP consumers (`chat-unfurl`, `github-outbound`, `web-push`) outside DB tx locks.
  */
-export async function drainOutboxOnce(app: Sql, pubsub?: RealtimePubSub): Promise<number> {
+export async function drainOutboxOnce(
+	app: Sql,
+	pubsub?: RealtimePubSub,
+	opts?: DrainOutboxOptions
+): Promise<number> {
 	const rows = await app.begin(async (tx) => {
-		const picked = await tx<PendingOutboxRow[]>`
-			SELECT id, workspace_id AS "workspaceId", event_type AS "eventType", payload
-			FROM outbox
-			WHERE published_at IS NULL
-			ORDER BY created_at ASC
-			LIMIT ${OUTBOX_BATCH}
-			FOR UPDATE SKIP LOCKED
-		`
+		const picked = opts?.onlyWorkspaceId
+			? await tx<PendingOutboxRow[]>`
+				SELECT id, workspace_id AS "workspaceId", event_type AS "eventType", payload
+				FROM outbox
+				WHERE published_at IS NULL AND workspace_id = ${opts.onlyWorkspaceId}
+				ORDER BY created_at ASC
+				LIMIT ${OUTBOX_BATCH}
+				FOR UPDATE SKIP LOCKED
+			`
+			: await tx<PendingOutboxRow[]>`
+				SELECT id, workspace_id AS "workspaceId", event_type AS "eventType", payload
+				FROM outbox
+				WHERE published_at IS NULL
+				ORDER BY created_at ASC
+				LIMIT ${OUTBOX_BATCH}
+				FOR UPDATE SKIP LOCKED
+			`
 		return picked
 	})
 
 	if (rows.length === 0) return 0
 
+	const rootSecret = opts?.rootSecret ?? resolveRootEnvelopeSecret()
+	const scanOpts = {
+		...(opts?.clamavHost ? { clamavHost: opts.clamavHost } : {}),
+		...(opts?.clamavPort ? { clamavPort: opts.clamavPort } : {})
+	}
 	let processedCount = 0
 	const cursorsToPublish = new Map<string, number>()
 
@@ -60,25 +110,57 @@ export async function drainOutboxOnce(app: Sql, pubsub?: RealtimePubSub): Promis
 					typeof row.payload['actorId'] === 'string' && isUuid(row.payload['actorId'])
 						? row.payload['actorId']
 						: undefined
-				const cursor = await withWorkspace(
+				const txResult = await withWorkspace(
 					app,
 					actorId ? { workspaceId: row.workspaceId, userId: actorId } : { workspaceId: row.workspaceId },
 					async (tx) => {
 						await processSearchOutboxEvent(tx, row)
 						const notifRes = await processNotificationOutboxEvent(tx, row)
+						await enqueueWebhookDeliveriesForOutboxEvent(tx, row)
+						if (opts?.blobStorage) {
+							await processFileQuarantineOutboxEvent(tx, row, opts.blobStorage, scanOpts)
+						}
 						await tx`
 						INSERT INTO processed_events (consumer, event_id)
 						VALUES ('outbox-drain', ${row.id})
 						ON CONFLICT (consumer, event_id) DO NOTHING
 					`
 						await tx`UPDATE outbox SET published_at = now() WHERE id = ${row.id}`
-						return notifRes.cursor
+						return notifRes
 					}
 				)
-				if (cursor !== null) {
+				if (txResult.cursor !== null) {
 					const prev = cursorsToPublish.get(row.workspaceId)
-					cursorsToPublish.set(row.workspaceId, prev === undefined ? cursor : Math.max(prev, cursor))
+					cursorsToPublish.set(
+						row.workspaceId,
+						prev === undefined ? txResult.cursor : Math.max(prev, txResult.cursor)
+					)
 				}
+
+				if (txResult.pendingWebPush.length > 0 && opts?.vapid) {
+					await dispatchWebPushNotifications(app, row.workspaceId, txResult.pendingWebPush, {
+						vapid: opts.vapid,
+						fetchImpl: opts.egressFetch,
+						resolver: opts.egressResolver
+					}).catch((err) => log.warn({ err, outboxId: row.id }, 'web push dispatch error'))
+				}
+
+				await processChatLinkPreviewOutboxEvent(
+					app,
+					row,
+					{
+						fetchImpl: opts?.egressFetch,
+						resolver: opts?.egressResolver
+					},
+					pubsub
+				).catch((err) => log.warn({ err, outboxId: row.id }, 'chat link preview unfurl failed'))
+
+				await processGithubOutboundOutboxEvent(app, row, {
+					rootSecret,
+					githubClient: opts?.githubClient,
+					fetchImpl: opts?.egressFetch,
+					resolver: opts?.egressResolver
+				}).catch((err) => log.warn({ err, outboxId: row.id }, 'github outbound sync error'))
 			} else {
 				await app.begin(async (tx) => {
 					await tx`
@@ -121,10 +203,12 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 	boss.on('error', (err: Error) => log.error({ err }, 'pg-boss error'))
 	await boss.start()
 
+	const rootSecret = deps.rootSecret ?? resolveRootEnvelopeSecret()
+
 	await boss.createQueue('outbox-drain')
 	await boss.schedule('outbox-drain', '*/5 * * * * *', {}, { tz: 'UTC' })
 	await boss.work('outbox-drain', async () => {
-		await drainOutboxOnce(deps.app, deps.pubsub)
+		await drainOutboxOnce(deps.app, deps.pubsub, deps)
 		await updateLagMetric(deps.app)
 	})
 
@@ -135,6 +219,34 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 		if (res.thinnedVersions > 0 || res.deletedTickets > 0) {
 			log.info(res, 'doc version retention & ticket cleanup completed')
 		}
+	})
+
+	await boss.createQueue('webhook-deliver')
+	await boss.schedule('webhook-deliver', '* * * * *', {}, { tz: 'UTC' })
+	await boss.work('webhook-deliver', async () => {
+		await processDueWebhookDeliveriesOnce(deps.app, {
+			rootSecret,
+			fetchImpl: deps.egressFetch,
+			resolver: deps.egressResolver
+		})
+	})
+
+	await boss.createQueue('github-sync-inbound')
+	await boss.schedule('github-sync-inbound', '* * * * *', {}, { tz: 'UTC' })
+	await boss.work('github-sync-inbound', async () => {
+		await processPendingGithubWebhooksOnce(deps.app, {
+			rootSecret,
+			pubsub: deps.pubsub
+		})
+	})
+
+	await boss.createQueue('notification-email-digest')
+	await boss.schedule('notification-email-digest', '*/15 * * * *', {}, { tz: 'UTC' })
+	await boss.work('notification-email-digest', async () => {
+		await runEmailDigestOnce(deps.app, {
+			transport: deps.emailTransport,
+			smtp: deps.smtp
+		})
 	})
 
 	// Dead-man switch: page the operator if the worker loop goes quiet (§20.4).
@@ -148,7 +260,18 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 		: null
 
 	await updateLagMetric(deps.app)
-	log.info({ queues: ['outbox-drain', 'doc-versions-thin'] }, 'worker started')
+	log.info(
+		{
+			queues: [
+				'outbox-drain',
+				'doc-versions-thin',
+				'webhook-deliver',
+				'github-sync-inbound',
+				'notification-email-digest'
+			]
+		},
+		'worker started'
+	)
 
 	return {
 		stop: async () => {

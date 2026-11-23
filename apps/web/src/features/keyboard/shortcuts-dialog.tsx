@@ -6,11 +6,13 @@ import { useUiStore } from '@/stores/ui-store'
 
 const SHORTCUT_ROWS: readonly { readonly keys: readonly string[]; readonly label: string }[] = [
 	{ keys: ['⌘', 'K'], label: 'Command palette' },
+	{ keys: ['⌘', '\\'], label: 'Toggle sidebar' },
 	{ keys: ['?'], label: 'Toggle keyboard shortcuts' },
 	{ keys: ['⌘', 'J'], label: 'Toggle detail panel' },
 	{ keys: ['C'], label: 'Create issue / doc page' },
+	{ keys: ['G', 'H'], label: 'Go to Home' },
 	{ keys: ['G', 'I'], label: 'Go to Inbox' },
-	{ keys: ['G', 'T'], label: 'Go to Issues' },
+	{ keys: ['G', 'T'], label: 'Go to Tasks' },
 	{ keys: ['G', 'D'], label: 'Go to Docs' },
 	{ keys: ['G', 'C'], label: 'Go to Chat' },
 	{ keys: ['G', 'S'], label: 'Go to Settings' },

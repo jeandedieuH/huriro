@@ -5,6 +5,7 @@ import {
 	Command,
 	Download,
 	FolderPlus,
+	Home,
 	Inbox,
 	Keyboard,
 	LayoutList,
@@ -16,7 +17,7 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { navigateToDoc } from '@/lib/navigation'
+import { navigateToChat, navigateToDoc } from '@/lib/navigation'
 import type { TaskApiBridge } from '@/lib/sync-bootstrap'
 import { type AppDestination, useUiStore } from '@/stores/ui-store'
 
@@ -144,6 +145,7 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 		]
 
 		const navDestinations: { id: AppDestination; labelId: MessageId; hint: string }[] = [
+			{ id: 'home', labelId: 'nav.home', hint: 'G H' },
 			{ id: 'inbox', labelId: 'nav.inbox', hint: 'G I' },
 			{ id: 'tasks', labelId: 'nav.tasks', hint: 'G T' },
 			{ id: 'docs', labelId: 'nav.docs', hint: 'G D' },
@@ -188,6 +190,11 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 							const withoutPrefix = hit.deepLink.replace(/^\/docs\//, '')
 							const [slugPart, hashPart] = withoutPrefix.split('#')
 							navigateToDoc(slugPart || hit.identifier || hit.entityId, hashPart)
+						} else if (hit.entityType === 'message') {
+							const url = new URL(hit.deepLink, 'http://localhost')
+							const chan = url.searchParams.get('channel') ?? undefined
+							const msgId = url.searchParams.get('message') ?? hit.entityId
+							navigateToChat(chan, msgId)
 						} else {
 							setDestination('tasks')
 							selectIssue(hit.entityId, true)
@@ -351,6 +358,8 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 														<Moon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
 													) : item.id === 'act-shortcuts' ? (
 														<Keyboard className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+													) : item.id === 'nav-home' ? (
+														<Home className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
 													) : item.id === 'nav-inbox' ? (
 														<Inbox className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
 													) : item.id === 'nav-my-work' ? (

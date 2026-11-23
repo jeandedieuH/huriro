@@ -2,10 +2,12 @@ import { activateI18n } from '@huriro/i18n'
 import { SyncProvider } from '@huriro/sync-client'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { createPreviewWorkspace } from '@/lib/sync-bootstrap'
 import { expectNoViolations } from '@/lib/test-setup'
 import { useUiStore } from '@/stores/ui-store'
 import { CreateDocDialog } from './components/create-doc-dialog'
+import { DocsSidebarNav } from './components/docs-sidebar-nav'
 import { DocsWorkspace } from './components/docs-workspace'
 
 activateI18n('en')
@@ -13,14 +15,19 @@ activateI18n('en')
 async function renderDocsWorkspace(activeSlug: string | null) {
 	const boot = await createPreviewWorkspace()
 	const rendered = render(
-		<SyncProvider engine={boot.engine}>
-			<DocsWorkspace
-				api={boot.api}
-				currentUserId={boot.currentUserId}
-				isPreview={true}
-				activeSlug={activeSlug}
-			/>
-		</SyncProvider>
+		<TooltipProvider>
+			<SyncProvider engine={boot.engine}>
+				<div className="flex h-full">
+					<DocsSidebarNav activeSlug={activeSlug} />
+					<DocsWorkspace
+						api={boot.api}
+						currentUserId={boot.currentUserId}
+						isPreview={true}
+						activeSlug={activeSlug}
+					/>
+				</div>
+			</SyncProvider>
+		</TooltipProvider>
 	)
 	return { boot, ...rendered }
 }

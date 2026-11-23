@@ -5,9 +5,11 @@ import type {
 	ImportExecuteBody,
 	ImportJobDto,
 	ImportSource,
+	JiraImportPayload,
 	LinearImportPayload,
 	MarkdownImportPayload,
-	NotionImportPayload
+	NotionImportPayload,
+	SlackImportPayload
 } from '@huriro/contracts'
 import { t } from '@huriro/i18n'
 import { strFromU8, unzipSync } from 'fflate'
@@ -111,6 +113,50 @@ export function ImportDialog({ api, onImported }: ImportDialogProps) {
 						}
 					}
 		}
+		if (source === 'slack') {
+			try {
+				const parsed = JSON.parse(payloadText) as SlackImportPayload
+				if (!parsed || !Array.isArray(parsed.channels) || typeof parsed.messagesByChannel !== 'object') {
+					setError('Slack payload must include channels[] and messagesByChannel{}')
+					return null
+				}
+				return { source: 'slack', slack: parsed }
+			} catch (err) {
+				setError(err instanceof Error ? err.message : 'Invalid Slack JSON payload')
+				return null
+			}
+		}
+		if (source === 'jira') {
+			const cleanKey = projectKey.trim().toUpperCase() || 'JIRA'
+			const trimmed = payloadText.trim()
+			if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+				try {
+					const parsed = JSON.parse(trimmed) as unknown
+					const issues = Array.isArray(parsed)
+						? (parsed as JiraImportPayload['issues'])
+						: (parsed as { issues?: JiraImportPayload['issues'] }).issues
+					if (!Array.isArray(issues)) {
+						setError('Jira JSON must be an array of issues')
+						return null
+					}
+					return {
+						source: 'jira',
+						jira: { projectKey: cleanKey, projectName: cleanKey, issues }
+					}
+				} catch (err) {
+					setError(err instanceof Error ? err.message : 'Invalid Jira JSON payload')
+					return null
+				}
+			}
+			if (!trimmed) {
+				setError('Provide Jira CSV or JSON export')
+				return null
+			}
+			return {
+				source: 'jira',
+				jira: { projectKey: cleanKey, projectName: cleanKey, csv: trimmed }
+			}
+		}
 		try {
 			const parsed = JSON.parse(payloadText) as unknown[]
 			if (!Array.isArray(parsed)) {
@@ -172,6 +218,8 @@ export function ImportDialog({ api, onImported }: ImportDialogProps) {
 				...(dryRun?.jobId ? { jobId: dryRun.jobId } : {}),
 				...(body.linear ? { linear: body.linear } : {}),
 				...(body.github ? { github: body.github } : {}),
+				...(body.jira ? { jira: body.jira } : {}),
+				...(body.slack ? { slack: body.slack } : {}),
 				...(body.notion ? { notion: body.notion } : {}),
 				...(body.markdown ? { markdown: body.markdown } : {})
 			}
@@ -179,15 +227,19 @@ export function ImportDialog({ api, onImported }: ImportDialogProps) {
 			setResult(res)
 			onImported?.()
 			const importedPages = Number(res.report['importedPages'] ?? 0)
+			const importedChannels = Number(res.report['importedChannels'] ?? 0)
+			const importedMessages = Number(res.report['importedMessages'] ?? 0)
 			pushToast({
 				tone: 'success',
 				title:
 					source === 'notion' || source === 'markdown'
 						? t('imports.complete-docs', { pages: importedPages })
-						: t('imports.complete', {
-								issues: Number(res.report['importedIssues'] ?? 0),
-								comments: Number(res.report['importedComments'] ?? 0)
-							})
+						: source === 'slack'
+							? t('imports.complete-chat', { channels: importedChannels, messages: importedMessages })
+							: t('imports.complete', {
+									issues: Number(res.report['importedIssues'] ?? 0),
+									comments: Number(res.report['importedComments'] ?? 0)
+								})
 			})
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Import failed')
@@ -225,17 +277,20 @@ export function ImportDialog({ api, onImported }: ImportDialogProps) {
 								<SelectContent>
 									<SelectItem value="linear">{t('imports.source.linear')}</SelectItem>
 									<SelectItem value="github">{t('imports.source.github')}</SelectItem>
+									<SelectItem value="jira">{t('imports.source.jira')}</SelectItem>
+									<SelectItem value="slack">{t('imports.source.slack')}</SelectItem>
 									<SelectItem value="notion">{t('imports.source.notion')}</SelectItem>
 									<SelectItem value="markdown">{t('imports.source.markdown')}</SelectItem>
 								</SelectContent>
 							</Select>
 						</div>
-						{source === 'linear' || source === 'github' ? (
+						{source === 'linear' || source === 'github' || source === 'jira' ? (
 							<div className="space-y-1">
 								<label htmlFor="import-target-key" className="text-xs font-medium">
 									{t('tasks.project.key')}
 								</label>
 								<Input
+									key="import-target-key"
 									id="import-target-key"
 									value={projectKey}
 									onChange={(ev) => setProjectKey(ev.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
@@ -248,6 +303,7 @@ export function ImportDialog({ api, onImported }: ImportDialogProps) {
 									{t('imports.files-label')}
 								</label>
 								<Input
+									key="import-doc-files"
 									id="import-doc-files"
 									type="file"
 									multiple
@@ -283,11 +339,18 @@ export function ImportDialog({ api, onImported }: ImportDialogProps) {
 					{dryRun ? (
 						<div className="rounded-md border border-border bg-muted/40 p-3 text-xs">
 							<p className="font-medium">
-								{t('imports.preview-summary', {
-									issues: dryRun.counts.issues,
-									comments: dryRun.counts.comments,
-									skipped: dryRun.counts.skippedExisting
-								})}
+								{dryRun.source === 'slack'
+									? t('imports.preview-chat-summary', {
+											channels: dryRun.counts.channels ?? 0,
+											messages: dryRun.counts.messages ?? 0,
+											threads: dryRun.counts.threads ?? 0,
+											skipped: dryRun.counts.skippedExisting
+										})
+									: t('imports.preview-summary', {
+											issues: dryRun.counts.issues,
+											comments: dryRun.counts.comments,
+											skipped: dryRun.counts.skippedExisting
+										})}
 							</p>
 						</div>
 					) : null}
@@ -295,10 +358,15 @@ export function ImportDialog({ api, onImported }: ImportDialogProps) {
 					{result ? (
 						<div className="rounded-md border border-(--success)/40 bg-(--success)/10 p-3 text-xs text-(--success)">
 							<p className="font-medium">
-								{t('imports.complete', {
-									issues: Number(result.report['importedIssues'] ?? 0),
-									comments: Number(result.report['importedComments'] ?? 0)
-								})}
+								{result.source === 'slack'
+									? t('imports.complete-chat', {
+											channels: Number(result.report['importedChannels'] ?? 0),
+											messages: Number(result.report['importedMessages'] ?? 0)
+										})
+									: t('imports.complete', {
+											issues: Number(result.report['importedIssues'] ?? 0),
+											comments: Number(result.report['importedComments'] ?? 0)
+										})}
 							</p>
 						</div>
 					) : null}

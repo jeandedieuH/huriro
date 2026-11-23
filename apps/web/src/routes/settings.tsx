@@ -1,6 +1,13 @@
 import { t } from '@huriro/i18n'
 import { createFileRoute } from '@tanstack/react-router'
+import { Moon, Sun } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { GithubSettingsPanel } from '@/features/settings/components/github-settings-panel'
+import { NotificationsSettingsPanel } from '@/features/settings/components/notifications-settings-panel'
+import { WebhooksSettingsPanel } from '@/features/settings/components/webhooks-settings-panel'
+import { cn } from '@/lib/utils'
+import { useWorkspace } from '@/lib/workspace'
 import { useUiStore } from '@/stores/ui-store'
 
 export const Route = createFileRoute('/settings')({
@@ -8,20 +15,76 @@ export const Route = createFileRoute('/settings')({
 })
 
 function SettingsRoute() {
+	const { workspaceName, isPreview } = useWorkspace()
+	const settingsSection = useUiStore((s) => s.settingsSection)
 	const setImportDialogOpen = useUiStore((s) => s.setImportDialogOpen)
+	const theme = useUiStore((s) => s.theme)
+	const toggleTheme = useUiStore((s) => s.toggleTheme)
 
 	return (
-		<div className="mx-auto max-w-2xl space-y-4 p-6">
+		<div className="mx-auto max-w-3xl space-y-5 p-6">
 			<h1 className="text-xl font-semibold">{t('nav.settings')}</h1>
-			<div className="flex items-center justify-between rounded-lg border border-border bg-card p-4">
+
+			<div
+				className={cn(
+					'flex items-center justify-between rounded-lg border border-border bg-card p-4 transition-shadow',
+					settingsSection === 'general' && 'ring-1 ring-primary/50'
+				)}
+			>
+				<div>
+					<h2 className="text-sm font-medium">{t('settings.sidebar.general')}</h2>
+					<p className="text-xs text-muted-foreground">{workspaceName}</p>
+				</div>
+				{isPreview ? <Badge tone="secondary">{t('shell.preview-badge')}</Badge> : null}
+			</div>
+
+			<div className={cn(settingsSection === 'notifications' && 'rounded-lg ring-1 ring-primary/50')}>
+				<NotificationsSettingsPanel />
+			</div>
+
+			<div
+				className={cn(
+					'flex items-center justify-between rounded-lg border border-border bg-card p-4 transition-shadow',
+					settingsSection === 'imports' && 'ring-1 ring-primary/50'
+				)}
+			>
 				<div>
 					<h2 className="text-sm font-medium">{t('imports.title')}</h2>
 					<p className="text-xs text-muted-foreground">
-						{t('imports.source.linear')} / {t('imports.source.github')}
+						{t('imports.source.linear')} / {t('imports.source.github')} / {t('imports.source.jira')} /{' '}
+						{t('imports.source.slack')}
 					</p>
 				</div>
 				<Button size="sm" onClick={() => setImportDialogOpen(true)}>
 					{t('tasks.import')}
+				</Button>
+			</div>
+
+			<div className={cn(settingsSection === 'webhooks' && 'rounded-lg ring-1 ring-primary/50')}>
+				<WebhooksSettingsPanel />
+			</div>
+
+			<div className={cn(settingsSection === 'integrations' && 'rounded-lg ring-1 ring-primary/50')}>
+				<GithubSettingsPanel />
+			</div>
+
+			<div
+				className={cn(
+					'flex items-center justify-between rounded-lg border border-border bg-card p-4 transition-shadow',
+					settingsSection === 'appearance' && 'ring-1 ring-primary/50'
+				)}
+			>
+				<div>
+					<h2 className="text-sm font-medium">{t('settings.sidebar.appearance')}</h2>
+					<p className="text-xs text-muted-foreground">{t('settings.appearance.desc')}</p>
+				</div>
+				<Button size="sm" tone="outline" onClick={toggleTheme}>
+					{theme === 'dark' ? (
+						<Sun className="size-3.5" aria-hidden />
+					) : (
+						<Moon className="size-3.5" aria-hidden />
+					)}
+					<span>{theme === 'dark' ? t('shell.theme.to-light') : t('shell.theme.to-dark')}</span>
 				</Button>
 			</div>
 		</div>

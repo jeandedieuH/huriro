@@ -1,5 +1,5 @@
 /**
- * Store ↔ router navigation bridge (§17.2 — strictly 5 primary destinations).
+ * Store ↔ router navigation bridge (§17.2 — Home + primary destinations).
  *
  * The router owns the URL; `ui-store.destination` is a read-only mirror for
  * non-React consumers (command palette, `G`-chords, tests). Callers keep using
@@ -10,6 +10,7 @@
 import type { AppDestination } from '@/stores/ui-store'
 
 export const DESTINATION_PATHS = {
+	home: '/',
 	inbox: '/inbox',
 	tasks: '/tasks',
 	docs: '/docs',
@@ -29,24 +30,26 @@ export function isAuthPathname(pathname: string): boolean {
  * and auth-page loops are never followed.
  */
 export function sanitizeRedirectPath(raw: string | undefined): string {
-	if (!raw) return '/tasks'
+	if (!raw) return '/'
 	const trimmed = raw.trim()
-	if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return '/tasks'
+	if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return '/'
 	const pathname = trimmed.split('?')[0] ?? '/'
-	if (pathname === '/' || isAuthPathname(pathname)) return '/tasks'
+	if (isAuthPathname(pathname)) return '/'
 	return trimmed
 }
 
 export function destinationFromPathname(pathname: string): AppDestination {
 	const seg = pathname.split('/')[1]
-	if (seg === 'inbox' || seg === 'docs' || seg === 'chat' || seg === 'settings') return seg
-	return 'tasks'
+	if (seg === 'inbox' || seg === 'tasks' || seg === 'docs' || seg === 'chat' || seg === 'settings') return seg
+	return 'home'
 }
 
 type NavigateFn = (dest: AppDestination) => void
 type DocNavigateFn = (slug: string, hash?: string) => void
+type ChatNavigateFn = (channelId?: string, messageId?: string) => void
 let navigateFn: NavigateFn | null = null
 let docNavigateFn: DocNavigateFn | null = null
+let chatNavigateFn: ChatNavigateFn | null = null
 
 export function registerAppNavigator(fn: NavigateFn | null) {
 	navigateFn = fn
@@ -54,6 +57,10 @@ export function registerAppNavigator(fn: NavigateFn | null) {
 
 export function registerDocNavigator(fn: DocNavigateFn | null) {
 	docNavigateFn = fn
+}
+
+export function registerChatNavigator(fn: ChatNavigateFn | null) {
+	chatNavigateFn = fn
 }
 
 export function navigateToDestination(dest: AppDestination) {
@@ -65,5 +72,13 @@ export function navigateToDoc(slug: string, hash?: string) {
 		docNavigateFn(slug, hash)
 	} else {
 		navigateFn?.('docs')
+	}
+}
+
+export function navigateToChat(channelId?: string, messageId?: string) {
+	if (chatNavigateFn) {
+		chatNavigateFn(channelId, messageId)
+	} else {
+		navigateFn?.('chat')
 	}
 }

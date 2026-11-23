@@ -70,6 +70,7 @@ export {
 	consumeAndAuthorizeCollabTicket,
 	createDocPage,
 	deleteDocPage,
+	getDocPageBySlugDetail,
 	getDocPageDetail,
 	getDocPageForRedirect,
 	getDocsSnapshotData,

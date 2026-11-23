@@ -1,8 +1,8 @@
 /**
- * Realtime signal pub/sub abstraction (§9.4, §15.2).
+ * Realtime signal pub/sub abstraction (§9.4, §15.1, §15.2).
  *
- * Signals carry ONLY `{ workspaceId, cursor }` or `{ workspaceId, userId, reason }` —
- * never domain payloads.
+ * Signals carry ONLY opaque pointers (`{ workspaceId, cursor }`, `{ workspaceId, channelId, rev, lastMsgSeq }`,
+ * or `{ workspaceId, userId, reason }`) — never domain payloads.
  * - `InProcessPubSub`: zero-latency single-process fan-out (`--role=all` and tests).
  * - `PostgresNotifyPubSub`: multi-process fan-out over a dedicated LISTEN/NOTIFY
  *   session connection (`api` / `worker` → `realtime`).
@@ -12,6 +12,13 @@ import { log } from '../api/observability'
 
 export type PubSubEvent =
 	| { readonly type: 'cursor'; readonly workspaceId: string; readonly cursor: number }
+	| {
+			readonly type: 'chat'
+			readonly workspaceId: string
+			readonly channelId: string
+			readonly rev: number
+			readonly lastMsgSeq: number
+	  }
 	| {
 			readonly type: 'revoke'
 			readonly workspaceId: string
@@ -23,6 +30,7 @@ export type PubSubHandler = (event: PubSubEvent) => void
 
 export interface RealtimePubSub {
 	publishCursor(workspaceId: string, cursor: number): Promise<void>
+	publishChat(workspaceId: string, channelId: string, rev: number, lastMsgSeq: number): Promise<void>
 	publishRevoke(workspaceId: string, userId: string, reason: string): Promise<void>
 	subscribe(handler: PubSubHandler): () => void
 	close(): Promise<void>
@@ -33,6 +41,11 @@ export class InProcessPubSub implements RealtimePubSub {
 
 	async publishCursor(workspaceId: string, cursor: number): Promise<void> {
 		const ev: PubSubEvent = { type: 'cursor', workspaceId, cursor }
+		for (const h of this.handlers) h(ev)
+	}
+
+	async publishChat(workspaceId: string, channelId: string, rev: number, lastMsgSeq: number): Promise<void> {
+		const ev: PubSubEvent = { type: 'chat', workspaceId, channelId, rev, lastMsgSeq }
 		for (const h of this.handlers) h(ev)
 	}
 
@@ -70,10 +83,21 @@ export class PostgresNotifyPubSub implements RealtimePubSub {
 			try {
 				const parsed = JSON.parse(raw) as
 					| { t: 'c'; w: string; c: number }
+					| { t: 'm'; w: string; ch: string; r: number; s: number }
 					| { t: 'r'; w: string; u: string; r: string }
 				if (parsed.t === 'c') {
 					for (const h of this.handlers) {
 						h({ type: 'cursor', workspaceId: parsed.w, cursor: parsed.c })
+					}
+				} else if (parsed.t === 'm') {
+					for (const h of this.handlers) {
+						h({
+							type: 'chat',
+							workspaceId: parsed.w,
+							channelId: parsed.ch,
+							rev: parsed.r,
+							lastMsgSeq: parsed.s
+						})
 					}
 				} else if (parsed.t === 'r') {
 					for (const h of this.handlers) {
@@ -88,6 +112,11 @@ export class PostgresNotifyPubSub implements RealtimePubSub {
 
 	async publishCursor(workspaceId: string, cursor: number): Promise<void> {
 		const payload = JSON.stringify({ t: 'c', w: workspaceId, c: cursor })
+		await this.sql.notify(NOTIFY_CHANNEL, payload)
+	}
+
+	async publishChat(workspaceId: string, channelId: string, rev: number, lastMsgSeq: number): Promise<void> {
+		const payload = JSON.stringify({ t: 'm', w: workspaceId, ch: channelId, r: rev, s: lastMsgSeq })
 		await this.sql.notify(NOTIFY_CHANNEL, payload)
 	}
 

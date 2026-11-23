@@ -88,7 +88,9 @@ describe('M1 wire contracts', () => {
 		expect(Value.Check(ImportDryRunBody, { source: 'linear' })).toBe(true)
 		expect(Value.Check(ImportDryRunBody, { source: 'notion' })).toBe(true)
 		expect(Value.Check(ImportDryRunBody, { source: 'markdown' })).toBe(true)
-		expect(Value.Check(ImportDryRunBody, { source: 'jira' })).toBe(false)
+		expect(Value.Check(ImportDryRunBody, { source: 'slack' })).toBe(true)
+		expect(Value.Check(ImportDryRunBody, { source: 'jira' })).toBe(true)
+		expect(Value.Check(ImportDryRunBody, { source: 'trello' })).toBe(false)
 	})
 })
 

@@ -6,16 +6,22 @@
 import { openapi } from '@elysia/openapi'
 import { pendingMigrations, type Sql, withSystem } from '@huriro/db'
 import { Elysia } from 'elysia'
+import { chatModule } from '../modules/chat'
 import { type CollabDirectBridge, docsModule } from '../modules/docs'
+import { type BlobStorage, filesModule, MemoryBlobStorage } from '../modules/files'
 import { type Auth, identityModule } from '../modules/identity'
 import { importsModule } from '../modules/imports'
-import { notificationsModule } from '../modules/notifications'
+import { type GithubApiClient, githubWebhookPublicModule, integrationsModule } from '../modules/integrations'
+import { notificationsModule, type VapidConfig } from '../modules/notifications'
 import { searchModule } from '../modules/search'
 import { syncModule } from '../modules/sync'
 import { tasksModule } from '../modules/tasks'
 import { tenancyModule } from '../modules/tenancy'
+import { webhooksModule } from '../modules/webhooks'
 import type { RealtimePubSub } from '../realtime/pubsub'
 import { assertCookieCsrf } from './context'
+import { resolveRootEnvelopeSecret } from './crypto'
+import type { DnsResolver } from './egress'
 import { HttpError, toProblem } from './error'
 import { log, metrics, observability } from './observability'
 
@@ -29,10 +35,37 @@ export interface AppDeps {
 	readonly collabTicketSecret?: string
 	/** Public origins allowed to call cookie-authed mutations — [HURIRO_URL]. */
 	readonly allowedOrigins?: readonly string[]
+	readonly blobStorage?: BlobStorage
+	readonly clamavHost?: string | undefined
+	readonly clamavPort?: number | undefined
+	readonly rootSecret?: string | undefined
+	readonly githubAppWebhookSecret?: string | undefined
+	readonly githubClient?: GithubApiClient | undefined
+	readonly vapid?: VapidConfig | undefined
+	readonly egressFetch?: typeof fetch | undefined
+	readonly egressResolver?: DnsResolver | undefined
 }
 
 export function createApp(deps: AppDeps) {
 	const { sql, migrationsDir, mode, auth, pubsub, collabBridge, collabTicketSecret } = deps
+	const blobStorage = deps.blobStorage ?? new MemoryBlobStorage()
+	const rootSecret = deps.rootSecret ?? resolveRootEnvelopeSecret()
+	const scanOpts = {
+		...(deps.clamavHost ? { clamavHost: deps.clamavHost } : {}),
+		...(deps.clamavPort ? { clamavPort: deps.clamavPort } : {})
+	}
+	const integrationOpts = {
+		rootSecret,
+		...(deps.githubAppWebhookSecret ? { globalWebhookSecret: deps.githubAppWebhookSecret } : {}),
+		...(deps.githubClient ? { githubClient: deps.githubClient } : {}),
+		...(deps.egressFetch ? { fetchImpl: deps.egressFetch } : {}),
+		...(deps.egressResolver ? { resolver: deps.egressResolver } : {})
+	}
+	const webhookOpts = {
+		rootSecret,
+		...(deps.egressFetch ? { fetchImpl: deps.egressFetch } : {}),
+		...(deps.egressResolver ? { resolver: deps.egressResolver } : {})
+	}
 
 	const base = new Elysia({ name: 'huriro.api' })
 		.use(observability)
@@ -70,8 +103,12 @@ export function createApp(deps: AppDeps) {
 						},
 						{ name: 'sync', description: 'Change log delta, snapshots, batch mutations, realtime tickets' },
 						{ name: 'search', description: 'Unified workspace FTS + trigram search' },
-						{ name: 'notifications', description: 'In-app triage notifications' },
-						{ name: 'imports', description: 'Linear, GitHub, Notion and Markdown importers' }
+						{ name: 'notifications', description: 'In-app, email digest, and Web Push notifications' },
+						{ name: 'imports', description: 'Linear, GitHub, Notion, Markdown, Slack, Jira importers' },
+						{ name: 'chat', description: 'Channels, DMs, threads, reactions, and per-channel feeds' },
+						{ name: 'files', description: 'Two-phase malware-quarantined attachment uploads' },
+						{ name: 'webhooks', description: 'Signed outbound webhooks with retry and replay' },
+						{ name: 'integrations', description: 'GitHub App two-way issue synchronization' }
 					]
 				}
 			})
@@ -111,18 +148,33 @@ export function createApp(deps: AppDeps) {
 		// each module derives its workspace context via `workspaceDerive`.
 		.group('/api/v1', (api) =>
 			api
+				// Unauthenticated GitHub webhook receiver verifies HMAC-SHA256 before CSRF/workspace guards.
+				.use(githubWebhookPublicModule(sql, integrationOpts))
 				// Single CSRF gate for the whole API surface (§12.6): cookie-authed
 				// mutations need a trusted Origin, sane Sec-Fetch-Site, and
 				// X-Huriro-Client — enforced once here so a route can't forget it.
-				.onBeforeHandle(({ request }) => assertCookieCsrf(request, deps.allowedOrigins))
+				.onBeforeHandle(({ request }) => {
+					const path = new URL(request.url).pathname
+					if (path === '/api/v1/integrations/github/webhook') return
+					assertCookieCsrf(request, deps.allowedOrigins)
+				})
 				.use(identityModule(auth))
 				.use(tenancyModule(sql, mode, auth, pubsub))
 				.use(tasksModule(sql, auth, pubsub))
 				.use(docsModule(sql, auth, pubsub, collabBridge, collabTicketSecret))
 				.use(syncModule(sql, auth, pubsub))
 				.use(searchModule(sql, auth))
-				.use(notificationsModule(sql, auth, pubsub))
+				.use(filesModule(sql, auth, blobStorage, scanOpts))
+				.use(chatModule(sql, auth, pubsub))
+				.use(
+					notificationsModule(sql, auth, pubsub, {
+						...(deps.vapid ? { vapid: deps.vapid } : {}),
+						...(deps.egressResolver ? { resolver: deps.egressResolver } : {})
+					})
+				)
 				.use(importsModule(sql, auth, pubsub))
+				.use(webhooksModule(sql, auth, webhookOpts))
+				.use(integrationsModule(sql, auth, integrationOpts))
 		)
 
 	// better-auth mounts its own router at /api/auth/* when configured — it

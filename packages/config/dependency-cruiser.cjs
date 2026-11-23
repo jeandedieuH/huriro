@@ -26,6 +26,8 @@ const MODULE_SCHEMA_OWNERSHIP = {
 	agents: ['agents'],
 	imports: ['imports'],
 	files: ['files'],
+	webhooks: ['webhooks'],
+	integrations: ['integrations'],
 	audit: ['audit'],
 	sync: ['sync']
 }

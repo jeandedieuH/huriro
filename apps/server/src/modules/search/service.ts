@@ -110,6 +110,38 @@ export async function processSearchOutboxEvent(tx: Queryable, event: OutboxEvent
 			await deleteSearchDocument(tx, event.workspaceId, 'doc_page', pageId)
 			return true
 		}
+		case 'chat.message.created.v1':
+		case 'chat.message.updated.v1': {
+			const messageId = String(p['messageId'] ?? '')
+			const channelId = typeof p['channelId'] === 'string' ? p['channelId'] : null
+			if (!messageId || !channelId) return false
+			const channelName = typeof p['channelName'] === 'string' ? p['channelName'] : null
+			const channelKind = typeof p['channelKind'] === 'string' ? p['channelKind'] : 'public'
+			await upsertSearchDocument(tx, {
+				workspaceId: event.workspaceId,
+				entityType: 'message',
+				entityId: messageId,
+				projectId: null,
+				containerId: channelId,
+				identifier: channelName,
+				title: channelName ? `#${channelName}` : 'Direct message',
+				body: String(p['bodyText'] ?? ''),
+				metadata: {
+					channelId,
+					channelName,
+					channelKind,
+					threadParentId: typeof p['threadParentId'] === 'string' ? p['threadParentId'] : null,
+					authorDisplayName: typeof p['authorDisplayName'] === 'string' ? p['authorDisplayName'] : null
+				}
+			})
+			return true
+		}
+		case 'chat.message.deleted.v1': {
+			const messageId = String(p['messageId'] ?? '')
+			if (!messageId) return false
+			await deleteSearchDocument(tx, event.workspaceId, 'message', messageId)
+			return true
+		}
 		default:
 			return false
 	}

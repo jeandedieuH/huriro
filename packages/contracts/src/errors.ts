@@ -38,7 +38,14 @@ export const ERROR_CODES = [
 	// collaborative docs
 	'doc_too_large',
 	'collab_lease_conflict',
-	'collab_ticket_invalid'
+	'collab_ticket_invalid',
+	// M4 files, chat, SSRF, webhooks
+	'file_infected',
+	'file_pending_scan',
+	'file_too_large',
+	'ssrf_blocked',
+	'webhook_signature_invalid',
+	'channel_archived'
 ] as const
 
 export type ErrorCode = (typeof ERROR_CODES)[number]

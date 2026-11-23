@@ -2,9 +2,11 @@ import { activateI18n } from '@huriro/i18n'
 import { SyncProvider } from '@huriro/sync-client'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { createPreviewWorkspace } from '@/lib/sync-bootstrap'
 import { expectNoViolations } from '@/lib/test-setup'
 import { useUiStore } from '@/stores/ui-store'
+import { TasksSidebarNav } from './components/tasks-sidebar-nav'
 import { TasksWorkspace } from './components/tasks-workspace'
 
 activateI18n('en')
@@ -12,9 +14,14 @@ activateI18n('en')
 async function renderTasksWorkspace() {
 	const boot = await createPreviewWorkspace()
 	const rendered = render(
-		<SyncProvider engine={boot.engine}>
-			<TasksWorkspace api={boot.api} currentUserId={boot.currentUserId} />
-		</SyncProvider>
+		<TooltipProvider>
+			<SyncProvider engine={boot.engine}>
+				<div className="flex h-full">
+					<TasksSidebarNav />
+					<TasksWorkspace api={boot.api} currentUserId={boot.currentUserId} />
+				</div>
+			</SyncProvider>
+		</TooltipProvider>
 	)
 	return { boot, ...rendered }
 }
@@ -23,7 +30,10 @@ describe('TasksWorkspace', () => {
 	beforeEach(() => {
 		useUiStore.setState({
 			destination: 'tasks',
+			sidebarLevel: 'feature',
+			sidebarCollapsed: false,
 			activeProjectId: null,
+			tasksPreset: 'all',
 			tasksLayout: 'list',
 			density: 'comfortable',
 			shortcutsEnabled: true,

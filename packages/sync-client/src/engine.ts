@@ -151,6 +151,11 @@ export interface HuriroSyncEngineOptions {
 	readonly useRealtimeTicket?: boolean | undefined
 	readonly onMutationRejected?: ((error: string) => void) | undefined
 	readonly onSessionInvalid?: (() => void) | undefined
+	readonly onChatSignal?: ((ev: { channelId: string; rev: number; lastMsgSeq: number }) => void) | undefined
+	readonly onPresence?:
+		| ((users: readonly { userId: string; status: 'online' | 'away'; lastSeenAt: number }[]) => void)
+		| undefined
+	readonly onTyping?: ((ev: { channelId: string; userId: string; until: number }) => void) | undefined
 }
 
 export class HuriroSyncEngine {
@@ -165,6 +170,13 @@ export class HuriroSyncEngine {
 	private readonly useRealtimeTicket: boolean
 	private readonly onMutationRejected: ((error: string) => void) | undefined
 	private readonly onSessionInvalid: (() => void) | undefined
+	private readonly onChatSignal:
+		| ((ev: { channelId: string; rev: number; lastMsgSeq: number }) => void)
+		| undefined
+	private readonly onPresence:
+		| ((users: readonly { userId: string; status: 'online' | 'away'; lastSeenAt: number }[]) => void)
+		| undefined
+	private readonly onTyping: ((ev: { channelId: string; userId: string; until: number }) => void) | undefined
 
 	private wsClient: WsSignalClient | null = null
 	private cursor = 0
@@ -193,6 +205,9 @@ export class HuriroSyncEngine {
 		this.useRealtimeTicket = opts.useRealtimeTicket ?? false
 		this.onMutationRejected = opts.onMutationRejected
 		this.onSessionInvalid = opts.onSessionInvalid
+		this.onChatSignal = opts.onChatSignal
+		this.onPresence = opts.onPresence
+		this.onTyping = opts.onTyping
 	}
 
 	subscribe(listener: () => void): () => void {
@@ -306,6 +321,15 @@ export class HuriroSyncEngine {
 				if (remoteCursor > this.cursor) {
 					void this.syncNow()
 				}
+			},
+			onChatSignal: (ev) => {
+				this.onChatSignal?.(ev)
+			},
+			onPresence: (users) => {
+				this.onPresence?.(users)
+			},
+			onTyping: (ev) => {
+				this.onTyping?.(ev)
 			},
 			onRevokeSignal: (reason) => {
 				void this.handleRevocation(reason)
@@ -1102,6 +1126,14 @@ export class HuriroSyncEngine {
 	async persistReplica(): Promise<void> {
 		const state = this.collections.exportState(this.cursor)
 		await this.storage.set(REPLICA_KEY, JSON.stringify(state))
+	}
+
+	sendPresence(status: 'online' | 'away'): void {
+		this.wsClient?.sendPresence(status)
+	}
+
+	sendTyping(channelId: string): void {
+		this.wsClient?.sendTyping(channelId)
 	}
 
 	async signOutAndWipe(): Promise<void> {

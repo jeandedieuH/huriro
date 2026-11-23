@@ -13,7 +13,18 @@ export const log = pino({
 	base: { service: 'huriro' },
 	// Never log secrets/headers — §4.2: no secret in a log line.
 	redact: {
-		paths: ['req.headers.authorization', 'req.headers.cookie', '*.password', '*.token', '*.secret'],
+		paths: [
+			'req.headers.authorization',
+			'req.headers.cookie',
+			'*.password',
+			'*.token',
+			'*.secret',
+			'*.webhookSecret',
+			'*.signingSecret',
+			'*.privateKey',
+			'*.apiToken',
+			'*.authSecret'
+		],
 		remove: true
 	}
 })
@@ -58,6 +69,31 @@ export const collabStoreDurationSeconds = new client.Histogram({
 	help: 'Duration of fenced Y.Doc PostgreSQL persistence (§10.5)',
 	buckets: [0.005, 0.02, 0.05, 0.12, 0.25, 0.5, 1, 2.5]
 })
+export const chatMessagesTotal = new client.Counter({
+	name: 'huriro_chat_messages_total',
+	help: 'Total chat messages persisted (§15.1)',
+	labelNames: ['kind']
+})
+export const chatFeedLatencyMs = new client.Histogram({
+	name: 'huriro_chat_feed_latency_ms',
+	help: 'Time to allocate channel seq/rev and persist chat messages (§15.1)',
+	buckets: [1, 5, 10, 25, 50, 100, 250]
+})
+export const webhookDeliveriesTotal = new client.Counter({
+	name: 'huriro_webhook_deliveries_total',
+	help: 'Outbound webhook delivery attempts by outcome (§16.5)',
+	labelNames: ['outcome']
+})
+export const fileScansTotal = new client.Counter({
+	name: 'huriro_file_scans_total',
+	help: 'Quarantine attachment scan results (§8.7)',
+	labelNames: ['status']
+})
+export const githubSyncTotal = new client.Counter({
+	name: 'huriro_github_sync_total',
+	help: 'GitHub two-way sync operations by direction and status (§16.6)',
+	labelNames: ['direction', 'status']
+})
 metrics.registerMetric(httpDuration)
 metrics.registerMetric(outboxLag)
 metrics.registerMetric(changeLogWriteMs)
@@ -66,6 +102,11 @@ metrics.registerMetric(collabConnectionsGauge)
 metrics.registerMetric(collabStateBytesHistogram)
 metrics.registerMetric(collabLeaseConflictsTotal)
 metrics.registerMetric(collabStoreDurationSeconds)
+metrics.registerMetric(chatMessagesTotal)
+metrics.registerMetric(chatFeedLatencyMs)
+metrics.registerMetric(webhookDeliveriesTotal)
+metrics.registerMetric(fileScansTotal)
+metrics.registerMetric(githubSyncTotal)
 
 export function hashForLog(id: string | undefined): string | undefined {
 	if (!id) return undefined

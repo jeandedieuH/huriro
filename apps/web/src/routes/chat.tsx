@@ -1,11 +1,20 @@
-import { t } from '@huriro/i18n'
 import { createFileRoute } from '@tanstack/react-router'
-import { EmptyState } from '@/components/ui/empty-state'
+import { ChatWorkspace } from '@/features/chat/components/chat-workspace'
+
+export interface ChatSearchParams {
+	readonly channel?: string | undefined
+	readonly message?: string | undefined
+}
 
 export const Route = createFileRoute('/chat')({
+	validateSearch: (search: Record<string, unknown>): ChatSearchParams => ({
+		...(typeof search['channel'] === 'string' ? { channel: search['channel'] } : {}),
+		...(typeof search['message'] === 'string' ? { message: search['message'] } : {})
+	}),
 	component: ChatRoute
 })
 
 function ChatRoute() {
-	return <EmptyState className="m-6" title={t('nav.chat')} hint={t('shell.placeholder-module')} />
+	const search = Route.useSearch()
+	return <ChatWorkspace requestedChannelId={search.channel} highlightedMessageId={search.message} />
 }

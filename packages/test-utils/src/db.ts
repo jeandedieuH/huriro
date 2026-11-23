@@ -85,6 +85,18 @@ async function prepare(
 ): Promise<TestDb> {
 	const owner = createOwnerPool(ownerUrl, { max: 4 })
 
+	// 0009 scopes users_visibility policy to (`huriro`, `huriro_app`); Testcontainers/CI
+	// connect as `postgres`, so ensure `huriro` exists before running migrations.
+	await owner.unsafe(`
+		DO $$
+		BEGIN
+			IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'huriro') THEN
+				CREATE ROLE huriro NOINHERIT NOBYPASSRLS LOGIN;
+			END IF;
+		END
+		$$;
+	`)
+
 	// Migrate first (0001 creates huriro_app), then provision the role's password —
 	// secrets live in provision-time env, never in migration files (§12.7).
 	const migrated = await migrate(owner, dbMigrationsDir)

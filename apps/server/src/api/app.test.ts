@@ -269,11 +269,50 @@ describe('api contract', () => {
 			new Request('http://t/api/v1/imports/dry-run', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json', 'x-workspace-id': crypto.randomUUID() },
-				body: JSON.stringify({ source: 'jira' })
+				body: JSON.stringify({ source: 'trello' })
 			})
 		)
 		expect(res.status).toBe(422)
 		const body = (await res.json()) as { code?: string }
 		expect(body.code).toBe('validation_failed')
+	})
+
+	test('POST /chat/channels validates channel name format', async () => {
+		const res = await app.handle(
+			new Request('http://t/api/v1/chat/channels', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', 'x-workspace-id': crypto.randomUUID() },
+				body: JSON.stringify({ name: 'Invalid Spaces!' })
+			})
+		)
+		expect(res.status).toBe(422)
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('validation_failed')
+	})
+
+	test('POST /webhooks validates required events array', async () => {
+		const res = await app.handle(
+			new Request('http://t/api/v1/webhooks', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', 'x-workspace-id': crypto.randomUUID() },
+				body: JSON.stringify({ name: 'Hook', url: 'https://example.com/hook', events: [] })
+			})
+		)
+		expect(res.status).toBe(422)
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('validation_failed')
+	})
+
+	test('POST /integrations/github/webhook rejects missing X-Hub-Signature-256 with 401', async () => {
+		const res = await app.handle(
+			new Request('http://t/api/v1/integrations/github/webhook', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ action: 'opened' })
+			})
+		)
+		expect(res.status).toBe(401)
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('webhook_signature_invalid')
 	})
 })

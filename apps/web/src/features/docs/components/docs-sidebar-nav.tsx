@@ -1,5 +1,6 @@
 import type { DocPageDto } from '@huriro/contracts'
 import { t } from '@huriro/i18n'
+import { useCollectionItems, useSyncEngine } from '@huriro/sync-client'
 import {
 	ChevronDown,
 	ChevronRight,
@@ -13,6 +14,11 @@ import {
 	Upload
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import {
+	SidebarNavItem,
+	SidebarSection,
+	useSidebarCollapsed
+} from '@/components/app-shell/sidebar/sidebar-primitives'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
@@ -22,32 +28,28 @@ import {
 	DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { navigateToDoc } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
+import { useUiStore } from '@/stores/ui-store'
 
-export interface PageTreeSidebarProps {
-	readonly pages: readonly DocPageDto[]
+export interface DocsSidebarNavProps {
 	readonly activeSlug: string | null
-	readonly onSelectSlug: (slug: string) => void
-	readonly onCreatePage: () => void
-	readonly onOpenImport: () => void
-	readonly onMovePage: (pageId: string, parentId: string | null) => Promise<void>
-	readonly onArchivePage: (pageId: string) => Promise<void>
+	readonly collapsed?: boolean | undefined
+	readonly onSelectSlug?: ((slug: string) => void) | undefined
 }
 
 function sortPages(a: DocPageDto, b: DocPageDto): number {
 	return a.position < b.position ? -1 : a.position > b.position ? 1 : a.id.localeCompare(b.id)
 }
 
-export function PageTreeSidebar({
-	pages,
-	activeSlug,
-	onSelectSlug,
-	onCreatePage,
-	onOpenImport,
-	onMovePage,
-	onArchivePage
-}: PageTreeSidebarProps) {
-	const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
+export function DocsSidebarNav({ activeSlug, collapsed, onSelectSlug }: DocsSidebarNavProps) {
+	const ctxCollapsed = useSidebarCollapsed()
+	const isCollapsed = collapsed ?? ctxCollapsed
+	const engine = useSyncEngine()
+	const pages = useCollectionItems(engine.collections.docPages)
+
+	const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(() => new Set())
 	const [moveTargetPage, setMoveTargetPage] = useState<DocPageDto | null>(null)
 	const [nextParentId, setNextParentId] = useState<string>('root')
 
@@ -65,13 +67,52 @@ export function PageTreeSidebar({
 		return map
 	}, [activePages])
 
+	function selectSlug(slug: string) {
+		if (onSelectSlug) onSelectSlug(slug)
+		else navigateToDoc(slug)
+	}
+
 	function toggleExpand(pageId: string) {
-		setCollapsed((prev) => {
+		setCollapsedNodes((prev) => {
 			const next = new Set(prev)
 			if (next.has(pageId)) next.delete(pageId)
 			else next.add(pageId)
 			return next
 		})
+	}
+
+	async function handleMovePage(pageId: string, parentId: string | null) {
+		await engine.moveDocPage(pageId, { parentId })
+	}
+
+	async function handleArchivePage(pageId: string) {
+		await engine.deleteDocPage(pageId)
+	}
+
+	const eligibleMoveParents = useMemo(() => {
+		if (!moveTargetPage) return []
+		return activePages.filter(
+			(p) => p.id !== moveTargetPage.id && !p.path.startsWith(`${moveTargetPage.path}/`)
+		)
+	}, [activePages, moveTargetPage])
+
+	if (isCollapsed) {
+		const topLevelPages = childrenByParent.get(null) ?? []
+		return (
+			<nav aria-label={t('docs.sidebar.workspace')} className="space-y-1">
+				{topLevelPages.map((page) => (
+					<SidebarNavItem
+						key={page.id}
+						icon={page.icon ? <span className="text-xs">{page.icon}</span> : <FileText className="size-4" />}
+						label={page.title}
+						active={activeSlug === page.slug}
+						isCurrentPage={activeSlug === page.slug}
+						collapsed
+						onClick={() => selectSlug(page.slug)}
+					/>
+				))}
+			</nav>
+		)
 	}
 
 	function renderBranch(parentId: string | null, level: number) {
@@ -80,17 +121,17 @@ export function PageTreeSidebar({
 		return nodes.map((page) => {
 			const kids = childrenByParent.get(page.id) ?? []
 			const hasChildren = kids.length > 0
-			const isExpanded = hasChildren && !collapsed.has(page.id)
+			const isExpanded = hasChildren && !collapsedNodes.has(page.id)
 			const isSelected = activeSlug === page.slug
 
 			return (
 				<li key={page.id} className="select-none">
 					<div
 						className={cn(
-							'group flex items-center gap-1 rounded-md px-1.5 py-1 text-sm transition-colors',
+							'group flex items-center gap-1 rounded-xl px-1.5 py-1 text-sm transition-colors',
 							isSelected
-								? 'bg-accent text-accent-foreground font-medium'
-								: 'text-foreground hover:bg-muted/70'
+								? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground'
+								: 'text-sidebar-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground'
 						)}
 						style={{ paddingLeft: `${(level - 1) * 12 + 4}px` }}
 					>
@@ -100,7 +141,7 @@ export function PageTreeSidebar({
 								aria-expanded={isExpanded}
 								aria-label={isExpanded ? t('docs.sidebar.collapse') : t('docs.sidebar.expand')}
 								onClick={() => toggleExpand(page.id)}
-								className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-muted"
+								className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-sidebar-accent"
 							>
 								{isExpanded ? (
 									<ChevronDown className="size-3.5" aria-hidden />
@@ -115,19 +156,27 @@ export function PageTreeSidebar({
 						<button
 							type="button"
 							aria-current={isSelected ? 'page' : undefined}
-							onClick={() => onSelectSlug(page.slug)}
+							onClick={() => selectSlug(page.slug)}
 							onKeyDown={(ev) => {
 								if (ev.key === 'ArrowRight' && hasChildren && !isExpanded) toggleExpand(page.id)
 								if (ev.key === 'ArrowLeft' && hasChildren && isExpanded) toggleExpand(page.id)
 							}}
-							className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left"
+							className="flex min-w-0 flex-1 items-center gap-2 truncate text-left"
 						>
-							<span aria-hidden className="shrink-0 text-xs">
-								{page.icon ?? <FileText className="size-3.5 text-muted-foreground" />}
+							<span
+								aria-hidden
+								className={cn(
+									'flex size-6 shrink-0 items-center justify-center rounded-md text-xs',
+									isSelected
+										? 'bg-sidebar-primary text-sidebar-primary-foreground'
+										: 'border border-sidebar-border/60 bg-sidebar-icon-well text-sidebar-muted-foreground'
+								)}
+							>
+								{page.icon ?? <FileText className="size-3.5" />}
 							</span>
 							<span className="truncate">{page.title}</span>
 							{page.visibility === 'private' ? (
-								<Lock className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+								<Lock className="size-3 shrink-0 text-sidebar-muted-foreground" aria-hidden />
 							) : null}
 						</button>
 
@@ -156,7 +205,7 @@ export function PageTreeSidebar({
 								<DropdownMenuItem
 									className="text-destructive"
 									onSelect={() => {
-										void onArchivePage(page.id)
+										void handleArchivePage(page.id)
 									}}
 								>
 									<Trash2 className="size-3.5" aria-hidden />
@@ -172,85 +221,34 @@ export function PageTreeSidebar({
 		})
 	}
 
-	const eligibleMoveParents = useMemo(() => {
-		if (!moveTargetPage) return []
-		return activePages.filter(
-			(p) => p.id !== moveTargetPage.id && !p.path.startsWith(`${moveTargetPage.path}/`)
-		)
-	}, [activePages, moveTargetPage])
-
 	return (
-		<aside
-			aria-label={t('docs.sidebar.title')}
-			className="flex w-64 shrink-0 flex-col border-r border-border bg-card/50"
-		>
-			<div className="flex items-center justify-between border-b border-border px-3 py-2.5">
-				<span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-					{t('docs.sidebar.title')}
-				</span>
-				<div className="flex items-center gap-1">
-					<Button
-						type="button"
-						size="icon"
-						tone="ghost"
-						aria-label={t('docs.sidebar.import')}
-						onClick={onOpenImport}
-					>
-						<Upload className="size-3.5" aria-hidden />
-					</Button>
-					<Button
-						type="button"
-						size="icon"
-						tone="ghost"
-						aria-label={t('docs.sidebar.new-page')}
-						onClick={onCreatePage}
-					>
-						<Plus className="size-4" aria-hidden />
-					</Button>
-				</div>
-			</div>
+		<div className="space-y-2">
+			{favorites.length > 0 ? (
+				<SidebarSection title={t('docs.sidebar.favorites')}>
+					<ul className="space-y-0.5">
+						{favorites.map((fav) => (
+							<li key={`fav-${fav.id}`}>
+								<SidebarNavItem
+									icon={<Star className="size-3.5 text-(--warning)" />}
+									label={fav.title}
+									active={activeSlug === fav.slug}
+									onClick={() => selectSlug(fav.slug)}
+								/>
+							</li>
+						))}
+					</ul>
+				</SidebarSection>
+			) : null}
 
-			<div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-2">
-				{favorites.length > 0 ? (
-					<section aria-label={t('docs.sidebar.favorites')}>
-						<h2 className="px-2 pb-1 text-xs font-medium text-muted-foreground">
-							{t('docs.sidebar.favorites')}
-						</h2>
-						<ul className="space-y-0.5">
-							{favorites.map((fav) => (
-								<li key={`fav-${fav.id}`}>
-									<button
-										type="button"
-										onClick={() => onSelectSlug(fav.slug)}
-										className={cn(
-											'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm transition-colors',
-											activeSlug === fav.slug
-												? 'bg-accent text-accent-foreground font-medium'
-												: 'text-foreground hover:bg-muted/70'
-										)}
-									>
-										<Star className="size-3.5 shrink-0 text-(--warning)" aria-hidden />
-										<span className="truncate">{fav.title}</span>
-									</button>
-								</li>
-							))}
-						</ul>
-					</section>
-				) : null}
-
-				<section aria-label={t('docs.sidebar.workspace')}>
-					<h2 className="px-2 pb-1 text-xs font-medium text-muted-foreground">
-						{t('docs.sidebar.workspace')}
-					</h2>
-					{activePages.length === 0 ? (
-						<p className="px-2 py-4 text-xs text-muted-foreground">{t('docs.sidebar.empty')}</p>
-					) : (
-						<nav aria-label={t('docs.sidebar.workspace')}>
-							<ul className="space-y-0.5">{renderBranch(null, 1)}</ul>
-						</nav>
-					)}
-				</section>
-			</div>
+			<SidebarSection title={t('docs.sidebar.workspace')}>
+				{activePages.length === 0 ? (
+					<p className="px-2 py-3 text-xs text-sidebar-muted-foreground">{t('docs.sidebar.empty')}</p>
+				) : (
+					<nav aria-label={t('docs.sidebar.workspace')}>
+						<ul className="space-y-0.5">{renderBranch(null, 1)}</ul>
+					</nav>
+				)}
+			</SidebarSection>
 
 			<Dialog open={moveTargetPage !== null} onOpenChange={(o) => !o && setMoveTargetPage(null)}>
 				<DialogContent className="max-w-sm">
@@ -279,7 +277,7 @@ export function PageTreeSidebar({
 							onClick={() => {
 								if (!moveTargetPage) return
 								const targetParent = nextParentId === 'root' ? null : nextParentId
-								void onMovePage(moveTargetPage.id, targetParent).then(() => setMoveTargetPage(null))
+								void handleMovePage(moveTargetPage.id, targetParent).then(() => setMoveTargetPage(null))
 							}}
 						>
 							{t('docs.move.confirm')}
@@ -287,6 +285,39 @@ export function PageTreeSidebar({
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
-		</aside>
+		</div>
+	)
+}
+
+export function DocsSidebarHeaderAction() {
+	const setCreateDocOpen = useUiStore((s) => s.setCreateDocOpen)
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<button
+					type="button"
+					aria-label={t('docs.sidebar.new-page')}
+					onClick={() => setCreateDocOpen(true)}
+					className="flex size-7 items-center justify-center rounded-lg text-sidebar-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+				>
+					<Plus className="size-4" aria-hidden />
+				</button>
+			</TooltipTrigger>
+			<TooltipContent side="bottom">{t('docs.sidebar.new-page')}</TooltipContent>
+		</Tooltip>
+	)
+}
+
+export function DocsSidebarFooterUtility({ collapsed }: { readonly collapsed?: boolean | undefined }) {
+	const ctxCollapsed = useSidebarCollapsed()
+	const isCollapsed = collapsed ?? ctxCollapsed
+	const setDocImportOpen = useUiStore((s) => s.setDocImportOpen)
+	return (
+		<SidebarNavItem
+			icon={<Upload className="size-4" />}
+			label={t('docs.sidebar.import')}
+			collapsed={isCollapsed}
+			onClick={() => setDocImportOpen(true)}
+		/>
 	)
 }

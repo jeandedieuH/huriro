@@ -1,6 +1,6 @@
 import type { ProjectStatusDto } from '@huriro/contracts'
 import { t } from '@huriro/i18n'
-import { BookmarkPlus, LayoutGrid, List, Plus, Search, UserCheck } from 'lucide-react'
+import { BookmarkPlus, ChevronRight, LayoutGrid, List, Plus, Search, UserCheck } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,10 +13,12 @@ import { useUiStore } from '@/stores/ui-store'
 export interface FilterBarProps {
 	readonly statuses: readonly ProjectStatusDto[]
 	readonly members: readonly WorkspaceMemberSummary[]
+	readonly projectLabel?: string | undefined
+	readonly viewLabel?: string | undefined
 	readonly onSaveView: (name: string) => Promise<void>
 }
 
-export function FilterBar({ statuses, members, onSaveView }: FilterBarProps) {
+export function FilterBar({ statuses, members, projectLabel, viewLabel, onSaveView }: FilterBarProps) {
 	const filters = useUiStore((s) => s.filters)
 	const setFilterPatch = useUiStore((s) => s.setFilterPatch)
 	const resetFilters = useUiStore((s) => s.resetFilters)
@@ -43,6 +45,16 @@ export function FilterBar({ statuses, members, onSaveView }: FilterBarProps) {
 
 	return (
 		<div className="flex flex-wrap items-center gap-2 border-b border-border bg-background px-4 py-2.5">
+			{projectLabel || viewLabel ? (
+				<div className="flex items-center gap-1.5 pr-2 text-xs">
+					{projectLabel ? <span className="text-muted-foreground">{projectLabel}</span> : null}
+					{projectLabel && viewLabel ? (
+						<ChevronRight className="size-3 text-muted-foreground/70" aria-hidden />
+					) : null}
+					{viewLabel ? <span className="font-medium text-foreground">{viewLabel}</span> : null}
+				</div>
+			) : null}
+
 			{/* View switcher: List / Board / My work */}
 			<div role="tablist" aria-label={t('tasks.title')} className="inline-flex rounded-md bg-muted p-0.5">
 				<button

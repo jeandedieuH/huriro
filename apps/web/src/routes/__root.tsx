@@ -17,17 +17,32 @@ import { AuthGate } from '@/features/auth/components/auth-gate'
 import { AuthLayout } from '@/features/auth/components/auth-layout'
 import { OnboardingForm } from '@/features/auth/components/onboarding-form'
 import { AuthFlowProvider } from '@/features/auth/context'
+import { ChatSidebarNav } from '@/features/chat/components/chat-sidebar-nav'
+import { selectTotalChatUnread, useChatStore } from '@/features/chat/store/chat-store'
+import {
+	DocsSidebarFooterUtility,
+	DocsSidebarHeaderAction,
+	DocsSidebarNav
+} from '@/features/docs/components/docs-sidebar-nav'
 import { ImportDialog } from '@/features/imports/components/import-dialog'
 import { ShortcutsDialog } from '@/features/keyboard/shortcuts-dialog'
+import { useKeyboardShortcuts } from '@/features/keyboard/use-keyboard-shortcuts'
+import {
+	InboxSidebarFooterUtility,
+	InboxSidebarNav
+} from '@/features/notifications/components/inbox-sidebar-nav'
 import { CommandPalette } from '@/features/search/components/command-palette'
+import { SettingsSidebarNav } from '@/features/settings/components/settings-sidebar-nav'
 import { ConflictResolverDialog } from '@/features/sync/components/conflict-resolver-dialog'
 import { SyncStatusBanner } from '@/features/sync/components/sync-status-banner'
+import { TasksSidebarFooterUtility, TasksSidebarNav } from '@/features/tasks/components/tasks-sidebar-nav'
 import { type SocialProviderId, signOut } from '@/lib/auth'
 import {
 	DESTINATION_PATHS,
 	destinationFromPathname,
 	isAuthPathname,
 	registerAppNavigator,
+	registerChatNavigator,
 	registerDocNavigator,
 	sanitizeRedirectPath
 } from '@/lib/navigation'
@@ -99,16 +114,22 @@ function RootComponent() {
 	const pendingRedirectRef = useRef<string | null>(null)
 
 	// URL is the source of truth; keep the store's `destination` mirror in sync.
+	// Only reset sidebarLevel when the destination actually changes so clicking `<`
+	// to inspect the root menu isn't immediately overridden.
 	const pathname = useRouterState({ select: (s) => s.location.pathname })
 	useEffect(() => {
 		if (isAuthPathname(pathname)) return
 		const dest = destinationFromPathname(pathname)
-		if (useUiStore.getState().destination !== dest) {
-			useUiStore.setState({ destination: dest })
+		const current = useUiStore.getState()
+		if (current.destination !== dest) {
+			useUiStore.setState({
+				destination: dest,
+				sidebarLevel: dest === 'home' ? 'root' : 'feature'
+			})
 		}
 	}, [pathname])
 
-	// Bridge store-mediated navigation (sidebar, palette, G-chords, docs) to the router.
+	// Bridge store-mediated navigation (sidebar, palette, G-chords, docs, chat) to the router.
 	useEffect(() => {
 		registerAppNavigator((dest) => void navigate({ to: DESTINATION_PATHS[dest] }))
 		registerDocNavigator((slug, hash) => {
@@ -118,9 +139,23 @@ function RootComponent() {
 				...(hash ? { hash } : {})
 			})
 		})
+		registerChatNavigator((channelId, messageId) => {
+			void navigate({
+				to: '/chat',
+				...(channelId || messageId
+					? {
+							search: {
+								...(channelId ? { channel: channelId } : {}),
+								...(messageId ? { message: messageId } : {})
+							}
+						}
+					: {})
+			})
+		})
 		return () => {
 			registerAppNavigator(null)
 			registerDocNavigator(null)
+			registerChatNavigator(null)
 		}
 	}, [navigate])
 
@@ -128,7 +163,14 @@ function RootComponent() {
 	useEffect(() => {
 		let cancelled = false
 		let activeBoot: BootstrappedWorkspace | null = null
-		void bootstrapWorkspace({ preferPreview: preferPreview.current }).then((result) => {
+		void bootstrapWorkspace({
+			preferPreview: preferPreview.current,
+			onChatSignal: (ev) => {
+				if (activeBoot) void useChatStore.getState().handleChatSignal(activeBoot.api, ev)
+			},
+			onPresence: (users) => useChatStore.getState().applyPresence(users),
+			onTyping: (ev) => useChatStore.getState().applyTyping(ev)
+		}).then((result) => {
 			if (cancelled) {
 				if (!isAuthRequired(result) && !isOnboardingRequired(result)) result.engine.dispose()
 				return
@@ -183,7 +225,7 @@ function RootComponent() {
 			return
 		}
 		if (phase.kind === 'ready' && !phase.boot.isPreview && isAuthPathname(pathname)) {
-			const target = pendingRedirectRef.current ?? '/tasks'
+			const target = pendingRedirectRef.current ?? '/'
 			pendingRedirectRef.current = null
 			void navigate({ href: target, replace: true })
 		}
@@ -199,7 +241,7 @@ function RootComponent() {
 		preferPreview.current = true
 		setBootAttempt((n) => n + 1)
 		if (isAuthPathname(pathname)) {
-			void navigate({ to: '/tasks', replace: true })
+			void navigate({ to: '/', replace: true })
 		}
 	}
 
@@ -233,7 +275,7 @@ function RootComponent() {
 		if (!phase.boot.isPreview && isAuthPathname(pathname)) {
 			return (
 				<I18nProvider i18n={i18n}>
-					<AppShell activeNav="tasks">
+					<AppShell activeNav="home">
 						<div className="space-y-3 p-6">
 							<Skeleton className="h-8 w-64" />
 							<Skeleton className="h-40 w-full" />
@@ -265,7 +307,7 @@ function RootComponent() {
 						</div>
 					</div>
 				) : (
-					<AppShell activeNav="tasks">
+					<AppShell activeNav="home">
 						<div className="space-y-3 p-6">
 							<Skeleton className="h-8 w-64" />
 							<Skeleton className="h-40 w-full" />
@@ -334,18 +376,26 @@ function RootComponent() {
 	)
 }
 
+function GlobalShortcutsBridge() {
+	useKeyboardShortcuts(useMemo(() => ({ orderedIssueIds: [] }), []))
+	return null
+}
+
 function WorkspaceFrame() {
-	const { api, isPreview, userDisplayName } = useWorkspace()
+	const { api, isPreview, userDisplayName, workspaceName } = useWorkspace()
 	const engine = useSyncEngine()
 	const notifications = useCollectionItems(engine.collections.notifications)
+	const pathname = useRouterState({ select: (s) => s.location.pathname })
 
 	const destination = useUiStore((s) => s.destination)
+	const sidebarLevel = useUiStore((s) => s.sidebarLevel)
+	const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed)
 	const setDestination = useUiStore((s) => s.setDestination)
+	const setSidebarLevel = useUiStore((s) => s.setSidebarLevel)
+	const toggleSidebarCollapsed = useUiStore((s) => s.toggleSidebarCollapsed)
 	const theme = useUiStore((s) => s.theme)
 	const toggleTheme = useUiStore((s) => s.toggleTheme)
 	const setCommandPaletteOpen = useUiStore((s) => s.setCommandPaletteOpen)
-	const setCreateIssueOpen = useUiStore((s) => s.setCreateIssueOpen)
-	const setCreateDocOpen = useUiStore((s) => s.setCreateDocOpen)
 	const setShortcutsDialogOpen = useUiStore((s) => s.setShortcutsDialogOpen)
 	const toasts = useUiStore((s) => s.toasts)
 	const dismissToast = useUiStore((s) => s.dismissToast)
@@ -354,20 +404,85 @@ function WorkspaceFrame() {
 		() => notifications.filter((n) => n.archivedAt === null && n.readAt === null).length,
 		[notifications]
 	)
+	const chatChannels = useChatStore((s) => s.channels)
+	const loadChatChannels = useChatStore((s) => s.loadChannels)
+	const chatUnreadCount = useChatStore(selectTotalChatUnread)
+
+	useEffect(() => {
+		if (chatChannels.length === 0) {
+			void loadChatChannels(api)
+		}
+	}, [api, chatChannels.length, loadChatChannels])
+
+	const rawDocSlug = pathname.startsWith('/docs/')
+		? (pathname.slice('/docs/'.length).split('/')[0] ?? '')
+		: ''
+	const activeDocSlug = rawDocSlug ? decodeURIComponent(rawDocSlug) : null
+
+	const featureSlot = useMemo(() => {
+		switch (destination) {
+			case 'tasks':
+				return {
+					featureTitle: t('nav.tasks'),
+					featureSidebar: <TasksSidebarNav />,
+					featureFooterUtility: <TasksSidebarFooterUtility />
+				}
+			case 'docs':
+				return {
+					featureTitle: t('nav.docs'),
+					featureSidebar: <DocsSidebarNav activeSlug={activeDocSlug} />,
+					featureHeaderAction: <DocsSidebarHeaderAction />,
+					featureFooterUtility: <DocsSidebarFooterUtility />
+				}
+			case 'inbox':
+				return {
+					featureTitle: t('nav.inbox'),
+					featureSidebar: <InboxSidebarNav />,
+					featureFooterUtility: <InboxSidebarFooterUtility />
+				}
+			case 'chat':
+				return {
+					featureTitle: t('nav.chat'),
+					featureSidebar: <ChatSidebarNav />
+				}
+			case 'settings':
+				return {
+					featureTitle: t('nav.settings'),
+					featureSidebar: <SettingsSidebarNav />
+				}
+			case 'home':
+				return {}
+		}
+	}, [activeDocSlug, destination])
 
 	return (
 		<>
+			{destination !== 'tasks' ? <GlobalShortcutsBridge /> : null}
+
 			<AppShell
 				activeNav={destination}
+				sidebarLevel={sidebarLevel}
+				sidebarCollapsed={sidebarCollapsed}
+				workspaceName={workspaceName}
 				inboxUnreadCount={unreadCount}
+				chatUnreadCount={chatUnreadCount}
 				isPreview={isPreview}
 				theme={theme}
 				userName={userDisplayName}
-				onSelectNav={setDestination}
+				{...featureSlot}
+				onSelectNav={(dest) => {
+					if (dest === destination && dest !== 'home') {
+						setSidebarLevel('feature')
+						return
+					}
+					setDestination(dest)
+				}}
+				onBackToRoot={() => setSidebarLevel('root')}
+				onToggleSidebarCollapsed={toggleSidebarCollapsed}
 				onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-				onCreateNew={() => (destination === 'docs' ? setCreateDocOpen(true) : setCreateIssueOpen(true))}
 				onToggleTheme={toggleTheme}
 				onOpenShortcuts={() => setShortcutsDialogOpen(true)}
+				onOpenSettings={() => setDestination('settings')}
 				onSignOut={
 					isPreview
 						? undefined

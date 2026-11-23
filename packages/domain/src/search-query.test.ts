@@ -32,4 +32,12 @@ describe('parseSearchQuery', () => {
 		expect(parseSearchQuery('type:doc architecture').entityType).toBe('doc_page')
 		expect(parseSearchQuery('type:doc_page runbook').entityType).toBe('doc_page')
 	})
+
+	test('supports #channel and type:message / type:chat operators', () => {
+		const q = parseSearchQuery('#engineering type:chat outage')
+		expect(q.channelName).toBe('engineering')
+		expect(q.entityType).toBe('message')
+		expect(q.freeText).toBe('outage')
+		expect(parseSearchQuery('type:message hello').entityType).toBe('message')
+	})
 })

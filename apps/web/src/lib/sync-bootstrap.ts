@@ -6,8 +6,21 @@
  * local preview replica so all M1 workflows operate without blocking spinners (§9.5).
  */
 import type {
+	AddChannelMemberBody,
+	ChannelChangesResponse,
+	ChatChannelDto,
+	ChatChannelMemberDto,
+	ChatMessageDto,
+	ChatThreadSummaryDto,
 	CollabTicketResponse,
+	CreateChannelBody,
+	CreateDmBody,
 	CreateDocCommentBody,
+	CreateGithubInstallationBody,
+	CreateIssueGithubLinkBody,
+	CreateWebhookBody,
+	CreateWebhookResponse,
+	CreateWebPushSubscriptionBody,
 	DocCommentDto,
 	DocExportMarkdownResponse,
 	DocImportMarkdownBody,
@@ -15,21 +28,35 @@ import type {
 	DocPageDto,
 	DocVersionDetailDto,
 	DocVersionDto,
+	FileDto,
+	GithubInstallationDto,
 	ImportDryRunBody,
 	ImportDryRunPreviewDto,
 	ImportExecuteBody,
 	ImportJobDto,
 	IssueCommentDto,
+	IssueGithubLinkDto,
 	IssueRelationDto,
+	ListMessagesResponse,
 	NotificationDto,
+	NotificationPreferencesDto,
 	ProjectDto,
 	ProjectStatusDto,
 	RelationKind,
 	SearchHitDto,
 	SearchResponse,
-	UpdateDocCommentBody
+	SendMessageBody,
+	UpdateChannelBody,
+	UpdateDocCommentBody,
+	UpdateGithubInstallationBody,
+	UpdateMessageBody,
+	UpdateNotificationPreferencesBody,
+	UpdateWebhookBody,
+	WebhookDeliveryDto,
+	WebhookEndpointDto,
+	WebPushSubscriptionDto
 } from '@huriro/contracts'
-import { parseSearchQuery } from '@huriro/domain'
+import { computeDmKey, extractRichLinks, parseSearchQuery } from '@huriro/domain'
 import {
 	diffVersionText,
 	extractDocumentContent,
@@ -109,6 +136,57 @@ export interface TaskApiBridge {
 		readonly permission: 'read' | 'comment' | 'write' | 'manage'
 	}): Promise<ResourceAclItemDto>
 	revokeResourceAcl(aclId: string): Promise<void>
+	// M4 Chat, Files, Notification Preferences, Web Push, Webhooks & GitHub Sync
+	listChannels(): Promise<ChatChannelDto[]>
+	getChannel(channelId: string): Promise<ChatChannelDto>
+	createChannel(body: CreateChannelBody): Promise<ChatChannelDto>
+	createOrGetDm(body: CreateDmBody): Promise<ChatChannelDto>
+	updateChannel(channelId: string, body: UpdateChannelBody): Promise<ChatChannelDto>
+	addChannelMember(channelId: string, body: AddChannelMemberBody): Promise<ChatChannelMemberDto>
+	removeChannelMember(channelId: string, principalId: string): Promise<void>
+	listMessages(channelId: string, beforeSeq?: number): Promise<ListMessagesResponse>
+	listChannelChanges(channelId: string, sinceRev: number): Promise<ChannelChangesResponse>
+	sendMessage(channelId: string, body: SendMessageBody): Promise<ChatMessageDto>
+	updateMessage(messageId: string, body: UpdateMessageBody): Promise<ChatMessageDto>
+	deleteMessage(messageId: string): Promise<ChatMessageDto>
+	listThread(
+		parentMessageId: string
+	): Promise<{ readonly parent: ChatMessageDto; readonly replies: ChatMessageDto[] }>
+	addReaction(messageId: string, emoji: string): Promise<ChatMessageDto>
+	removeReaction(messageId: string, emoji: string): Promise<ChatMessageDto>
+	markChannelRead(
+		channelId: string,
+		seq: number
+	): Promise<{ readonly channelId: string; readonly lastReadSeq: number; readonly unreadCount: number }>
+	updateChannelMute(
+		channelId: string,
+		muted: boolean
+	): Promise<{ readonly channelId: string; readonly muted: boolean }>
+	listThreads(): Promise<ChatThreadSummaryDto[]>
+	uploadFile(file: File): Promise<FileDto>
+	getNotificationPreferences(): Promise<NotificationPreferencesDto>
+	updateNotificationPreferences(body: UpdateNotificationPreferencesBody): Promise<NotificationPreferencesDto>
+	getVapidPublicKey(): Promise<string | null>
+	listWebPushSubscriptions(): Promise<WebPushSubscriptionDto[]>
+	registerWebPushSubscription(body: CreateWebPushSubscriptionBody): Promise<WebPushSubscriptionDto>
+	deleteWebPushSubscription(id: string): Promise<void>
+	listWebhooks(): Promise<WebhookEndpointDto[]>
+	createWebhook(body: CreateWebhookBody): Promise<CreateWebhookResponse>
+	updateWebhook(
+		id: string,
+		body: UpdateWebhookBody
+	): Promise<{ readonly endpoint: WebhookEndpointDto; readonly signingSecret?: string | undefined }>
+	deleteWebhook(id: string): Promise<void>
+	listWebhookDeliveries(endpointId: string): Promise<WebhookDeliveryDto[]>
+	replayWebhookDelivery(deliveryId: string): Promise<WebhookDeliveryDto>
+	listGithubInstallations(): Promise<GithubInstallationDto[]>
+	createGithubInstallation(body: CreateGithubInstallationBody): Promise<GithubInstallationDto>
+	updateGithubInstallation(id: string, body: UpdateGithubInstallationBody): Promise<GithubInstallationDto>
+	deleteGithubInstallation(id: string): Promise<void>
+	listIssueGithubLinks(issueId: string): Promise<IssueGithubLinkDto[]>
+	createIssueGithubLink(body: CreateIssueGithubLinkBody): Promise<IssueGithubLinkDto>
+	deleteIssueGithubLink(id: string): Promise<void>
+	retryIssueGithubPush(linkId: string): Promise<IssueGithubLinkDto>
 }
 
 export interface BootstrappedWorkspace {
@@ -345,6 +423,237 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 		},
 		async revokeResourceAcl(aclId) {
 			await apiFetch(`/api/v1/acl/${encodeURIComponent(aclId)}`, { method: 'DELETE' })
+		},
+		async listChannels() {
+			const res = await apiFetch<{ data: ChatChannelDto[] }>('/api/v1/chat/channels')
+			return res.data
+		},
+		async getChannel(channelId) {
+			return apiFetch<ChatChannelDto>(`/api/v1/chat/channels/${encodeURIComponent(channelId)}`)
+		},
+		async createChannel(body) {
+			return apiFetch<ChatChannelDto>('/api/v1/chat/channels', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async createOrGetDm(body) {
+			return apiFetch<ChatChannelDto>('/api/v1/chat/dms', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async updateChannel(channelId, body) {
+			return apiFetch<ChatChannelDto>(`/api/v1/chat/channels/${encodeURIComponent(channelId)}`, {
+				method: 'PATCH',
+				body: JSON.stringify(body)
+			})
+		},
+		async addChannelMember(channelId, body) {
+			return apiFetch<ChatChannelMemberDto>(
+				`/api/v1/chat/channels/${encodeURIComponent(channelId)}/members`,
+				{ method: 'POST', body: JSON.stringify(body) }
+			)
+		},
+		async removeChannelMember(channelId, principalId) {
+			await apiFetch(
+				`/api/v1/chat/channels/${encodeURIComponent(channelId)}/members/${encodeURIComponent(principalId)}`,
+				{ method: 'DELETE' }
+			)
+		},
+		async listMessages(channelId, beforeSeq) {
+			const qs = beforeSeq !== undefined ? `?beforeSeq=${beforeSeq}` : ''
+			return apiFetch<ListMessagesResponse>(
+				`/api/v1/chat/channels/${encodeURIComponent(channelId)}/messages${qs}`
+			)
+		},
+		async listChannelChanges(channelId, sinceRev) {
+			return apiFetch<ChannelChangesResponse>(
+				`/api/v1/chat/channels/${encodeURIComponent(channelId)}/changes?since=${sinceRev}`
+			)
+		},
+		async sendMessage(channelId, body) {
+			return apiFetch<ChatMessageDto>(`/api/v1/chat/channels/${encodeURIComponent(channelId)}/messages`, {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async updateMessage(messageId, body) {
+			return apiFetch<ChatMessageDto>(`/api/v1/chat/messages/${encodeURIComponent(messageId)}`, {
+				method: 'PATCH',
+				body: JSON.stringify(body)
+			})
+		},
+		async deleteMessage(messageId) {
+			return apiFetch<ChatMessageDto>(`/api/v1/chat/messages/${encodeURIComponent(messageId)}`, {
+				method: 'DELETE'
+			})
+		},
+		async listThread(parentMessageId) {
+			return apiFetch<{ readonly parent: ChatMessageDto; readonly replies: ChatMessageDto[] }>(
+				`/api/v1/chat/messages/${encodeURIComponent(parentMessageId)}/thread`
+			)
+		},
+		async addReaction(messageId, emoji) {
+			return apiFetch<ChatMessageDto>(`/api/v1/chat/messages/${encodeURIComponent(messageId)}/reactions`, {
+				method: 'POST',
+				body: JSON.stringify({ emoji })
+			})
+		},
+		async removeReaction(messageId, emoji) {
+			return apiFetch<ChatMessageDto>(
+				`/api/v1/chat/messages/${encodeURIComponent(messageId)}/reactions/${encodeURIComponent(emoji)}`,
+				{ method: 'DELETE' }
+			)
+		},
+		async markChannelRead(channelId, seq) {
+			return apiFetch<{
+				readonly channelId: string
+				readonly lastReadSeq: number
+				readonly unreadCount: number
+			}>(`/api/v1/chat/channels/${encodeURIComponent(channelId)}/read`, {
+				method: 'POST',
+				body: JSON.stringify({ seq })
+			})
+		},
+		async updateChannelMute(channelId, muted) {
+			return apiFetch<{ readonly channelId: string; readonly muted: boolean }>(
+				`/api/v1/chat/channels/${encodeURIComponent(channelId)}/mute`,
+				{ method: 'PATCH', body: JSON.stringify({ muted }) }
+			)
+		},
+		async listThreads() {
+			const res = await apiFetch<{ data: ChatThreadSummaryDto[] }>('/api/v1/chat/threads')
+			return res.data
+		},
+		async uploadFile(file) {
+			const init = await apiFetch<{ file: FileDto; uploadUrl: string }>('/api/v1/files/uploads', {
+				method: 'POST',
+				body: JSON.stringify({
+					filename: file.name,
+					contentType: file.type || 'application/octet-stream',
+					byteSize: file.size
+				})
+			})
+			const bytes = await file.arrayBuffer()
+			const putRes = await fetch(`${API_BASE}${init.uploadUrl}`, {
+				method: 'PUT',
+				credentials: 'include',
+				headers: {
+					'content-type': file.type || 'application/octet-stream',
+					'x-workspace-id': workspaceId,
+					'x-huriro-client': 'huriro-web'
+				},
+				body: bytes
+			})
+			if (!putRes.ok) {
+				throw new Error(`Upload content failed (${putRes.status})`)
+			}
+			return apiFetch<FileDto>(`/api/v1/files/${encodeURIComponent(init.file.id)}/finalize`, {
+				method: 'POST'
+			})
+		},
+		async getNotificationPreferences() {
+			return apiFetch<NotificationPreferencesDto>('/api/v1/notifications/preferences')
+		},
+		async updateNotificationPreferences(body) {
+			return apiFetch<NotificationPreferencesDto>('/api/v1/notifications/preferences', {
+				method: 'PATCH',
+				body: JSON.stringify(body)
+			})
+		},
+		async getVapidPublicKey() {
+			const res = await apiFetch<{ publicKey: string | null }>('/api/v1/notifications/push/vapid-key')
+			return res.publicKey
+		},
+		async listWebPushSubscriptions() {
+			return apiFetch<WebPushSubscriptionDto[]>('/api/v1/notifications/push/subscriptions')
+		},
+		async registerWebPushSubscription(body) {
+			return apiFetch<WebPushSubscriptionDto>('/api/v1/notifications/push/subscriptions', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async deleteWebPushSubscription(id) {
+			await apiFetch(`/api/v1/notifications/push/subscriptions/${encodeURIComponent(id)}`, {
+				method: 'DELETE'
+			})
+		},
+		async listWebhooks() {
+			const res = await apiFetch<{ data: WebhookEndpointDto[] }>('/api/v1/webhooks')
+			return res.data
+		},
+		async createWebhook(body) {
+			return apiFetch<CreateWebhookResponse>('/api/v1/webhooks', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async updateWebhook(id, body) {
+			return apiFetch<{ readonly endpoint: WebhookEndpointDto; readonly signingSecret?: string | undefined }>(
+				`/api/v1/webhooks/${encodeURIComponent(id)}`,
+				{ method: 'PATCH', body: JSON.stringify(body) }
+			)
+		},
+		async deleteWebhook(id) {
+			await apiFetch(`/api/v1/webhooks/${encodeURIComponent(id)}`, { method: 'DELETE' })
+		},
+		async listWebhookDeliveries(endpointId) {
+			const res = await apiFetch<{ data: WebhookDeliveryDto[] }>(
+				`/api/v1/webhooks/${encodeURIComponent(endpointId)}/deliveries`
+			)
+			return res.data
+		},
+		async replayWebhookDelivery(deliveryId) {
+			return apiFetch<WebhookDeliveryDto>(
+				`/api/v1/webhooks/deliveries/${encodeURIComponent(deliveryId)}/replay`,
+				{ method: 'POST' }
+			)
+		},
+		async listGithubInstallations() {
+			const res = await apiFetch<{ data: GithubInstallationDto[] }>(
+				'/api/v1/integrations/github/installations'
+			)
+			return res.data
+		},
+		async createGithubInstallation(body) {
+			return apiFetch<GithubInstallationDto>('/api/v1/integrations/github/installations', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async updateGithubInstallation(id, body) {
+			return apiFetch<GithubInstallationDto>(
+				`/api/v1/integrations/github/installations/${encodeURIComponent(id)}`,
+				{ method: 'PATCH', body: JSON.stringify(body) }
+			)
+		},
+		async deleteGithubInstallation(id) {
+			await apiFetch(`/api/v1/integrations/github/installations/${encodeURIComponent(id)}`, {
+				method: 'DELETE'
+			})
+		},
+		async listIssueGithubLinks(issueId) {
+			const res = await apiFetch<{ data: IssueGithubLinkDto[] }>(
+				`/api/v1/issues/${encodeURIComponent(issueId)}/github-links`
+			)
+			return res.data
+		},
+		async createIssueGithubLink(body) {
+			return apiFetch<IssueGithubLinkDto>('/api/v1/integrations/github/links', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async deleteIssueGithubLink(id) {
+			await apiFetch(`/api/v1/integrations/github/links/${encodeURIComponent(id)}`, { method: 'DELETE' })
+		},
+		async retryIssueGithubPush(linkId) {
+			return apiFetch<IssueGithubLinkDto>(
+				`/api/v1/integrations/github/links/${encodeURIComponent(linkId)}/retry`,
+				{ method: 'POST' }
+			)
 		}
 	}
 }
@@ -490,7 +799,7 @@ export function createPreviewSeedSnapshot() {
 			creatorId: PREVIEW_USER_ID,
 			position: 'F',
 			startDate: null,
-			dueDate: null,
+			dueDate: '2026-11-23T18:00:00Z',
 			estimate: 3,
 			closedAt: null,
 			labelIds: ['0190a0b1-0000-7000-8000-000000000301'],
@@ -518,7 +827,7 @@ export function createPreviewSeedSnapshot() {
 			creatorId: PREVIEW_USER_ID,
 			position: 'V',
 			startDate: null,
-			dueDate: null,
+			dueDate: '2026-11-25T18:00:00Z',
 			estimate: 2,
 			closedAt: null,
 			labelIds: [],
@@ -574,7 +883,7 @@ export function createPreviewSeedSnapshot() {
 			creatorId: PREVIEW_USER_ID,
 			position: 'F',
 			startDate: null,
-			dueDate: null,
+			dueDate: '2026-11-23T18:00:00Z',
 			estimate: 3,
 			closedAt: null,
 			labelIds: [],
@@ -773,6 +1082,313 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 	const docVersionsByPage = new Map<string, Array<DocVersionDto & { state: Uint8Array }>>()
 	const docAclsByResource = new Map<string, ResourceAclItemDto[]>()
 
+	// M4 Preview State: members, channels, messages, files, prefs, webhooks & GitHub sync
+	const PREVIEW_USER_ADA_ID = '0190a0b1-0000-7000-8000-000000000003'
+	const PREVIEW_CHAN_GENERAL_ID = '0190a0b1-0000-7000-8000-000000000801'
+	const PREVIEW_CHAN_ENG_ID = '0190a0b1-0000-7000-8000-000000000802'
+	const previewMembers: WorkspaceMemberSummary[] = [
+		{
+			userId: PREVIEW_USER_ID,
+			displayName: 'Hagen (Owner)',
+			email: 'hagen@huriro.local',
+			role: 'owner'
+		},
+		{
+			userId: PREVIEW_USER_ADA_ID,
+			displayName: 'Ada Lovelace',
+			email: 'ada@huriro.local',
+			role: 'admin'
+		}
+	]
+	const previewNow = '2026-11-22T12:15:00Z'
+	let previewChannels: ChatChannelDto[] = [
+		{
+			id: PREVIEW_CHAN_GENERAL_ID,
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			kind: 'public',
+			name: 'general',
+			topic: 'Workspace announcements and cross-team check-ins',
+			lastMsgSeq: 1,
+			lastRev: 1,
+			createdBy: PREVIEW_USER_ID,
+			archivedAt: null,
+			createdAt: previewNow,
+			updatedAt: previewNow,
+			version: 1,
+			unreadCount: 0,
+			hasUnread: false,
+			mentionCount: 0,
+			muted: false,
+			lastReadSeq: 1,
+			isMember: true,
+			memberCount: 2,
+			members: [
+				{
+					channelId: PREVIEW_CHAN_GENERAL_ID,
+					principalType: 'user',
+					principalId: PREVIEW_USER_ID,
+					role: 'admin',
+					displayName: 'Hagen (Owner)',
+					email: 'hagen@huriro.local',
+					joinedAt: previewNow
+				},
+				{
+					channelId: PREVIEW_CHAN_GENERAL_ID,
+					principalType: 'user',
+					principalId: PREVIEW_USER_ADA_ID,
+					role: 'member',
+					displayName: 'Ada Lovelace',
+					email: 'ada@huriro.local',
+					joinedAt: previewNow
+				}
+			]
+		},
+		{
+			id: PREVIEW_CHAN_ENG_ID,
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			kind: 'public',
+			name: 'engineering',
+			topic: 'Sync engine, Postgres RLS & M4 rollout',
+			lastMsgSeq: 2,
+			lastRev: 2,
+			createdBy: PREVIEW_USER_ADA_ID,
+			archivedAt: null,
+			createdAt: previewNow,
+			updatedAt: previewNow,
+			version: 1,
+			unreadCount: 2,
+			hasUnread: true,
+			mentionCount: 0,
+			muted: false,
+			lastReadSeq: 0,
+			isMember: true,
+			memberCount: 2,
+			members: [
+				{
+					channelId: PREVIEW_CHAN_ENG_ID,
+					principalType: 'user',
+					principalId: PREVIEW_USER_ADA_ID,
+					role: 'admin',
+					displayName: 'Ada Lovelace',
+					email: 'ada@huriro.local',
+					joinedAt: previewNow
+				},
+				{
+					channelId: PREVIEW_CHAN_ENG_ID,
+					principalType: 'user',
+					principalId: PREVIEW_USER_ID,
+					role: 'member',
+					displayName: 'Hagen (Owner)',
+					email: 'hagen@huriro.local',
+					joinedAt: previewNow
+				}
+			]
+		}
+	]
+	const previewMsg1Id = '0190a0b1-0000-7000-8000-000000000901'
+	const previewMsg2Id = '0190a0b1-0000-7000-8000-000000000902'
+	const previewMsg3Id = '0190a0b1-0000-7000-8000-000000000903'
+	const previewMessages = new Map<string, ChatMessageDto>([
+		[
+			previewMsg1Id,
+			{
+				id: previewMsg1Id,
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				channelId: PREVIEW_CHAN_GENERAL_ID,
+				channelSeq: 1,
+				threadSeq: null,
+				rev: 1,
+				authorType: 'user',
+				authorId: PREVIEW_USER_ADA_ID,
+				authorDisplayName: 'Ada Lovelace',
+				threadParentId: null,
+				replyCount: 0,
+				lastReplyAt: null,
+				clientId: null,
+				body: {
+					type: 'text',
+					text: 'Welcome to Huriro M4! Review doc:engineering-handbook and issue:ENG-1.'
+				},
+				bodyText: 'Welcome to Huriro M4! Review doc:engineering-handbook and issue:ENG-1.',
+				reactions: [{ emoji: '🚀', count: 1, reactedByMe: true, userIds: [PREVIEW_USER_ID] }],
+				attachments: [],
+				linkPreviews: [],
+				richLinks: [],
+				editedAt: null,
+				deletedAt: null,
+				createdAt: previewNow,
+				updatedAt: previewNow,
+				version: 1
+			}
+		],
+		[
+			previewMsg2Id,
+			{
+				id: previewMsg2Id,
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				channelId: PREVIEW_CHAN_ENG_ID,
+				channelSeq: 1,
+				threadSeq: null,
+				rev: 1,
+				authorType: 'user',
+				authorId: PREVIEW_USER_ADA_ID,
+				authorDisplayName: 'Ada Lovelace',
+				threadParentId: null,
+				replyCount: 0,
+				lastReplyAt: null,
+				clientId: null,
+				body: { type: 'text', text: 'Partitioned channel sync feeds verified at 500 msgs/burst.' },
+				bodyText: 'Partitioned channel sync feeds verified at 500 msgs/burst.',
+				reactions: [],
+				attachments: [],
+				linkPreviews: [],
+				richLinks: [],
+				editedAt: null,
+				deletedAt: null,
+				createdAt: previewNow,
+				updatedAt: previewNow,
+				version: 1
+			}
+		],
+		[
+			previewMsg3Id,
+			{
+				id: previewMsg3Id,
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				channelId: PREVIEW_CHAN_ENG_ID,
+				channelSeq: 2,
+				threadSeq: null,
+				rev: 2,
+				authorType: 'user',
+				authorId: PREVIEW_USER_ADA_ID,
+				authorDisplayName: 'Ada Lovelace',
+				threadParentId: null,
+				replyCount: 0,
+				lastReplyAt: null,
+				clientId: null,
+				body: { type: 'text', text: 'Checking issue:ENG-2 fractional index rebalancing next.' },
+				bodyText: 'Checking issue:ENG-2 fractional index rebalancing next.',
+				reactions: [],
+				attachments: [],
+				linkPreviews: [],
+				richLinks: [],
+				editedAt: null,
+				deletedAt: null,
+				createdAt: previewNow,
+				updatedAt: previewNow,
+				version: 1
+			}
+		]
+	])
+	const previewFiles = new Map<string, FileDto>()
+	let previewNotifPrefs: NotificationPreferencesDto = {
+		workspaceId: PREVIEW_WORKSPACE_ID,
+		userId: PREVIEW_USER_ID,
+		chatLevel: 'mentions',
+		emailDigestFrequency: 'off',
+		quietHoursStart: '22:00',
+		quietHoursEnd: '07:00',
+		timezone: 'UTC',
+		webPushEnabled: false,
+		lastDigestSentAt: null,
+		updatedAt: previewNow
+	}
+	let previewPushSubs: WebPushSubscriptionDto[] = []
+	let previewWebhooks: WebhookEndpointDto[] = []
+	const previewDeliveries = new Map<string, WebhookDeliveryDto[]>()
+	let previewGithubInstallations: GithubInstallationDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000850',
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			installationId: 4242,
+			accountLogin: 'huriro-org',
+			repoFullName: 'huriro-org/huriro',
+			projectId: PREVIEW_PROJECT_ENG_ID,
+			syncEnabled: true,
+			lastSyncedAt: previewNow,
+			createdAt: previewNow,
+			updatedAt: previewNow,
+			version: 1
+		}
+	]
+	let previewGithubLinks: IssueGithubLinkDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000851',
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			issueId: '0190a0b1-0000-7000-8000-000000000201',
+			installationId: '0190a0b1-0000-7000-8000-000000000850',
+			repoFullName: 'huriro-org/huriro',
+			githubIssueNumber: 12,
+			githubIssueId: 90012,
+			githubUrl: 'https://github.com/huriro-org/huriro/issues/12',
+			sourceOfTruth: 'bidirectional',
+			lastSyncedAt: previewNow,
+			lastSyncHash: null,
+			syncState: 'synced',
+			lastSyncError: null,
+			createdAt: previewNow,
+			updatedAt: previewNow
+		},
+		{
+			id: '0190a0b1-0000-7000-8000-000000000852',
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			issueId: '0190a0b1-0000-7000-8000-000000000202',
+			installationId: '0190a0b1-0000-7000-8000-000000000850',
+			repoFullName: 'huriro-org/huriro',
+			githubIssueNumber: 15,
+			githubIssueId: 90015,
+			githubUrl: 'https://github.com/huriro-org/huriro/issues/15',
+			sourceOfTruth: 'bidirectional',
+			lastSyncedAt: previewNow,
+			lastSyncHash: null,
+			syncState: 'push_failed',
+			lastSyncError: 'GitHub API rate limit reached (HTTP 429)',
+			createdAt: previewNow,
+			updatedAt: previewNow
+		}
+	]
+
+	function resolvePreviewRichLinks(bodyText: string): ChatMessageDto['richLinks'] {
+		const tokens = extractRichLinks(bodyText)
+		const out: ChatMessageDto['richLinks'][number][] = []
+		for (const tok of tokens) {
+			if (tok.kind === 'issue') {
+				const hit = engine.collections.issues.toArray.find(
+					(i) => i.identifier.toUpperCase() === tok.ref.toUpperCase()
+				)
+				if (hit) {
+					out.push({
+						kind: 'issue',
+						ref: hit.identifier,
+						entityId: hit.id,
+						title: hit.title,
+						subtitle: hit.priority > 0 ? `P${hit.priority}` : null,
+						deepLink: `/tasks/issues/${hit.identifier}`
+					})
+				}
+			} else if (tok.kind === 'doc_page') {
+				const hit = engine.collections.docPages.toArray.find(
+					(d) => d.slug.toLowerCase() === tok.ref.toLowerCase()
+				)
+				if (hit) {
+					out.push({
+						kind: 'doc_page',
+						ref: hit.slug,
+						entityId: hit.id,
+						title: hit.title,
+						subtitle: null,
+						deepLink: `/docs/${hit.slug}`
+					})
+				}
+			}
+		}
+		return out
+	}
+
+	function hydratePreviewMsg(msg: ChatMessageDto): ChatMessageDto {
+		return { ...msg, richLinks: resolvePreviewRichLinks(msg.bodyText) }
+	}
+
 	// Seed preview document states, comments, and versions on first access.
 	for (const p of engine.collections.docPages.toArray) {
 		const md = PREVIEW_DOC_MARKDOWN[p.slug] ?? `# ${p.title}\n\nStart writing…`
@@ -842,14 +1458,7 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 
 	return {
 		async listMembers() {
-			return [
-				{
-					userId: PREVIEW_USER_ID,
-					displayName: 'Hagen (Owner)',
-					email: 'hagen@huriro.local',
-					role: 'owner'
-				}
-			]
+			return previewMembers
 		},
 		async listComments(issueId) {
 			return commentsByIssue.get(issueId) ?? []
@@ -954,7 +1563,35 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 								}
 							})
 
-			return [...issueHits, ...docHits]
+			const messageHits: SearchHitDto[] =
+				parsed.entityType && parsed.entityType !== 'message'
+					? []
+					: [...previewMessages.values()]
+							.filter((m) => {
+								if (m.deletedAt !== null) return false
+								const chan = previewChannels.find((c) => c.id === m.channelId)
+								if (parsed.channelName && chan?.name?.toLowerCase() !== parsed.channelName.toLowerCase()) {
+									return false
+								}
+								return q.length === 0 || m.bodyText.toLowerCase().includes(q)
+							})
+							.slice(0, 8)
+							.map((m) => {
+								const chan = previewChannels.find((c) => c.id === m.channelId)
+								return {
+									entityType: 'message' as const,
+									entityId: m.id,
+									projectId: null,
+									identifier: chan?.name ?? null,
+									title: chan?.name ? `#${chan.name}` : 'Direct message',
+									snippet: m.bodyText.slice(0, 120),
+									score: 0.72,
+									deepLink: `/chat?channel=${m.channelId}&message=${m.id}`,
+									updatedAt: m.updatedAt
+								}
+							})
+
+			return [...issueHits, ...docHits, ...messageHits]
 		},
 		async markAllNotificationsRead() {
 			const nowIso = new Date().toISOString()
@@ -991,17 +1628,67 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 					unmappedFields: []
 				}
 			}
-			const payload = body.source === 'linear' ? body.linear : body.github
-			const issues = payload?.issues ?? []
-			const comments = issues.reduce((acc, i) => acc + (i.comments?.length ?? 0), 0)
+			if (body.source === 'slack') {
+				const chans = body.slack?.channels ?? []
+				let messages = 0
+				let threads = 0
+				for (const ch of chans) {
+					for (const m of body.slack?.messagesByChannel[ch.id] ??
+						body.slack?.messagesByChannel[ch.name] ??
+						[]) {
+						if (m.threadTs && m.threadTs !== m.ts) threads++
+						else messages++
+					}
+				}
+				return {
+					jobId: generateUuidV7(),
+					source: 'slack',
+					projectKey: 'CHAT',
+					projectName: 'Slack Import',
+					counts: {
+						issues: 0,
+						comments: 0,
+						labels: 0,
+						skippedExisting: 0,
+						channels: chans.length,
+						messages,
+						threads
+					},
+					userMappings: [],
+					unmappedFields: []
+				}
+			}
+			const payload =
+				body.source === 'linear' ? body.linear : body.source === 'jira' ? body.jira : body.github
+			const issues =
+				payload && 'issues' in payload && Array.isArray(payload.issues)
+					? payload.issues
+					: body.source === 'jira' && body.jira?.csv
+						? body.jira.csv
+								.split(/\r?\n/)
+								.slice(1)
+								.filter((l) => l.trim().length > 0)
+								.map((l, idx) => ({
+									key: `JIRA-${idx + 1}`,
+									summary: l.split(',')[2] ?? l.split(',')[0] ?? 'Jira issue',
+									comments: [] as unknown[],
+									labels: [] as string[]
+								}))
+						: []
+			const comments = issues.reduce(
+				(acc, i) => acc + ('comments' in i && Array.isArray(i.comments) ? i.comments.length : 0),
+				0
+			)
 			const labels = new Set<string>()
 			for (const issue of issues) {
-				for (const l of issue.labels ?? []) labels.add(l)
+				if ('labels' in issue && Array.isArray(issue.labels)) {
+					for (const l of issue.labels) labels.add(String(l))
+				}
 			}
 			return {
 				jobId: generateUuidV7(),
 				source: body.source,
-				projectKey: payload?.projectKey ?? 'IMP',
+				projectKey: payload?.projectKey ?? (body.source === 'jira' ? 'JIRA' : 'IMP'),
 				projectName: payload?.projectName ?? 'Imported',
 				counts: {
 					issues: issues.length,
@@ -1017,7 +1704,96 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 			const now = new Date().toISOString()
 			const src =
 				body.source ??
-				(body.notion ? 'notion' : body.markdown ? 'markdown' : body.linear ? 'linear' : 'github')
+				(body.slack
+					? 'slack'
+					: body.jira
+						? 'jira'
+						: body.notion
+							? 'notion'
+							: body.markdown
+								? 'markdown'
+								: body.linear
+									? 'linear'
+									: 'github')
+			if (src === 'slack') {
+				const chans = body.slack?.channels ?? []
+				let importedMessages = 0
+				for (const ch of chans) {
+					const slug = ch.name.toLowerCase().replace(/[^a-z0-9-_]+/g, '-') || 'slack-channel'
+					let target = previewChannels.find((c) => c.name === slug)
+					if (!target) {
+						target = {
+							id: generateUuidV7(),
+							workspaceId: PREVIEW_WORKSPACE_ID,
+							kind: ch.isPrivate ? 'private' : 'public',
+							name: slug,
+							topic: ch.topic ?? '',
+							lastMsgSeq: 0,
+							lastRev: 0,
+							createdBy: PREVIEW_USER_ID,
+							archivedAt: null,
+							createdAt: now,
+							updatedAt: now,
+							version: 1,
+							unreadCount: 0,
+							hasUnread: false,
+							mentionCount: 0,
+							muted: false,
+							lastReadSeq: 0,
+							isMember: true,
+							memberCount: 1,
+							members: []
+						}
+						previewChannels = [...previewChannels, target]
+					}
+					const msgs = body.slack?.messagesByChannel[ch.id] ?? body.slack?.messagesByChannel[ch.name] ?? []
+					for (const m of msgs) {
+						target.lastMsgSeq += 1
+						target.lastRev += 1
+						const msgId = generateUuidV7()
+						previewMessages.set(msgId, {
+							id: msgId,
+							workspaceId: PREVIEW_WORKSPACE_ID,
+							channelId: target.id,
+							channelSeq: target.lastMsgSeq,
+							threadSeq: null,
+							rev: target.lastRev,
+							authorType: 'user',
+							authorId: PREVIEW_USER_ID,
+							authorDisplayName: 'Hagen (Owner)',
+							threadParentId: null,
+							replyCount: 0,
+							lastReplyAt: null,
+							clientId: null,
+							body: { type: 'text', text: m.text },
+							bodyText: m.text,
+							reactions: [],
+							attachments: [],
+							linkPreviews: [],
+							richLinks: [],
+							editedAt: null,
+							deletedAt: null,
+							createdAt: now,
+							updatedAt: now,
+							version: 1
+						})
+						importedMessages++
+					}
+				}
+				return {
+					id: generateUuidV7(),
+					workspaceId: PREVIEW_WORKSPACE_ID,
+					source: 'slack',
+					status: 'completed',
+					targetProjectId: null,
+					preview: { channels: chans.length, messages: importedMessages },
+					report: { importedChannels: chans.length, importedMessages },
+					createdAt: now,
+					updatedAt: now,
+					completedAt: now,
+					version: 1
+				}
+			}
 			if (src === 'notion' || src === 'markdown') {
 				const items =
 					src === 'notion'
@@ -1056,26 +1832,43 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 					version: 1
 				}
 			}
-			const payload = src === 'linear' ? body.linear : body.github
-			const projectKey = payload?.projectKey ?? 'IMP'
+			const payload = src === 'linear' ? body.linear : src === 'jira' ? body.jira : body.github
+			const projectKey = payload?.projectKey ?? (src === 'jira' ? 'JIRA' : 'IMP')
 			const project = await engine.createProject({
 				key: projectKey,
 				name: payload?.projectName ?? projectKey,
 				visibility: 'workspace'
 			})
-			const issues = payload?.issues ?? []
+			const rawIssues =
+				payload && 'issues' in payload && Array.isArray(payload.issues)
+					? payload.issues
+					: src === 'jira' && body.jira?.csv
+						? body.jira.csv
+								.split(/\r?\n/)
+								.slice(1)
+								.filter((l) => l.trim().length > 0)
+								.map((l) => {
+									const cols = l.split(',')
+									return {
+										summary: cols[2] ?? cols[0] ?? 'Jira issue',
+										description: cols[3] ?? '',
+										comments: []
+									}
+								})
+						: []
 			let importedIssues = 0
 			let importedComments = 0
-			for (const item of issues) {
+			for (const item of rawIssues) {
+				const title = 'title' in item ? item.title : 'summary' in item ? item.summary : 'Imported issue'
 				const descriptionText =
 					'description' in item ? (item.description ?? '') : 'body' in item ? (item.body ?? '') : ''
 				await engine.createIssue({
 					projectId: project.id,
-					title: item.title,
+					title,
 					descriptionText
 				})
 				importedIssues += 1
-				importedComments += item.comments?.length ?? 0
+				importedComments += 'comments' in item && Array.isArray(item.comments) ? item.comments.length : 0
 			}
 			return {
 				id: generateUuidV7(),
@@ -1356,6 +2149,582 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 					list.filter((i) => i.id !== aclId)
 				)
 			}
+		},
+		async listChannels() {
+			return previewChannels.filter((c) => c.archivedAt === null)
+		},
+		async getChannel(channelId) {
+			const c = previewChannels.find((item) => item.id === channelId)
+			if (!c) throw new Error('Channel not found')
+			return c
+		},
+		async createChannel(body) {
+			const ts = new Date().toISOString()
+			const next: ChatChannelDto = {
+				id: generateUuidV7(),
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				kind: body.kind ?? 'public',
+				name: body.name.trim().toLowerCase(),
+				topic: body.topic ?? '',
+				lastMsgSeq: 0,
+				lastRev: 0,
+				createdBy: PREVIEW_USER_ID,
+				archivedAt: null,
+				createdAt: ts,
+				updatedAt: ts,
+				version: 1,
+				unreadCount: 0,
+				hasUnread: false,
+				mentionCount: 0,
+				muted: false,
+				lastReadSeq: 0,
+				isMember: true,
+				memberCount: 1 + (body.memberIds?.length ?? 0),
+				members: [
+					{
+						channelId: '',
+						principalType: 'user',
+						principalId: PREVIEW_USER_ID,
+						role: 'admin',
+						displayName: 'Hagen (Owner)',
+						email: 'hagen@huriro.local',
+						joinedAt: ts
+					}
+				]
+			}
+			previewChannels = [...previewChannels, next]
+			return next
+		},
+		async createOrGetDm(body) {
+			const ts = new Date().toISOString()
+			const ids = [PREVIEW_USER_ID, ...body.memberIds]
+			const dmKey = computeDmKey(ids)
+			const existing = previewChannels.find(
+				(c) => c.kind === 'dm' && computeDmKey((c.members ?? []).map((m) => m.principalId)) === dmKey
+			)
+			if (existing) return existing
+			const id = generateUuidV7()
+			const members: ChatChannelMemberDto[] = ids.map((uid) => {
+				const found = previewMembers.find((m) => m.userId === uid)
+				return {
+					channelId: id,
+					principalType: 'user',
+					principalId: uid,
+					role: 'member',
+					displayName: found?.displayName ?? uid.slice(0, 8),
+					email: found?.email ?? '',
+					joinedAt: ts
+				}
+			})
+			const dm: ChatChannelDto = {
+				id,
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				kind: 'dm',
+				name: null,
+				topic: '',
+				lastMsgSeq: 0,
+				lastRev: 0,
+				createdBy: PREVIEW_USER_ID,
+				archivedAt: null,
+				createdAt: ts,
+				updatedAt: ts,
+				version: 1,
+				unreadCount: 0,
+				hasUnread: false,
+				mentionCount: 0,
+				muted: false,
+				lastReadSeq: 0,
+				isMember: true,
+				memberCount: members.length,
+				members
+			}
+			previewChannels = [...previewChannels, dm]
+			return dm
+		},
+		async updateChannel(channelId, body) {
+			const c = previewChannels.find((item) => item.id === channelId)
+			if (!c) throw new Error('Channel not found')
+			const updated: ChatChannelDto = {
+				...c,
+				name: body.name ?? c.name,
+				topic: body.topic ?? c.topic,
+				archivedAt: body.archived ? new Date().toISOString() : null,
+				version: c.version + 1
+			}
+			previewChannels = previewChannels.map((item) => (item.id === channelId ? updated : item))
+			return updated
+		},
+		async addChannelMember(channelId, body) {
+			const c = previewChannels.find((item) => item.id === channelId)
+			if (!c) throw new Error('Channel not found')
+			const found = previewMembers.find((m) => m.userId === body.principalId)
+			const member: ChatChannelMemberDto = {
+				channelId,
+				principalType: body.principalType ?? 'user',
+				principalId: body.principalId,
+				role: body.role ?? 'member',
+				displayName: found?.displayName ?? body.principalId.slice(0, 8),
+				email: found?.email ?? '',
+				joinedAt: new Date().toISOString()
+			}
+			const existing = (c.members ?? []).filter((m) => m.principalId !== body.principalId)
+			const updated = { ...c, members: [...existing, member], memberCount: existing.length + 1 }
+			previewChannels = previewChannels.map((item) => (item.id === channelId ? updated : item))
+			return member
+		},
+		async removeChannelMember(channelId, principalId) {
+			previewChannels = previewChannels.map((c) => {
+				if (c.id !== channelId) return c
+				const next = (c.members ?? []).filter((m) => m.principalId !== principalId)
+				return { ...c, members: next, memberCount: next.length }
+			})
+		},
+		async listMessages(channelId) {
+			const c = previewChannels.find((item) => item.id === channelId)
+			if (!c) throw new Error('Channel not found')
+			const msgs = [...previewMessages.values()]
+				.filter((m) => m.channelId === channelId && m.threadParentId === null && m.deletedAt === null)
+				.sort((a, b) => (a.channelSeq ?? 0) - (b.channelSeq ?? 0))
+				.map(hydratePreviewMsg)
+			return {
+				data: msgs,
+				nextBeforeSeq: null,
+				hasMore: false,
+				lastMsgSeq: c.lastMsgSeq,
+				lastRev: c.lastRev
+			}
+		},
+		async listChannelChanges(channelId, sinceRev) {
+			const c = previewChannels.find((item) => item.id === channelId)
+			if (!c) throw new Error('Channel not found')
+			const changes = [...previewMessages.values()]
+				.filter((m) => m.channelId === channelId && m.rev > sinceRev)
+				.sort((a, b) => a.rev - b.rev)
+				.map(hydratePreviewMsg)
+			return {
+				changes,
+				nextRev: c.lastRev,
+				lastMsgSeq: c.lastMsgSeq,
+				hasMore: false
+			}
+		},
+		async sendMessage(channelId, body) {
+			const c = previewChannels.find((item) => item.id === channelId)
+			if (!c) throw new Error('Channel not found')
+			const ts = new Date().toISOString()
+			const isTop = !body.threadParentId
+			const nextSeq = isTop ? c.lastMsgSeq + 1 : null
+			const nextRev = c.lastRev + 1
+			let threadSeq: number | null = null
+			if (body.threadParentId) {
+				const parent = previewMessages.get(body.threadParentId)
+				if (parent) {
+					const existingReplies = [...previewMessages.values()].filter(
+						(m) => m.threadParentId === parent.id && m.deletedAt === null
+					)
+					threadSeq = existingReplies.length + 1
+					previewMessages.set(parent.id, {
+						...parent,
+						replyCount: parent.replyCount + 1,
+						lastReplyAt: ts
+					})
+				}
+			}
+			const attachments = (body.attachmentFileIds ?? [])
+				.map((fid) => previewFiles.get(fid))
+				.filter((f): f is FileDto => Boolean(f))
+				.map((f) => ({
+					fileId: f.id,
+					filename: f.filename,
+					contentType: f.contentType,
+					byteSize: f.byteSize,
+					scanStatus: f.scanStatus,
+					downloadUrl: `/api/v1/files/${f.id}/download`
+				}))
+			const msgId = body.id ?? generateUuidV7()
+			const created: ChatMessageDto = {
+				id: msgId,
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				channelId,
+				channelSeq: nextSeq,
+				threadSeq,
+				rev: nextRev,
+				authorType: 'user',
+				authorId: PREVIEW_USER_ID,
+				authorDisplayName: 'Hagen (Owner)',
+				threadParentId: body.threadParentId ?? null,
+				replyCount: 0,
+				lastReplyAt: null,
+				clientId: body.clientId ?? null,
+				body: body.body ?? { type: 'text', text: body.bodyText },
+				bodyText: body.bodyText,
+				reactions: [],
+				attachments,
+				linkPreviews: [],
+				richLinks: resolvePreviewRichLinks(body.bodyText),
+				editedAt: null,
+				deletedAt: null,
+				createdAt: ts,
+				updatedAt: ts,
+				version: 1
+			}
+			previewMessages.set(msgId, created)
+			previewChannels = previewChannels.map((item) =>
+				item.id === channelId
+					? {
+							...item,
+							lastMsgSeq: nextSeq ?? item.lastMsgSeq,
+							lastRev: nextRev,
+							lastReadSeq: nextSeq ?? item.lastReadSeq
+						}
+					: item
+			)
+			return created
+		},
+		async updateMessage(messageId, body) {
+			const existing = previewMessages.get(messageId)
+			if (!existing) throw new Error('Message not found')
+			const c = previewChannels.find((item) => item.id === existing.channelId)
+			const nextRev = (c?.lastRev ?? existing.rev) + 1
+			const updated: ChatMessageDto = {
+				...existing,
+				bodyText: body.bodyText,
+				body: body.body ?? existing.body,
+				rev: nextRev,
+				editedAt: new Date().toISOString(),
+				version: existing.version + 1,
+				richLinks: resolvePreviewRichLinks(body.bodyText)
+			}
+			previewMessages.set(messageId, updated)
+			previewChannels = previewChannels.map((item) =>
+				item.id === existing.channelId ? { ...item, lastRev: nextRev } : item
+			)
+			return updated
+		},
+		async deleteMessage(messageId) {
+			const existing = previewMessages.get(messageId)
+			if (!existing) throw new Error('Message not found')
+			const deleted: ChatMessageDto = {
+				...existing,
+				bodyText: '',
+				deletedAt: new Date().toISOString(),
+				version: existing.version + 1
+			}
+			previewMessages.set(messageId, deleted)
+			return deleted
+		},
+		async listThread(parentMessageId) {
+			const parent = previewMessages.get(parentMessageId)
+			if (!parent) throw new Error('Parent message not found')
+			const replies = [...previewMessages.values()]
+				.filter((m) => m.threadParentId === parentMessageId && m.deletedAt === null)
+				.sort((a, b) => (a.threadSeq ?? 0) - (b.threadSeq ?? 0))
+				.map(hydratePreviewMsg)
+			return { parent: hydratePreviewMsg(parent), replies }
+		},
+		async addReaction(messageId, emoji) {
+			const existing = previewMessages.get(messageId)
+			if (!existing) throw new Error('Message not found')
+			const current = existing.reactions.find((r) => r.emoji === emoji)
+			const nextReactions = current
+				? existing.reactions.map((r) =>
+						r.emoji === emoji && !r.userIds.includes(PREVIEW_USER_ID)
+							? { ...r, count: r.count + 1, reactedByMe: true, userIds: [...r.userIds, PREVIEW_USER_ID] }
+							: r
+					)
+				: [...existing.reactions, { emoji, count: 1, reactedByMe: true, userIds: [PREVIEW_USER_ID] }]
+			const updated = { ...existing, reactions: nextReactions }
+			previewMessages.set(messageId, updated)
+			return updated
+		},
+		async removeReaction(messageId, emoji) {
+			const existing = previewMessages.get(messageId)
+			if (!existing) throw new Error('Message not found')
+			const nextReactions = existing.reactions
+				.map((r) =>
+					r.emoji === emoji
+						? {
+								...r,
+								userIds: r.userIds.filter((uid) => uid !== PREVIEW_USER_ID),
+								count: r.userIds.filter((uid) => uid !== PREVIEW_USER_ID).length,
+								reactedByMe: false
+							}
+						: r
+				)
+				.filter((r) => r.count > 0)
+			const updated = { ...existing, reactions: nextReactions }
+			previewMessages.set(messageId, updated)
+			return updated
+		},
+		async markChannelRead(channelId, seq) {
+			previewChannels = previewChannels.map((c) =>
+				c.id === channelId
+					? {
+							...c,
+							lastReadSeq: Math.max(c.lastReadSeq, seq),
+							unreadCount: Math.max(0, c.lastMsgSeq - Math.max(c.lastReadSeq, seq)),
+							hasUnread: c.lastMsgSeq > Math.max(c.lastReadSeq, seq),
+							mentionCount: 0
+						}
+					: c
+			)
+			const c = previewChannels.find((item) => item.id === channelId)
+			return {
+				channelId,
+				lastReadSeq: c?.lastReadSeq ?? seq,
+				unreadCount: c?.unreadCount ?? 0
+			}
+		},
+		async updateChannelMute(channelId, muted) {
+			previewChannels = previewChannels.map((c) => (c.id === channelId ? { ...c, muted } : c))
+			return { channelId, muted }
+		},
+		async listThreads() {
+			const parents = [...previewMessages.values()].filter((m) => m.replyCount > 0 && m.deletedAt === null)
+			return parents.map((parent) => {
+				const chan = previewChannels.find((c) => c.id === parent.channelId)
+				const replies = [...previewMessages.values()]
+					.filter((r) => r.threadParentId === parent.id && r.deletedAt === null)
+					.sort((a, b) => (a.threadSeq ?? 0) - (b.threadSeq ?? 0))
+				return {
+					parentMessage: hydratePreviewMsg(parent),
+					channelId: parent.channelId,
+					channelName: chan?.name ?? null,
+					channelKind: chan?.kind ?? 'public',
+					lastReadThreadSeq: 0,
+					unreadReplyCount: replies.length,
+					latestReplies: replies.slice(-3).map(hydratePreviewMsg)
+				}
+			})
+		},
+		async uploadFile(file) {
+			const ts = new Date().toISOString()
+			const dto: FileDto = {
+				id: generateUuidV7(),
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				uploadedBy: PREVIEW_USER_ID,
+				filename: file.name,
+				contentType: file.type || 'application/octet-stream',
+				declaredContentType: file.type || 'application/octet-stream',
+				byteSize: file.size,
+				checksum: 'preview-sha256',
+				scanStatus: 'clean',
+				scanDetail: 'Preview scan clean',
+				reencoded: false,
+				createdAt: ts,
+				scannedAt: ts,
+				promotedAt: ts
+			}
+			previewFiles.set(dto.id, dto)
+			return dto
+		},
+		async getNotificationPreferences() {
+			return previewNotifPrefs
+		},
+		async updateNotificationPreferences(body) {
+			previewNotifPrefs = {
+				...previewNotifPrefs,
+				...(body.chatLevel !== undefined ? { chatLevel: body.chatLevel } : {}),
+				...(body.emailDigestFrequency !== undefined
+					? { emailDigestFrequency: body.emailDigestFrequency }
+					: {}),
+				...(body.quietHoursStart !== undefined ? { quietHoursStart: body.quietHoursStart } : {}),
+				...(body.quietHoursEnd !== undefined ? { quietHoursEnd: body.quietHoursEnd } : {}),
+				...(body.timezone !== undefined ? { timezone: body.timezone } : {}),
+				...(body.webPushEnabled !== undefined ? { webPushEnabled: body.webPushEnabled } : {}),
+				updatedAt: new Date().toISOString()
+			}
+			return previewNotifPrefs
+		},
+		async getVapidPublicKey() {
+			return null
+		},
+		async listWebPushSubscriptions() {
+			return previewPushSubs
+		},
+		async registerWebPushSubscription(body) {
+			const sub: WebPushSubscriptionDto = {
+				id: generateUuidV7(),
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				userId: PREVIEW_USER_ID,
+				endpoint: body.endpoint,
+				userAgent: body.userAgent ?? 'preview-browser',
+				lastUsedAt: null,
+				revokedAt: null,
+				createdAt: new Date().toISOString()
+			}
+			previewPushSubs = [sub, ...previewPushSubs]
+			return sub
+		},
+		async deleteWebPushSubscription(id) {
+			previewPushSubs = previewPushSubs.filter((s) => s.id !== id)
+		},
+		async listWebhooks() {
+			return previewWebhooks
+		},
+		async createWebhook(body) {
+			const ts = new Date().toISOString()
+			const id = generateUuidV7()
+			const signingSecret = `whsec_preview_${id.slice(0, 8)}`
+			const endpoint: WebhookEndpointDto = {
+				id,
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				name: body.name,
+				url: body.url,
+				secretPrefix: signingSecret.slice(0, 12),
+				events: [...body.events],
+				enabled: body.enabled ?? true,
+				createdBy: PREVIEW_USER_ID,
+				createdAt: ts,
+				updatedAt: ts,
+				version: 1
+			}
+			previewWebhooks = [endpoint, ...previewWebhooks]
+			previewDeliveries.set(id, [
+				{
+					id: generateUuidV7(),
+					workspaceId: PREVIEW_WORKSPACE_ID,
+					endpointId: id,
+					eventId: generateUuidV7(),
+					eventType: body.events[0] ?? 'tasks.issue.created.v1',
+					payload: {},
+					status: 'failed',
+					attempts: 1,
+					maxAttempts: 8,
+					nextAttemptAt: ts,
+					lastStatusCode: 500,
+					lastResponseBody: 'Internal error',
+					lastError: 'Receiver returned HTTP 500',
+					deliveredAt: null,
+					createdAt: ts,
+					updatedAt: ts
+				}
+			])
+			return { endpoint, signingSecret }
+		},
+		async updateWebhook(id, body) {
+			const existing = previewWebhooks.find((e) => e.id === id)
+			if (!existing) throw new Error('Webhook not found')
+			const signingSecret = body.rotateSecret ? `whsec_rot_${generateUuidV7().slice(0, 8)}` : undefined
+			const updated: WebhookEndpointDto = {
+				...existing,
+				...(body.name !== undefined ? { name: body.name } : {}),
+				...(body.url !== undefined ? { url: body.url } : {}),
+				...(body.events !== undefined ? { events: [...body.events] } : {}),
+				...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+				...(signingSecret ? { secretPrefix: signingSecret.slice(0, 12) } : {}),
+				version: existing.version + 1,
+				updatedAt: new Date().toISOString()
+			}
+			previewWebhooks = previewWebhooks.map((e) => (e.id === id ? updated : e))
+			return { endpoint: updated, ...(signingSecret ? { signingSecret } : {}) }
+		},
+		async deleteWebhook(id) {
+			previewWebhooks = previewWebhooks.filter((e) => e.id !== id)
+		},
+		async listWebhookDeliveries(endpointId) {
+			return previewDeliveries.get(endpointId) ?? []
+		},
+		async replayWebhookDelivery(deliveryId) {
+			for (const [epId, list] of previewDeliveries.entries()) {
+				const found = list.find((d) => d.id === deliveryId)
+				if (found) {
+					const replayed: WebhookDeliveryDto = {
+						...found,
+						status: 'delivered',
+						attempts: found.attempts + 1,
+						lastStatusCode: 200,
+						lastError: null,
+						deliveredAt: new Date().toISOString()
+					}
+					previewDeliveries.set(
+						epId,
+						list.map((d) => (d.id === deliveryId ? replayed : d))
+					)
+					return replayed
+				}
+			}
+			throw new Error('Delivery not found')
+		},
+		async listGithubInstallations() {
+			return previewGithubInstallations
+		},
+		async createGithubInstallation(body) {
+			const ts = new Date().toISOString()
+			const created: GithubInstallationDto = {
+				id: generateUuidV7(),
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				installationId: body.installationId,
+				accountLogin: body.accountLogin,
+				repoFullName: body.repoFullName,
+				projectId: body.projectId,
+				syncEnabled: body.syncEnabled ?? true,
+				lastSyncedAt: null,
+				createdAt: ts,
+				updatedAt: ts,
+				version: 1
+			}
+			previewGithubInstallations = [created, ...previewGithubInstallations]
+			return created
+		},
+		async updateGithubInstallation(id, body) {
+			const existing = previewGithubInstallations.find((i) => i.id === id)
+			if (!existing) throw new Error('Installation not found')
+			const updated: GithubInstallationDto = {
+				...existing,
+				...(body.projectId !== undefined ? { projectId: body.projectId } : {}),
+				...(body.syncEnabled !== undefined ? { syncEnabled: body.syncEnabled } : {}),
+				version: existing.version + 1,
+				updatedAt: new Date().toISOString()
+			}
+			previewGithubInstallations = previewGithubInstallations.map((i) => (i.id === id ? updated : i))
+			return updated
+		},
+		async deleteGithubInstallation(id) {
+			previewGithubInstallations = previewGithubInstallations.filter((i) => i.id !== id)
+		},
+		async listIssueGithubLinks(issueId) {
+			return previewGithubLinks.filter((l) => l.issueId === issueId)
+		},
+		async createIssueGithubLink(body) {
+			const ts = new Date().toISOString()
+			const inst = previewGithubInstallations.find((i) => i.id === body.installationId)
+			const created: IssueGithubLinkDto = {
+				id: generateUuidV7(),
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				issueId: body.issueId,
+				installationId: body.installationId,
+				repoFullName: inst?.repoFullName ?? 'owner/repo',
+				githubIssueNumber: body.githubIssueNumber,
+				githubIssueId: body.githubIssueId ?? body.githubIssueNumber,
+				githubUrl:
+					body.githubUrl ??
+					`https://github.com/${inst?.repoFullName ?? 'owner/repo'}/issues/${body.githubIssueNumber}`,
+				sourceOfTruth: body.sourceOfTruth ?? 'bidirectional',
+				lastSyncedAt: ts,
+				lastSyncHash: null,
+				syncState: 'synced',
+				lastSyncError: null,
+				createdAt: ts,
+				updatedAt: ts
+			}
+			previewGithubLinks = [created, ...previewGithubLinks]
+			return created
+		},
+		async deleteIssueGithubLink(id) {
+			previewGithubLinks = previewGithubLinks.filter((l) => l.id !== id)
+		},
+		async retryIssueGithubPush(linkId) {
+			const existing = previewGithubLinks.find((l) => l.id === linkId)
+			if (!existing) throw new Error('Link not found')
+			const updated: IssueGithubLinkDto = {
+				...existing,
+				syncState: 'synced',
+				lastSyncError: null,
+				lastSyncedAt: new Date().toISOString()
+			}
+			previewGithubLinks = previewGithubLinks.map((l) => (l.id === linkId ? updated : l))
+			return updated
 		}
 	}
 }
@@ -1419,7 +2788,14 @@ async function fetchSocialProviders(): Promise<readonly SocialProviderId[]> {
  * into offline preview. Any network failure falls back to the offline-first
  * preview workspace without blocking.
  */
-export async function bootstrapWorkspace(opts?: { readonly preferPreview?: boolean }): Promise<BootResult> {
+export async function bootstrapWorkspace(opts?: {
+	readonly preferPreview?: boolean
+	readonly onChatSignal?: ((ev: { channelId: string; rev: number; lastMsgSeq: number }) => void) | undefined
+	readonly onPresence?:
+		| ((users: readonly { userId: string; status: 'online' | 'away'; lastSeenAt: number }[]) => void)
+		| undefined
+	readonly onTyping?: ((ev: { channelId: string; userId: string; until: number }) => void) | undefined
+}): Promise<BootResult> {
 	if (opts?.preferPreview) return createPreviewWorkspace()
 	try {
 		const res = await fetch(`${API_BASE}/api/v1/workspaces/current`, {
@@ -1478,7 +2854,10 @@ export async function bootstrapWorkspace(opts?: { readonly preferPreview?: boole
 				currentUserId: userId,
 				transport,
 				wsUrl,
-				useRealtimeTicket: true
+				useRealtimeTicket: true,
+				onChatSignal: opts?.onChatSignal,
+				onPresence: opts?.onPresence,
+				onTyping: opts?.onTyping
 			})
 			await engine.bootstrap()
 			return {

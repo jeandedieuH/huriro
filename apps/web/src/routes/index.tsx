@@ -1,7 +1,10 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
+import { HomeView } from '@/features/home/components/home-view'
 
 export const Route = createFileRoute('/')({
-	beforeLoad: () => {
-		throw redirect({ to: '/tasks' })
-	}
+	component: HomeRoute
 })
+
+function HomeRoute() {
+	return <HomeView />
+}

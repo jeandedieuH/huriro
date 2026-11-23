@@ -3,6 +3,7 @@ import { SyncProvider } from '@huriro/sync-client'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { useEffect, useState } from 'react'
 import { type BootstrappedWorkspace, createPreviewWorkspace } from '@/lib/sync-bootstrap'
+import { DocsSidebarNav } from './components/docs-sidebar-nav'
 import { DocsWorkspace } from './components/docs-workspace'
 
 activateI18n('en')
@@ -29,8 +30,11 @@ function PreviewDocsStory({ slug }: { readonly slug: string | null }) {
 
 	if (!boot) return null
 	return (
-		<div className="h-160 border border-border bg-background text-foreground">
+		<div className="flex h-160 border border-border bg-background text-foreground">
 			<SyncProvider engine={boot.engine}>
+				<div className="w-60 shrink-0 border-r border-border bg-sidebar p-3">
+					<DocsSidebarNav activeSlug={slug} />
+				</div>
 				<DocsWorkspace api={boot.api} currentUserId={boot.currentUserId} isPreview={true} activeSlug={slug} />
 			</SyncProvider>
 		</div>

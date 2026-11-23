@@ -10,12 +10,14 @@
  */
 import { createAppPool, createOwnerPool, migrate, migrationsDir } from '@huriro/db'
 import { createApp } from './api/app'
+import { resolveRootEnvelopeSecret } from './api/crypto'
 import { log } from './api/observability'
 import { doctor } from './cli/doctor'
 import { genenv } from './cli/genenv'
 import { init } from './cli/init'
 import { backup, createAdmin, health, migrateCmd, restore } from './cli/ops'
 import { loadEnv } from './env'
+import { FilesystemBlobStorage } from './modules/files'
 import { createAuth } from './modules/identity'
 import { createCollabRuntime, startRealtime } from './realtime'
 import { InProcessPubSub, PostgresNotifyPubSub } from './realtime/pubsub'
@@ -98,6 +100,29 @@ async function serve(args: string[]) {
 
 	const auth = role === 'api' || role === 'realtime' || role === 'all' ? createAuth(env) : null
 	const collabTicketSecret = env.betterAuthSecret ?? env.secretKey ?? 'huriro-dev-collab'
+	const rootSecret = resolveRootEnvelopeSecret(env.secretKey)
+	const blobStorage = new FilesystemBlobStorage(env.BLOB_DIR)
+	const vapid =
+		env.VAPID_PUBLIC_KEY && env.vapidPrivateKey
+			? {
+					publicKey: env.VAPID_PUBLIC_KEY,
+					privateKey: env.vapidPrivateKey,
+					subject: env.VAPID_SUBJECT
+				}
+			: undefined
+	const smtp = (() => {
+		if (!env.SMTP_URL) return { from: env.SMTP_FROM }
+		try {
+			const u = new URL(env.SMTP_URL)
+			return {
+				host: u.hostname,
+				...(u.port ? { port: Number.parseInt(u.port, 10) } : {}),
+				from: env.SMTP_FROM
+			}
+		} catch {
+			return { host: env.SMTP_URL, from: env.SMTP_FROM }
+		}
+	})()
 	const collab =
 		role === 'realtime' || role === 'all'
 			? createCollabRuntime({ sql: app, pubsub, ticketSecret: collabTicketSecret })
@@ -113,6 +138,11 @@ async function serve(args: string[]) {
 			auth,
 			pubsub,
 			collabTicketSecret,
+			blobStorage,
+			rootSecret,
+			...(env.CLAMAV_HOST ? { clamavHost: env.CLAMAV_HOST, clamavPort: env.CLAMAV_PORT } : {}),
+			...(env.githubAppWebhookSecret ? { githubAppWebhookSecret: env.githubAppWebhookSecret } : {}),
+			...(vapid ? { vapid } : {}),
 			allowedOrigins: [new URL(env.HURIRO_URL).origin],
 			...(collab ? { collabBridge: collab.bridge } : {})
 		}).listen(env.PORT)
@@ -123,7 +153,12 @@ async function serve(args: string[]) {
 			adminUrl: env.databaseAdminUrl,
 			app,
 			pubsub,
-			heartbeatUrl: env.HEARTBEAT_URL
+			heartbeatUrl: env.HEARTBEAT_URL,
+			blobStorage,
+			rootSecret,
+			smtp,
+			...(env.CLAMAV_HOST ? { clamavHost: env.CLAMAV_HOST, clamavPort: env.CLAMAV_PORT } : {}),
+			...(vapid ? { vapid } : {})
 		})
 		stoppers.push(() => worker.stop())
 	}

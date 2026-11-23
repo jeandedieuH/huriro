@@ -23,6 +23,7 @@ function isEditableElement(target: EventTarget | null): boolean {
 }
 
 const GO_DESTINATIONS: Record<string, AppDestination> = {
+	h: 'home',
 	i: 'inbox',
 	t: 'tasks',
 	d: 'docs',
@@ -51,6 +52,12 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
 				if (state.selectedIssueId) {
 					state.setDetailPanelOpen(!state.detailPanelOpen)
 				}
+				return
+			}
+
+			if (mod && ev.key === '\\') {
+				ev.preventDefault()
+				state.toggleSidebarCollapsed()
 				return
 			}
 

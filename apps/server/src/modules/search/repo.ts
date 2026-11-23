@@ -119,7 +119,15 @@ export async function executeSearchQuery(
 		: null
 	const textQuery = p.freeText.trim()
 
-	if (!textQuery && !exactIdentifier && !p.projectKey && !p.state && p.priority === null && !p.entityType) {
+	if (
+		!textQuery &&
+		!exactIdentifier &&
+		!p.projectKey &&
+		!p.state &&
+		p.priority === null &&
+		!p.entityType &&
+		!p.channelName
+	) {
 		return []
 	}
 
@@ -128,6 +136,7 @@ export async function executeSearchQuery(
 			entityType: SearchEntityType
 			entityId: string
 			projectId: string | null
+			containerId: string | null
 			identifier: string | null
 			title: string
 			snippet: string
@@ -166,6 +175,10 @@ export async function executeSearchQuery(
 				ON proj.workspace_id = sd.workspace_id AND proj.id = sd.project_id
 			LEFT JOIN doc_pages dp
 				ON sd.entity_type = 'doc_page' AND dp.workspace_id = sd.workspace_id AND dp.id = sd.entity_id AND dp.archived_at IS NULL
+			LEFT JOIN chat_messages cm
+				ON sd.entity_type = 'message' AND cm.workspace_id = sd.workspace_id AND cm.id = sd.entity_id AND cm.deleted_at IS NULL
+			LEFT JOIN chat_channels cc
+				ON cc.workspace_id = cm.workspace_id AND cc.id = cm.channel_id AND cc.archived_at IS NULL
 			LEFT JOIN issues iss
 				ON sd.entity_type = 'issue' AND iss.workspace_id = sd.workspace_id AND iss.id = sd.entity_id
 			LEFT JOIN project_statuses ps
@@ -174,32 +187,84 @@ export async function executeSearchQuery(
 				ON iss.assignee_type = 'user' AND assignee_u.id = iss.assignee_id
 			WHERE sd.workspace_id = ${args.workspaceId}
 				AND (sd.entity_type <> 'doc_page' OR dp.id IS NOT NULL)
+				AND (sd.entity_type <> 'message' OR (cm.id IS NOT NULL AND cc.id IS NOT NULL))
 				AND (
-					${args.bypassAcl}
-					OR (
-						sd.entity_type = 'doc_page'
-						AND dp.id IS NOT NULL
+					(
+						sd.entity_type = 'message'
+						AND cm.id IS NOT NULL
+						AND cc.id IS NOT NULL
 						AND (
-							(${args.isGuest} = false AND dp.visibility = 'workspace')
-							OR can_read(sd.workspace_id, 'doc_page', dp.id, ${args.userId}, 'read')
+							(
+								cc.kind = 'dm'
+								AND EXISTS (
+									SELECT 1 FROM chat_channel_members ccm
+									WHERE ccm.workspace_id = cc.workspace_id
+										AND ccm.channel_id = cc.id
+										AND ccm.principal_type = 'user'
+										AND ccm.principal_id = ${args.userId}
+								)
+							)
+							OR (
+								cc.kind = 'private'
+								AND (
+									${args.bypassAcl}
+									OR EXISTS (
+										SELECT 1 FROM chat_channel_members ccm
+										WHERE ccm.workspace_id = cc.workspace_id
+											AND ccm.channel_id = cc.id
+											AND ccm.principal_type = 'user'
+											AND ccm.principal_id = ${args.userId}
+									)
+									OR can_read(sd.workspace_id, 'channel', cc.id, ${args.userId}, 'read')
+								)
+							)
+							OR (
+								cc.kind = 'public'
+								AND (
+									${args.isGuest} = false
+									OR EXISTS (
+										SELECT 1 FROM chat_channel_members ccm
+										WHERE ccm.workspace_id = cc.workspace_id
+											AND ccm.channel_id = cc.id
+											AND ccm.principal_type = 'user'
+											AND ccm.principal_id = ${args.userId}
+									)
+									OR can_read(sd.workspace_id, 'channel', cc.id, ${args.userId}, 'read')
+								)
+							)
 						)
 					)
 					OR (
-						sd.entity_type <> 'doc_page'
+						sd.entity_type <> 'message'
 						AND (
-							(
-								${args.isGuest} = false
-								AND (proj.id IS NULL OR proj.visibility = 'workspace' OR can_read(sd.workspace_id, 'project', proj.id, ${args.userId}, 'read'))
+							${args.bypassAcl}
+							OR (
+								sd.entity_type = 'doc_page'
+								AND dp.id IS NOT NULL
+								AND (
+									(${args.isGuest} = false AND dp.visibility = 'workspace')
+									OR can_read(sd.workspace_id, 'doc_page', dp.id, ${args.userId}, 'read')
+								)
 							)
 							OR (
-								${args.isGuest} = true
-								AND proj.id IS NOT NULL
-								AND can_read(sd.workspace_id, 'project', proj.id, ${args.userId}, 'read')
+								sd.entity_type <> 'doc_page'
+								AND (
+									(
+										${args.isGuest} = false
+										AND (proj.id IS NULL OR proj.visibility = 'workspace' OR can_read(sd.workspace_id, 'project', proj.id, ${args.userId}, 'read'))
+									)
+									OR (
+										${args.isGuest} = true
+										AND proj.id IS NOT NULL
+										AND can_read(sd.workspace_id, 'project', proj.id, ${args.userId}, 'read')
+									)
+								)
 							)
 						)
 					)
 				)
 				${p.projectKey ? tx`AND upper(proj.key) = upper(${p.projectKey})` : tx``}
+				${p.channelName ? tx`AND sd.entity_type = 'message' AND lower(cc.name) = lower(${p.channelName})` : tx``}
 				${p.entityType ? tx`AND sd.entity_type = ${p.entityType}` : tx``}
 				${
 					p.state === 'open'
@@ -244,6 +309,7 @@ export async function executeSearchQuery(
 			entity_type AS "entityType",
 			entity_id AS "entityId",
 			project_id AS "projectId",
+			container_id AS "containerId",
 			identifier,
 			title,
 			metadata,
@@ -274,6 +340,12 @@ export async function executeSearchQuery(
 				typeof r.metadata?.['slug'] === 'string' ? r.metadata['slug'] : (r.identifier ?? r.entityId)
 			const blockId = findMatchedBlockId(r.metadata, textQuery)
 			deepLink = `/docs/${slug}${blockId ? `#block-${blockId}` : ''}`
+		} else if (r.entityType === 'message') {
+			const channelId =
+				typeof r.metadata?.['channelId'] === 'string' ? r.metadata['channelId'] : r.containerId
+			deepLink = channelId
+				? `/chat?channel=${channelId}&message=${r.entityId}`
+				: `/chat?message=${r.entityId}`
 		} else {
 			deepLink = `/tasks/issues/${r.entityId}`
 		}

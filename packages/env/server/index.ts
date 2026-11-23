@@ -113,7 +113,43 @@ export const serverSchemas = {
 	// ---- optional observability (ADR-0014: never required on self-host) ----
 	OTEL_ENDPOINT: z.string().optional().describe('OTLP collector endpoint; unset = no tracing export'),
 	ERROR_DSN: z.string().optional().describe('GlitchTip/Sentry DSN; unset = no error reporting'),
-	HEARTBEAT_URL: z.url().optional().describe('Dead-man-switch URL the worker pings on job health')
+	HEARTBEAT_URL: z.url().optional().describe('Dead-man-switch URL the worker pings on job health'),
+
+	// ---- M4: attachment scanning, email digests, Web Push, GitHub App ----
+	CLAMAV_HOST: z
+		.string()
+		.optional()
+		.describe('Optional ClamAV daemon host for attachment quarantine scanning'),
+	CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310).describe('ClamAV daemon TCP port'),
+	SMTP_URL: z.string().optional().describe('Optional SMTP relay URL for notification email digests'),
+	SMTP_FROM: z
+		.string()
+		.default('noreply@huriro.local')
+		.describe('Sender address for notification email digests'),
+	VAPID_PUBLIC_KEY: z.string().optional().describe('Web Push VAPID public key (base64url P-256)'),
+	VAPID_PRIVATE_KEY: z.string().optional().describe('Web Push VAPID private key (or use _FILE)'),
+	VAPID_PRIVATE_KEY_FILE: z
+		.string()
+		.optional()
+		.describe('Path to file containing VAPID_PRIVATE_KEY (Docker secret)'),
+	VAPID_SUBJECT: z
+		.string()
+		.default('mailto:admin@huriro.local')
+		.describe('Web Push VAPID contact subject URI'),
+	GITHUB_APP_ID: z.string().optional().describe('GitHub App numeric ID for two-way issue sync'),
+	GITHUB_APP_PRIVATE_KEY: z.string().optional().describe('GitHub App PEM private key (or use _FILE)'),
+	GITHUB_APP_PRIVATE_KEY_FILE: z
+		.string()
+		.optional()
+		.describe('Path to file containing GITHUB_APP_PRIVATE_KEY (Docker secret)'),
+	GITHUB_APP_WEBHOOK_SECRET: z
+		.string()
+		.optional()
+		.describe('GitHub App inbound webhook HMAC secret (or use _FILE)'),
+	GITHUB_APP_WEBHOOK_SECRET_FILE: z
+		.string()
+		.optional()
+		.describe('Path to file containing GITHUB_APP_WEBHOOK_SECRET (Docker secret)')
 }
 
 /**

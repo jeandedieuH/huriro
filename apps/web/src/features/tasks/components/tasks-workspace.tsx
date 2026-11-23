@@ -1,17 +1,15 @@
-import type { SavedViewDto } from '@huriro/contracts'
 import { t } from '@huriro/i18n'
 import { useCollectionItems, useSyncEngine, useSyncStatus } from '@huriro/sync-client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useKeyboardShortcuts } from '@/features/keyboard/use-keyboard-shortcuts'
 import type { TaskApiBridge, WorkspaceMemberSummary } from '@/lib/sync-bootstrap'
-import { useUiStore } from '@/stores/ui-store'
+import { type TasksPreset, useUiStore } from '@/stores/ui-store'
 import { CreateIssueDialog } from './create-issue-dialog'
 import { CreateProjectDialog } from './create-project-dialog'
 import { FilterBar } from './filter-bar'
 import { IssueBoardView } from './issue-board-view'
 import { IssueDetailPanel } from './issue-detail-panel'
 import { IssueListView } from './issue-list-view'
-import { ProjectSidebar } from './project-sidebar'
 
 export interface TasksWorkspaceProps {
 	readonly api: TaskApiBridge
@@ -20,6 +18,25 @@ export interface TasksWorkspaceProps {
 
 function comparePos(a: string, b: string): number {
 	return a < b ? -1 : a > b ? 1 : 0
+}
+
+const PRESET_LABELS: Record<
+	TasksPreset,
+	| 'tasks.all-issues'
+	| 'tasks.sidebar.my-tasks'
+	| 'tasks.sidebar.this-week'
+	| 'tasks.sidebar.my-week'
+	| 'tasks.sidebar.overdue'
+	| 'tasks.sidebar.due-soon'
+	| 'tasks.sidebar.trash'
+> = {
+	all: 'tasks.all-issues',
+	'my-tasks': 'tasks.sidebar.my-tasks',
+	'this-week': 'tasks.sidebar.this-week',
+	'my-week': 'tasks.sidebar.my-week',
+	overdue: 'tasks.sidebar.overdue',
+	'due-soon': 'tasks.sidebar.due-soon',
+	trash: 'tasks.sidebar.trash'
 }
 
 export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
@@ -33,10 +50,9 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 	const savedViews = useCollectionItems(engine.collections.savedViews)
 
 	const activeProjectId = useUiStore((s) => s.activeProjectId)
+	const tasksPreset = useUiStore((s) => s.tasksPreset)
 	const tasksLayout = useUiStore((s) => s.tasksLayout)
-	const setTasksLayout = useUiStore((s) => s.setTasksLayout)
 	const filters = useUiStore((s) => s.filters)
-	const setFilterPatch = useUiStore((s) => s.setFilterPatch)
 	const setActiveProjectId = useUiStore((s) => s.setActiveProjectId)
 	const selectedIssueId = useUiStore((s) => s.selectedIssueId)
 	const detailPanelOpen = useUiStore((s) => s.detailPanelOpen)
@@ -78,9 +94,39 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 
 	const filteredIssues = useMemo(() => {
 		const q = filters.query.trim().toLowerCase()
+		const nowMs = Date.now()
+		const todayStart = new Date(nowMs)
+		todayStart.setHours(0, 0, 0, 0)
+		const startOfTodayMs = todayStart.getTime()
+		const weekEndMs = nowMs + 7 * 86_400_000
+		const soonEndMs = startOfTodayMs + 3 * 86_400_000
+
 		return issues
 			.filter((issue) => {
-				if (issue.deletedAt !== null) return false
+				if (tasksPreset === 'trash') {
+					if (issue.deletedAt === null) return false
+				} else if (issue.deletedAt !== null) {
+					return false
+				}
+
+				if (tasksPreset === 'my-tasks' && issue.assigneeId !== currentUserId) return false
+				if (tasksPreset === 'this-week' || tasksPreset === 'my-week') {
+					if (issue.closedAt !== null || !issue.dueDate) return false
+					const dueMs = Date.parse(issue.dueDate)
+					if (Number.isNaN(dueMs) || dueMs > weekEndMs) return false
+					if (tasksPreset === 'my-week' && issue.assigneeId !== currentUserId) return false
+				}
+				if (tasksPreset === 'overdue') {
+					if (issue.closedAt !== null || !issue.dueDate) return false
+					const dueMs = Date.parse(issue.dueDate)
+					if (Number.isNaN(dueMs) || dueMs >= startOfTodayMs) return false
+				}
+				if (tasksPreset === 'due-soon') {
+					if (issue.closedAt !== null || !issue.dueDate) return false
+					const dueMs = Date.parse(issue.dueDate)
+					if (Number.isNaN(dueMs) || dueMs < startOfTodayMs || dueMs > soonEndMs) return false
+				}
+
 				if (activeProjectId && issue.projectId !== activeProjectId) return false
 				if (filters.statusId !== 'all' && issue.statusId !== filters.statusId) return false
 				if (filters.priority !== 'all' && issue.priority !== filters.priority) return false
@@ -104,7 +150,7 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 				return true
 			})
 			.sort((a, b) => comparePos(a.position, b.position))
-	}, [activeProjectId, currentUserId, filters, issues])
+	}, [activeProjectId, currentUserId, filters, issues, tasksPreset])
 
 	const pendingEntityIds = engine.getPendingMutationIds()
 	const hasActiveFilters =
@@ -184,22 +230,18 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 
 	const selectedIssue = selectedIssueId ? engine.collections.issues.get(selectedIssueId) : undefined
 
-	const handleSelectView = useCallback(
-		(view: SavedViewDto) => {
-			setActiveProjectId(view.projectId)
-			setTasksLayout(view.layout)
-			const priorityRaw = view.filters.priorities?.[0]
-			const statusRaw = view.filters.statusIds?.[0]
-			setFilterPatch({
-				activeViewId: view.id,
-				priority: typeof priorityRaw === 'number' ? priorityRaw : 'all',
-				statusId: typeof statusRaw === 'string' ? statusRaw : 'all',
-				assigneeId: view.filters.mine ? 'me' : (view.filters.assigneeIds?.[0] ?? 'all'),
-				query: view.filters.search ?? ''
-			})
-		},
-		[setActiveProjectId, setFilterPatch, setTasksLayout]
-	)
+	const projectLabel = useMemo(() => {
+		if (!activeProjectId) return t('tasks.sidebar.all-projects')
+		return projects.find((p) => p.id === activeProjectId)?.name ?? t('tasks.sidebar.all-projects')
+	}, [activeProjectId, projects])
+
+	const viewLabel = useMemo(() => {
+		if (filters.activeViewId) {
+			const activeView = savedViews.find((v) => v.id === filters.activeViewId)
+			if (activeView) return activeView.name
+		}
+		return t(PRESET_LABELS[tasksPreset])
+	}, [filters.activeViewId, savedViews, tasksPreset])
 
 	const myAssigned = useMemo(
 		() => filteredIssues.filter((i) => i.assigneeId === currentUserId),
@@ -212,12 +254,12 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 
 	return (
 		<div className="flex h-full min-h-0">
-			<ProjectSidebar projects={projects} savedViews={savedViews} onSelectView={handleSelectView} />
-
 			<div className="flex min-w-0 flex-1 flex-col">
 				<FilterBar
 					statuses={visibleStatuses}
 					members={members}
+					projectLabel={projectLabel}
+					viewLabel={viewLabel}
 					onSaveView={async (name) => {
 						await engine.createSavedView({
 							name,

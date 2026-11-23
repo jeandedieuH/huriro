@@ -28,6 +28,9 @@ export interface Config extends Env {
 	readonly googleClientSecret: string | undefined
 	readonly githubClientSecret: string | undefined
 	readonly appleClientSecret: string | undefined
+	readonly vapidPrivateKey: string | undefined
+	readonly githubAppPrivateKey: string | undefined
+	readonly githubAppWebhookSecret: string | undefined
 }
 
 let cached: Config | null = null
@@ -54,6 +57,11 @@ export async function loadEnv(source: Record<string, string | undefined> = proce
 	const googleClientSecret = env.GOOGLE_CLIENT_SECRET ?? (await readSecretFile(env.GOOGLE_CLIENT_SECRET_FILE))
 	const githubClientSecret = env.GITHUB_CLIENT_SECRET ?? (await readSecretFile(env.GITHUB_CLIENT_SECRET_FILE))
 	const appleClientSecret = env.APPLE_CLIENT_SECRET ?? (await readSecretFile(env.APPLE_CLIENT_SECRET_FILE))
+	const vapidPrivateKey = env.VAPID_PRIVATE_KEY ?? (await readSecretFile(env.VAPID_PRIVATE_KEY_FILE))
+	const githubAppPrivateKey =
+		env.GITHUB_APP_PRIVATE_KEY ?? (await readSecretFile(env.GITHUB_APP_PRIVATE_KEY_FILE))
+	const githubAppWebhookSecret =
+		env.GITHUB_APP_WEBHOOK_SECRET ?? (await readSecretFile(env.GITHUB_APP_WEBHOOK_SECRET_FILE))
 
 	if (!databaseUrl) problems.push('DATABASE_URL or DATABASE_URL_FILE is required')
 	if (env.HURIRO_ENV === 'production' && !secretKey) {
@@ -93,7 +101,10 @@ export async function loadEnv(source: Record<string, string | undefined> = proce
 		betterAuthSecret,
 		googleClientSecret,
 		githubClientSecret,
-		appleClientSecret
+		appleClientSecret,
+		vapidPrivateKey,
+		githubAppPrivateKey,
+		githubAppWebhookSecret
 	}
 	return cached
 }

@@ -861,7 +861,7 @@ export async function createIssue(
 	tx: Queryable,
 	actor: ActorContext,
 	input: CreateIssueBody,
-	opts?: { readonly skipChangeLog?: boolean }
+	opts?: { readonly skipChangeLog?: boolean; readonly origin?: 'github_sync' }
 ): Promise<{ readonly data: IssueDto; readonly cursor: number }> {
 	assertValidClientId(input.id, 'issue id')
 	const project = await getProjectById(tx, actor.workspaceId, input.projectId)
@@ -934,7 +934,8 @@ export async function createIssue(
 			identifier: created.identifier,
 			title: created.title,
 			descriptionText: created.descriptionText,
-			actorId: actor.principalId
+			actorId: actor.principalId,
+			...(opts?.origin ? { origin: opts.origin } : {})
 		}
 	})
 
@@ -984,7 +985,8 @@ export async function updateIssue(
 	tx: Queryable,
 	actor: ActorContext,
 	issueId: string,
-	input: UpdateIssueBody
+	input: UpdateIssueBody,
+	opts?: { readonly origin?: 'github_sync' }
 ): Promise<{ readonly data: IssueDto; readonly cursor: number }> {
 	const current = await getIssueById(tx, actor.workspaceId, issueId)
 	if (!current) throw new HttpError(404, 'not_found', 'Issue not found')
@@ -1103,7 +1105,8 @@ export async function updateIssue(
 			identifier: updated.identifier,
 			title: updated.title,
 			descriptionText: updated.descriptionText,
-			actorId: actor.principalId
+			actorId: actor.principalId,
+			...(opts?.origin ? { origin: opts.origin } : {})
 		}
 	})
 
@@ -1140,7 +1143,8 @@ export async function updateIssue(
 				assigneeUserId: updated.assigneeType === 'user' ? updated.assigneeId : null,
 				creatorId: updated.creatorId,
 				actorType: actor.kind,
-				actorId: actor.principalId
+				actorId: actor.principalId,
+				...(opts?.origin ? { origin: opts.origin } : {})
 			}
 		})
 	}
@@ -1509,7 +1513,7 @@ export async function createIssueComment(
 	actor: ActorContext,
 	issueId: string,
 	input: CreateIssueCommentBody,
-	opts?: { readonly skipChangeLog?: boolean }
+	opts?: { readonly skipChangeLog?: boolean; readonly origin?: 'github_sync' }
 ): Promise<{ readonly data: IssueCommentDto; readonly cursor: number }> {
 	assertValidClientId(input.id, 'comment id')
 	const issue = await getIssueById(tx, actor.workspaceId, issueId)
@@ -1551,7 +1555,8 @@ export async function createIssueComment(
 			creatorId: issue.creatorId,
 			mentionedHandles,
 			actorType: actor.kind,
-			actorId: actor.principalId
+			actorId: actor.principalId,
+			...(opts?.origin ? { origin: opts.origin } : {})
 		}
 	})
 

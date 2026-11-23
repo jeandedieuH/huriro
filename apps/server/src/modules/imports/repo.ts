@@ -130,7 +130,7 @@ export async function findMappedRemoteIds(
 	tx: Queryable,
 	workspaceId: string,
 	source: ImportSource,
-	remoteType: 'issue' | 'comment' | 'doc_page'
+	remoteType: 'issue' | 'comment' | 'doc_page' | 'channel' | 'message'
 ): Promise<Map<string, string>> {
 	const rows = await tx<{ remoteId: string; localId: string }[]>`
 		SELECT remote_id AS "remoteId", local_id AS "localId"
@@ -148,7 +148,16 @@ export async function insertImportMapping(
 		readonly workspaceId: string
 		readonly importJobId: string
 		readonly source: ImportSource
-		readonly remoteType: 'project' | 'issue' | 'comment' | 'label' | 'cycle' | 'status' | 'doc_page'
+		readonly remoteType:
+			| 'project'
+			| 'issue'
+			| 'comment'
+			| 'label'
+			| 'cycle'
+			| 'status'
+			| 'doc_page'
+			| 'channel'
+			| 'message'
 		readonly remoteId: string
 		readonly remoteIdentifier: string | null
 		readonly remoteUrl: string | null

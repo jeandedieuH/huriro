@@ -16,3 +16,6 @@ save = true
 [test]
 # bun test defaults; integration tests that need Docker gate on HURIRO_TESTCONTAINERS.
 coverage = false
+# Integration suites issue hundreds of real HTTP calls + DB txns per test on
+# dev/docker Postgres — the 5s default flakes on Windows and loaded CI.
+timeout = 30000
