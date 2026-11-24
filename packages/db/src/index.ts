@@ -11,6 +11,7 @@ export { isAcceptableClientId, isUuid, isUuidV7, uuid7, uuid7TimestampMs } from 
 export type { AppliedMigration } from './migrate'
 export { listMigrationFiles, migrate, migrationsDir, pendingMigrations } from './migrate'
 export { agentPrincipals } from './schema/agents'
+export { aiCache, aiProviders, aiRuns, chunkEmbeddings, embeddingModels } from './schema/ai'
 export {
 	authAccounts,
 	authPasskeys,
@@ -44,6 +45,19 @@ export { files } from './schema/files'
 export { users } from './schema/identity'
 export { importJobs, importMappings } from './schema/imports'
 export { githubInstallations, githubWebhookEvents, issueGithubLinks } from './schema/integrations'
+export {
+	mailAccounts,
+	mailConversationComments,
+	mailConversationDocs,
+	mailConversationEvents,
+	mailConversations,
+	mailConversationTasks,
+	mailDrafts,
+	mailIdentities,
+	mailInboxes,
+	mailMessageAttachments,
+	mailMessages
+} from './schema/mail'
 export {
 	notificationDeliveryLog,
 	notificationPreferences,

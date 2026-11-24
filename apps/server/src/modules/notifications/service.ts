@@ -443,6 +443,88 @@ export async function processNotificationOutboxEvent(
 				}
 			}
 		}
+	} else if (event.eventType === 'agents.approval.requested.v1') {
+		// R2 agent call parked for human review (§13.5): notify every active
+		// member whose role grants approval.decide.
+		const approvalId = typeof p['approvalId'] === 'string' ? p['approvalId'] : null
+		if (approvalId) {
+			const approvers = await tx<{ userId: string }[]>`
+				SELECT DISTINCT m.user_id AS "userId"
+				FROM memberships m
+				JOIN role_permissions rp
+					ON rp.workspace_id = m.workspace_id AND rp.role_id = m.role_id
+				WHERE m.workspace_id = ${event.workspaceId}
+					AND m.status = 'active'
+					AND rp.permission = 'approval.decide'
+			`
+			for (const { userId } of approvers) {
+				if (userId === actorId) continue
+				createdNotifications.push(
+					await insertNotificationRow(tx, {
+						workspaceId: event.workspaceId,
+						recipientUserId: userId,
+						actorType,
+						actorId,
+						kind: 'approval.requested',
+						entityType: 'agent_approval',
+						entityId: approvalId,
+						title: `Approval needed: ${String(p['tool'] ?? 'agent tool')} by ${String(
+							p['agentName'] ?? 'agent'
+						)}`,
+						body: '',
+						metadata: {
+							approvalId,
+							agentId: p['agentId'] ?? null,
+							tool: p['tool'] ?? null,
+							tier: p['tier'] ?? null
+						}
+					})
+				)
+			}
+		}
+	} else if (event.eventType === 'mail.conversation.assigned.v1') {
+		const recipient = typeof p['assigneeUserId'] === 'string' ? p['assigneeUserId'] : null
+		const conversationId = typeof p['conversationId'] === 'string' ? p['conversationId'] : null
+		if (recipient && conversationId && recipient !== actorId) {
+			createdNotifications.push(
+				await insertNotificationRow(tx, {
+					workspaceId: event.workspaceId,
+					recipientUserId: recipient,
+					actorType,
+					actorId,
+					kind: 'mail.assigned',
+					entityType: 'mail_conversation',
+					entityId: conversationId,
+					title: `Assigned conversation: ${String(p['subject'] ?? '')}`,
+					body: '',
+					metadata: { accountId: p['accountId'] ?? null }
+				})
+			)
+		}
+	} else if (event.eventType === 'mail.note.mentioned.v1') {
+		const conversationId = typeof p['conversationId'] === 'string' ? p['conversationId'] : null
+		const mentioned = Array.isArray(p['mentionedUserIds'])
+			? p['mentionedUserIds'].filter((u): u is string => typeof u === 'string')
+			: []
+		if (conversationId) {
+			for (const uid of new Set(mentioned)) {
+				if (uid === actorId) continue
+				createdNotifications.push(
+					await insertNotificationRow(tx, {
+						workspaceId: event.workspaceId,
+						recipientUserId: uid,
+						actorType,
+						actorId,
+						kind: 'mail.mentioned',
+						entityType: 'mail_conversation',
+						entityId: conversationId,
+						title: 'Mentioned in a mail note',
+						body: String(p['bodyText'] ?? '').slice(0, 240),
+						metadata: {}
+					})
+				)
+			}
+		}
 	}
 
 	if (createdNotifications.length === 0) return { cursor: null, pendingWebPush }
@@ -468,7 +550,7 @@ export async function listMyNotifications(
 	const cursorPos = decodeCursor<{ createdAt: string; id: string }>(query.cursor)
 	const res = await listNotificationsForUser(tx, {
 		workspaceId: actor.workspaceId,
-		userId: actor.principalId,
+		userId: actor.userId,
 		unreadOnly: query.unreadOnly === true,
 		cursorPos,
 		limit: query.limit ?? 50
@@ -550,7 +632,7 @@ export async function getNotificationsSnapshot(
 	if (actor.membership !== 'active') return []
 	const res = await listNotificationsForUser(tx, {
 		workspaceId: actor.workspaceId,
-		userId: actor.principalId,
+		userId: actor.userId,
 		unreadOnly: false,
 		limit: 100
 	})
@@ -599,7 +681,7 @@ export async function registerWebPushSubscription(
 	await validateAndResolveEgressUrl(input.endpoint, resolver)
 	return upsertWebPushSubscription(tx, {
 		workspaceId: actor.workspaceId,
-		userId: actor.principalId,
+		userId: actor.userId,
 		endpoint: input.endpoint,
 		p256dh: input.keys.p256dh,
 		authSecret: input.keys.auth,

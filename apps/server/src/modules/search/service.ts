@@ -142,6 +142,37 @@ export async function processSearchOutboxEvent(tx: Queryable, event: OutboxEvent
 			await deleteSearchDocument(tx, event.workspaceId, 'message', messageId)
 			return true
 		}
+		case 'mail.message.created.v1': {
+			const messageId = String(p['messageId'] ?? '')
+			const accountId = typeof p['accountId'] === 'string' ? p['accountId'] : null
+			if (!messageId) return false
+			// Private mail accounts never enter the shared index — the search ACL
+			// filter scopes by workspace/project, not per mail_account (§14.6).
+			if (accountId) {
+				const [acct] = await tx<{ visibility: string | null }[]>`
+					SELECT config->>'visibility' AS "visibility"
+					FROM mail_accounts
+					WHERE workspace_id = ${event.workspaceId} AND id = ${accountId}
+				`
+				if (acct?.visibility === 'private') return true
+			}
+			await upsertSearchDocument(tx, {
+				workspaceId: event.workspaceId,
+				entityType: 'mail_message',
+				entityId: messageId,
+				projectId: null,
+				containerId: typeof p['conversationId'] === 'string' ? p['conversationId'] : null,
+				identifier: typeof p['customerEmail'] === 'string' ? p['customerEmail'] : null,
+				title: String(p['subject'] ?? '(no subject)'),
+				body: `${String(p['snippet'] ?? '')}\n${String(p['bodyText'] ?? '')}`.slice(0, 10_000),
+				metadata: {
+					conversationId: typeof p['conversationId'] === 'string' ? p['conversationId'] : null,
+					direction: typeof p['direction'] === 'string' ? p['direction'] : 'inbound',
+					accountId
+				}
+			})
+			return true
+		}
 		default:
 			return false
 	}
@@ -160,7 +191,7 @@ export async function searchWorkspace(
 	}
 	const hits = await executeSearchQuery(tx, {
 		workspaceId: actor.workspaceId,
-		userId: actor.principalId,
+		userId: actor.userId,
 		isGuest,
 		bypassAcl,
 		parsed,

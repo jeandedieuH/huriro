@@ -91,7 +91,7 @@ export async function createWebhookEndpoint(
 		secretPrefix: secret.prefix,
 		events: input.events,
 		enabled: input.enabled ?? true,
-		createdBy: actor.principalId
+		createdBy: actor.userId
 	})
 
 	await tx`
@@ -388,7 +388,7 @@ export async function replayWebhookDelivery(
 ): Promise<WebhookDeliveryDto> {
 	const reset = await withWorkspace(
 		app,
-		{ workspaceId: actor.workspaceId, userId: actor.principalId },
+		{ workspaceId: actor.workspaceId, userId: actor.userId },
 		async (tx) => {
 			authorizeWebhookManage(actor)
 			const item = await resetWebhookDeliveryForReplayRow(tx, actor.workspaceId, deliveryId)
@@ -400,7 +400,7 @@ export async function replayWebhookDelivery(
 	const outcome = await attemptSingleDelivery(reset, opts)
 	const updated = await withWorkspace(
 		app,
-		{ workspaceId: actor.workspaceId, userId: actor.principalId },
+		{ workspaceId: actor.workspaceId, userId: actor.userId },
 		async (tx) => {
 			const row = await updateWebhookDeliveryOutcome(tx, {
 				workspaceId: actor.workspaceId,

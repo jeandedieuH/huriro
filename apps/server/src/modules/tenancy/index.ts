@@ -11,6 +11,7 @@
 
 import { type Sql, withSystem } from '@huriro/db'
 import type { AclResourceType } from '@huriro/domain'
+import { can } from '@huriro/domain'
 import { Elysia } from 'elysia'
 import { HttpError } from '../../api/error'
 import type { RealtimePubSub } from '../../realtime/pubsub'
@@ -21,6 +22,8 @@ import {
 	AcceptBody,
 	AclIdParam,
 	AclListQuery,
+	AgentsSettingsBody,
+	AgentsSettingsResponse,
 	CompleteSetupBody,
 	CompleteSetupResponse,
 	CreateWorkspaceBody,
@@ -41,13 +44,33 @@ import {
 	resolveResourceAcl,
 	revokeAcl
 } from './service'
-import { completeSetup, SetupError, setupStatus } from './setup'
+import {
+	type BootstrapTokenEnsureResult,
+	completeSetup,
+	ensureBootstrapSetupToken,
+	hashSetupToken,
+	rotateBootstrapSetupToken,
+	SetupError,
+	setupStatus
+} from './setup'
 import { workspaceDerive } from './workspace'
 
 export { TENANCY_EVENTS } from './events'
 export type { WorkspaceScope } from './workspace'
 export { workspaceDerive } from './workspace'
-export { grantAcl, listWorkspaceMembers, resolveActor, resolveResourceAcl, revokeAcl }
+export {
+	type BootstrapTokenEnsureResult,
+	ensureBootstrapSetupToken,
+	grantAcl,
+	hashSetupToken,
+	listWorkspaceMembers,
+	resolveActor,
+	resolveResourceAcl,
+	revokeAcl,
+	rotateBootstrapSetupToken,
+	SetupError,
+	setupStatus
+}
 
 const SetupErrorMap = {
 	already_configured: { status: 409, code: 'setup_completed' },
@@ -176,6 +199,32 @@ export function tenancyModule(
 					}
 					return { data: await listWorkspaceMembers(tx, workspaceCtx.workspaceId) }
 				})
+			)
+			// Workspace kill switch for agent surfaces (§13.1b): mcp_enabled
+			// lives in workspaces.settings, gated on settings.manage.
+			.patch(
+				'/settings/agents',
+				{ body: AgentsSettingsBody, response: AgentsSettingsResponse },
+				async ({ body, workspaceCtx, inWorkspace }) =>
+					inWorkspace(async (tx, actor) => {
+						if (can(actor, 'settings.manage', { type: 'workspace' }).effect !== 'allow') {
+							throw new HttpError(403, 'insufficient_role', 'settings.manage required')
+						}
+						await tx`
+							UPDATE workspaces
+							SET settings = settings || jsonb_build_object('mcp_enabled', ${body.mcpEnabled}::boolean)
+							WHERE id = ${workspaceCtx.workspaceId}
+						`
+						await audit(tx, {
+							workspaceId: workspaceCtx.workspaceId,
+							actorType: 'user',
+							actorId: workspaceCtx.session.userId,
+							action: 'settings.agents.update',
+							targetType: 'workspace',
+							metadata: { mcpEnabled: body.mcpEnabled }
+						})
+						return { mcpEnabled: body.mcpEnabled }
+					})
 			)
 			.get('/acl', { query: AclListQuery }, ({ query, workspaceCtx, inWorkspace }) =>
 				inWorkspace(async (tx, actor) => {

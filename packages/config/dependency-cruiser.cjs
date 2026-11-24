@@ -113,6 +113,14 @@ module.exports = {
 			from: { path: '(apps/(web|mobile)|packages/(sync-client|editor))/' },
 			to: { path: '(packages/(db|test-utils)|apps/server)/' }
 		},
+		{
+			name: 'cli-is-client-only',
+			severity: 'error',
+			comment:
+				'packages/cli ships as the public `huriro` client: only the agent-tools manifest, no server internals (ADR-0021)',
+			from: { path: 'packages/cli/' },
+			to: { path: '(packages/(db|test-utils|env)|apps/)/' }
+		},
 		...appPairRules,
 		...moduleInternalRules,
 		...schemaBoundaryRules

@@ -152,7 +152,7 @@ export async function dryRunImport(
 			source: docDataset.source,
 			status: 'dry_run',
 			targetProjectId: null,
-			createdBy: actor.principalId,
+			createdBy: actor.userId,
 			config: safeConfig,
 			preview: previewPayload
 		})
@@ -214,7 +214,7 @@ export async function dryRunImport(
 			source: 'slack',
 			status: 'dry_run',
 			targetProjectId: null,
-			createdBy: actor.principalId,
+			createdBy: actor.userId,
 			config: { source: 'slack', slack: body.slack },
 			preview: previewPayload
 		})
@@ -318,7 +318,7 @@ export async function dryRunImport(
 		source: dataset.source,
 		status: 'dry_run',
 		targetProjectId: body.targetProjectId ?? null,
-		createdBy: actor.principalId,
+		createdBy: actor.userId,
 		config: safeConfig,
 		preview: previewPayload
 	})
@@ -371,7 +371,7 @@ export async function executeImport(
 				source,
 				status: 'running',
 				targetProjectId: null,
-				createdBy: actor.principalId,
+				createdBy: actor.userId,
 				config: { source, rootTitle: docDataset.rootTitle },
 				preview: { pages: docDataset.pages.length }
 			}))
@@ -502,7 +502,7 @@ export async function executeImport(
 				source: 'slack',
 				status: 'running',
 				targetProjectId: null,
-				createdBy: actor.principalId,
+				createdBy: actor.userId,
 				config: { source: 'slack' },
 				preview: { channels: slackDataset.channels.length, messages: slackDataset.totalMessages }
 			}))
@@ -651,7 +651,7 @@ export async function executeImport(
 			source,
 			status: 'running',
 			targetProjectId: body.targetProjectId ?? null,
-			createdBy: actor.principalId,
+			createdBy: actor.userId,
 			config: { source, projectKey: dataset.projectKey, projectName: dataset.projectName },
 			preview: { issues: dataset.issues.length }
 		}))

@@ -11,7 +11,9 @@ export const SyncEntityType = Type.Union([
 	Type.Literal('saved_view'),
 	Type.Literal('notification'),
 	Type.Literal('doc_page'),
-	Type.Literal('doc_comment')
+	Type.Literal('doc_comment'),
+	Type.Literal('mail_inbox'),
+	Type.Literal('mail_conversation')
 ])
 export type SyncEntityType = Static<typeof SyncEntityType>
 

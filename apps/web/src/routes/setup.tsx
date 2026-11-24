@@ -22,21 +22,25 @@ export const Route = createFileRoute('/setup')({
 
 function SetupRoute() {
 	const search = Route.useSearch()
-	const { needsSetup, onAuthenticated, onUsePreview } = useAuthFlow()
+	const { needsSetup, onboardingUser, onAuthenticated, onSignOut, onUsePreview } = useAuthFlow()
+	const showSwitchPrompt = needsSetup && !onboardingUser
 
 	return (
 		<AuthLayout
 			title={t('auth.setup.title')}
 			subtitle={t('auth.setup.subtitle')}
 			wide={needsSetup}
-			footer={needsSetup ? <SetupSwitchPrompt redirectTo={search.redirect} /> : undefined}
+			footer={showSwitchPrompt ? <SetupSwitchPrompt redirectTo={search.redirect} /> : undefined}
 			onUsePreview={onUsePreview}
 		>
 			<SetupForm
+				key={onboardingUser?.id ?? 'anon'}
 				needsSetup={needsSetup}
+				signedInUser={onboardingUser}
 				redirectTo={search.redirect}
 				hideSwitchPrompt
 				onComplete={onAuthenticated}
+				onSignOut={onSignOut}
 			/>
 		</AuthLayout>
 	)

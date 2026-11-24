@@ -25,8 +25,14 @@ export interface SafeEgressOptions {
 	readonly timeoutMs?: number
 	readonly maxBytes?: number
 	readonly maxRedirects?: number
-	readonly resolver?: DnsResolver
-	readonly fetcher?: typeof fetch
+	readonly resolver?: DnsResolver | undefined
+	readonly fetcher?: typeof fetch | undefined
+	/**
+	 * Skip private/loopback IP blocking. ONLY for admin-configured targets
+	 * (the AI provider base_url for local Ollama — §11.3); attacker-influenced
+	 * URLs (unfurls, webhooks) must never set this.
+	 */
+	readonly allowPrivate?: boolean
 }
 
 export interface SafeEgressResponse {
@@ -167,7 +173,8 @@ const defaultResolver: DnsResolver = async (hostname) => {
 
 export async function validateAndResolveEgressUrl(
 	rawUrl: string,
-	resolver: DnsResolver = defaultResolver
+	resolver: DnsResolver = defaultResolver,
+	allowPrivate = false
 ): Promise<{ readonly cleanUrl: string; readonly resolved: ResolvedAddress }> {
 	let parsed: URL
 	try {
@@ -188,16 +195,17 @@ export async function validateAndResolveEgressUrl(
 		throw new SsrfBlockedError('Missing hostname')
 	}
 	if (
-		BLOCKED_HOSTNAMES.has(rawHost) ||
-		rawHost.endsWith('.localhost') ||
-		rawHost.endsWith('.local') ||
-		rawHost.endsWith('.internal')
+		!allowPrivate &&
+		(BLOCKED_HOSTNAMES.has(rawHost) ||
+			rawHost.endsWith('.localhost') ||
+			rawHost.endsWith('.local') ||
+			rawHost.endsWith('.internal'))
 	) {
 		throw new SsrfBlockedError(`Blocked internal hostname "${rawHost}"`)
 	}
 
 	if (isIP(rawHost) !== 0) {
-		if (isBlockedIp(rawHost)) {
+		if (!allowPrivate && isBlockedIp(rawHost)) {
 			throw new SsrfBlockedError(`Blocked private or reserved IP "${rawHost}"`)
 		}
 		return {
@@ -217,7 +225,7 @@ export async function validateAndResolveEgressUrl(
 	}
 
 	for (const addr of resolvedList) {
-		if (isBlockedIp(addr.address)) {
+		if (!allowPrivate && isBlockedIp(addr.address)) {
 			throw new SsrfBlockedError(`DNS resolved "${rawHost}" to blocked address "${addr.address}"`)
 		}
 	}
@@ -281,7 +289,7 @@ export async function safeEgressFetch(
 	let currentBody = opts.body
 
 	for (let hop = 0; hop <= maxRedirects; hop++) {
-		const { cleanUrl } = await validateAndResolveEgressUrl(currentUrl, resolver)
+		const { cleanUrl } = await validateAndResolveEgressUrl(currentUrl, resolver, opts.allowPrivate === true)
 		const controller = new AbortController()
 		const timer = setTimeout(() => controller.abort(new Error('Egress fetch timed out')), timeoutMs)
 		let res: Response

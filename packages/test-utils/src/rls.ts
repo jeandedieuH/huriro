@@ -14,6 +14,15 @@ export const TENANT_TABLES = [
 	'invitations',
 	'acl_entries',
 	'agent_principals',
+	'agent_approvals',
+	'agent_status_reports',
+	'agent_tool_calls',
+	'agent_undo_log',
+	'agent_api_keys',
+	'ai_providers',
+	'ai_runs',
+	'ai_cache',
+	'chunk_embeddings',
 	'workspace_seq',
 	'change_log',
 	'sync_cursors',
@@ -56,7 +65,18 @@ export const TENANT_TABLES = [
 	'webhook_endpoints',
 	'webhook_deliveries',
 	'github_installations',
-	'issue_github_links'
+	'issue_github_links',
+	'mail_inboxes',
+	'mail_accounts',
+	'mail_identities',
+	'mail_conversations',
+	'mail_messages',
+	'mail_conversation_events',
+	'mail_conversation_comments',
+	'mail_drafts',
+	'mail_conversation_tasks',
+	'mail_conversation_docs',
+	'mail_message_attachments'
 ] as const
 
 /**
@@ -80,7 +100,8 @@ export const SYSTEM_TABLES = [
 	'instance_settings',
 	'huriro_bootstrap',
 	'schema_migrations',
-	'github_webhook_events'
+	'github_webhook_events',
+	'embedding_models'
 ] as const
 
 export type TableClass = 'tenant' | 'instance_rls' | 'system'

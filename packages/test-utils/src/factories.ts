@@ -14,6 +14,9 @@ import { SYSTEM_ROLES } from '@huriro/domain'
 
 let counter = 0
 const seq = () => ++counter
+// Globally-unique columns (users.email, workspaces.slug) collide when several
+// test processes share one DATABASE_URL — tag them with a per-process suffix.
+const procTag = randomUUID().slice(0, 6)
 
 export interface SeedUser {
 	readonly id: string
@@ -33,7 +36,7 @@ export async function aUser(
 	const n = seq()
 	const [row] = await sql<{ id: string; email: string }[]>`
 		INSERT INTO users (email, display_name)
-		VALUES (${over.email ?? `user-${n}@test.huriro.dev`}, ${over.displayName ?? `Test User ${n}`})
+		VALUES (${over.email ?? `user-${procTag}-${n}@test.huriro.dev`}, ${over.displayName ?? `Test User ${n}`})
 		RETURNING id, email
 	`
 	return row!
@@ -46,7 +49,7 @@ export async function aWorkspace(
 	const n = seq()
 	const [ws] = await sql<{ id: string; slug: string }[]>`
 		INSERT INTO workspaces (slug, name)
-		VALUES (${over.slug ?? `ws-${n}`}, ${over.name ?? `Workspace ${n}`})
+		VALUES (${over.slug ?? `ws-${procTag}-${n}`}, ${over.name ?? `Workspace ${n}`})
 		RETURNING id, slug
 	`
 	const roleIds: Record<string, string> = {}

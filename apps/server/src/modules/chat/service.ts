@@ -224,7 +224,7 @@ async function loadAndAuthorizeChannel(
 		workspaceId: actor.workspaceId,
 		resourceType: 'channel',
 		resourceId: channel.id,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeChannel(tx, actor, action, channel, resourceAcl)
 	return channel
@@ -239,7 +239,7 @@ export async function listChannels(tx: Queryable, actor: ActorContext): Promise<
 		(actor.roleRank >= ADMIN_BYPASS_RANK || actor.permissions.has('channel.manage'))
 	const rows = await listVisibleChannelsForUser(tx, {
 		workspaceId: actor.workspaceId,
-		userId: actor.principalId,
+		userId: actor.userId,
 		isGuest: actor.roleKey === 'guest',
 		bypassAcl
 	})
@@ -279,7 +279,7 @@ export async function createChannel(
 		name: normalizedName,
 		topic: (input.topic ?? '').trim(),
 		dmKey: null,
-		createdBy: actor.principalId
+		createdBy: actor.userId
 	})
 
 	await upsertChannelMember(tx, {
@@ -298,7 +298,7 @@ export async function createChannel(
 			principalType: 'user',
 			principalId: actor.principalId,
 			permission: 'manage',
-			grantedBy: actor.principalId
+			grantedBy: actor.userId
 		})
 	}
 
@@ -367,7 +367,7 @@ export async function createOrGetDm(
 		name: null,
 		topic: '',
 		dmKey,
-		createdBy: actor.principalId
+		createdBy: actor.userId
 	})
 
 	for (const uid of participantIds) {
@@ -591,7 +591,7 @@ export async function listThread(
 			workspaceId: actor.workspaceId,
 			channelId: parentRaw.channelId,
 			threadParentId: parentRaw.id,
-			userId: actor.principalId,
+			userId: actor.userId,
 			lastReadThreadSeq: lastThreadSeq
 		})
 	}
@@ -742,7 +742,7 @@ export async function sendMessage(
 			await upsertChannelReadState(tx, {
 				workspaceId: actor.workspaceId,
 				channelId: channel.id,
-				userId: actor.principalId,
+				userId: actor.userId,
 				seq: lastMsgSeq,
 				clearMentions: true
 			})
@@ -751,7 +751,7 @@ export async function sendMessage(
 				workspaceId: actor.workspaceId,
 				channelId: channel.id,
 				threadParentId: input.threadParentId,
-				userId: actor.principalId,
+				userId: actor.userId,
 				lastReadThreadSeq: threadSeq
 			})
 		}
@@ -1015,7 +1015,7 @@ export async function markChannelRead(
 	const res = await upsertChannelReadState(tx, {
 		workspaceId: actor.workspaceId,
 		channelId: channel.id,
-		userId: actor.principalId,
+		userId: actor.userId,
 		seq: targetSeq,
 		clearMentions: targetSeq >= Number(channel.lastMsgSeq)
 	})

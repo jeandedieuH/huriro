@@ -1,0 +1,27 @@
+{
+	"name": "@huriro/agent-tools",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Single tool registry for agents: MCP tools, CLI commands, OpenAPI agent ops (§13.1a)",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"types": "./src/*.ts",
+			"default": "./src/*.ts"
+		}
+	},
+	"dependencies": {
+		"@huriro/contracts": "workspace:*",
+		"@huriro/domain": "workspace:*",
+		"typebox": "1.4.7"
+	},
+	"scripts": {
+		"lint": "biome check .",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test"
+	}
+}

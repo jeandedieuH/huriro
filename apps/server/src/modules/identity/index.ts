@@ -14,6 +14,14 @@ import { Type } from 'typebox'
 import { HttpError } from '../../api/error'
 import { type Auth, getEnabledSocialProviders, type SocialProviderId } from './auth'
 
+export type { AgentAudience, VerifiedAgentCredential } from './agent-bearer'
+export {
+	agentAudienceUris,
+	ensureAgentOAuthSeed,
+	HURIRO_CLI_CLIENT_ID,
+	revokeAgentGrants,
+	verifyAgentBearer
+} from './agent-bearer'
 export type { Auth, SocialProviderId } from './auth'
 export { createAuth, getEnabledSocialProviders, SOCIAL_PROVIDER_IDS } from './auth'
 

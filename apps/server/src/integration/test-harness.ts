@@ -14,6 +14,7 @@ import type { CollabDirectBridge } from '../modules/docs'
 import { type BlobStorage, MemoryBlobStorage } from '../modules/files'
 import type { Auth } from '../modules/identity'
 import type { GithubApiClient } from '../modules/integrations'
+import type { MailModuleConfig } from '../modules/mail'
 import type { VapidConfig } from '../modules/notifications'
 import { InProcessPubSub, type RealtimePubSub } from '../realtime/pubsub'
 
@@ -40,6 +41,8 @@ export interface M1SeededFixture {
 
 export function createTestAuth(): Auth {
 	return {
+		// baseURL feeds the /mcp resource URI (<base>/mcp); a real Auth always has one.
+		options: { baseURL: 'http://localhost' },
 		handler: () => new Response('Not found', { status: 404 }),
 		api: {
 			async getSession({ headers }: { headers: Headers }) {
@@ -68,6 +71,7 @@ export function createIntegrationServer(
 		readonly vapid?: VapidConfig
 		readonly egressFetch?: typeof fetch
 		readonly egressResolver?: DnsResolver
+		readonly mail?: Partial<MailModuleConfig>
 	}
 ) {
 	const auth = createTestAuth()
@@ -90,7 +94,8 @@ export function createIntegrationServer(
 		...(opts?.githubClient ? { githubClient: opts.githubClient } : {}),
 		...(opts?.vapid ? { vapid: opts.vapid } : {}),
 		...(opts?.egressFetch ? { egressFetch: opts.egressFetch } : {}),
-		...(opts?.egressResolver ? { egressResolver: opts.egressResolver } : {})
+		...(opts?.egressResolver ? { egressResolver: opts.egressResolver } : {}),
+		...(opts?.mail ? { mail: opts.mail } : {})
 	})
 	return { app, auth, pubsub, blobStorage, rootSecret }
 }

@@ -25,6 +25,11 @@ export function isAuthPathname(pathname: string): boolean {
 	return AUTH_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))
 }
 
+/** While signed in without a workspace, `/setup` stays reachable iff instance bootstrap is still pending. */
+export function isAllowedOnboardingPath(pathname: string, needsSetup: boolean): boolean {
+	return pathname === '/onboarding' || (needsSetup && pathname === '/setup')
+}
+
 /**
  * Validate a post-auth redirect target so external URLs (`//evil.com`, `https://...`)
  * and auth-page loops are never followed.
@@ -40,16 +45,19 @@ export function sanitizeRedirectPath(raw: string | undefined): string {
 
 export function destinationFromPathname(pathname: string): AppDestination {
 	const seg = pathname.split('/')[1]
-	if (seg === 'inbox' || seg === 'tasks' || seg === 'docs' || seg === 'chat' || seg === 'settings') return seg
+	if (seg === 'inbox' || seg === 'mail') return 'inbox'
+	if (seg === 'tasks' || seg === 'docs' || seg === 'chat' || seg === 'settings') return seg
 	return 'home'
 }
 
 type NavigateFn = (dest: AppDestination) => void
 type DocNavigateFn = (slug: string, hash?: string) => void
 type ChatNavigateFn = (channelId?: string, messageId?: string) => void
+type MailNavigateFn = (conversationId?: string) => void
 let navigateFn: NavigateFn | null = null
 let docNavigateFn: DocNavigateFn | null = null
 let chatNavigateFn: ChatNavigateFn | null = null
+let mailNavigateFn: MailNavigateFn | null = null
 
 export function registerAppNavigator(fn: NavigateFn | null) {
 	navigateFn = fn
@@ -61,6 +69,10 @@ export function registerDocNavigator(fn: DocNavigateFn | null) {
 
 export function registerChatNavigator(fn: ChatNavigateFn | null) {
 	chatNavigateFn = fn
+}
+
+export function registerMailNavigator(fn: MailNavigateFn | null) {
+	mailNavigateFn = fn
 }
 
 export function navigateToDestination(dest: AppDestination) {
@@ -80,5 +92,13 @@ export function navigateToChat(channelId?: string, messageId?: string) {
 		chatNavigateFn(channelId, messageId)
 	} else {
 		navigateFn?.('chat')
+	}
+}
+
+export function navigateToMail(conversationId?: string) {
+	if (mailNavigateFn) {
+		mailNavigateFn(conversationId)
+	} else {
+		navigateFn?.('inbox')
 	}
 }

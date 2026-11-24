@@ -33,7 +33,7 @@ function SignUpRoute() {
 		<AuthLayout
 			title={t('auth.sign-up.title')}
 			subtitle={t('auth.sign-up.subtitle')}
-			footer={<SignUpSwitchPrompt redirectTo={search.redirect} />}
+			footer={needsSetup ? undefined : <SignUpSwitchPrompt redirectTo={search.redirect} />}
 			onUsePreview={onUsePreview}
 		>
 			<SignUpForm

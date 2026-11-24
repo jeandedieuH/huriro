@@ -1,0 +1,43 @@
+{
+	"name": "@huriro/cli",
+	"version": "0.0.0",
+	"private": true,
+	"license": "MIT",
+	"description": "huriro — the user/agent client CLI: device-flow login, workspace API keys, generated registry commands",
+	"type": "module",
+	"bin": {
+		"huriro": "./dist/huriro.js"
+	},
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"types": "./src/*.ts",
+			"default": "./src/*.ts"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"engines": {
+		"node": ">=24"
+	},
+	"scripts": {
+		"gen": "bun run src/gen.ts",
+		"gen:check": "bun run src/gen.ts --check",
+		"build": "bun build src/bin.ts --outfile dist/huriro.js --target node --format esm",
+		"build:binary": "bun build --compile src/bin.ts --outfile dist/huriro",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"lint": "biome check .",
+		"test": "bun test",
+		"verify": "bun run lint && bun run typecheck && bun run test && bun run build"
+	},
+	"dependencies": {
+		"@huriro/agent-tools": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "^26.6.6"
+	}
+}

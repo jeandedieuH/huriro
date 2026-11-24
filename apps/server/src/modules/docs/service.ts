@@ -273,7 +273,7 @@ async function requireDocPageAccess(
 	pageId: string,
 	action: 'doc.read' | 'doc.comment' | 'doc.write' | 'doc.share'
 ): Promise<{ readonly page: DocPageDto; readonly canWrite: boolean; readonly canShare: boolean }> {
-	const page = await getDocPageById(tx, actor.workspaceId, pageId, actor.principalId)
+	const page = await getDocPageById(tx, actor.workspaceId, pageId, actor.userId)
 	if (!page || page.archivedAt !== null) {
 		throw new HttpError(404, 'not_found', 'Document page not found')
 	}
@@ -281,7 +281,7 @@ async function requireDocPageAccess(
 		workspaceId: actor.workspaceId,
 		resourceType: 'doc_page',
 		resourceId: page.id,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeDocPage(tx, actor, action, page, acl)
 	return {
@@ -329,7 +329,7 @@ export async function listAccessibleDocPages(
 	if (actor.membership !== 'active') return []
 	return listVisibleDocPages(tx, {
 		workspaceId: actor.workspaceId,
-		userId: actor.principalId,
+		userId: actor.userId,
 		isGuest: actor.roleKey === 'guest',
 		bypassAcl: isAdminDocBypass(actor),
 		includeArchived: query?.includeArchived ?? false,
@@ -399,7 +399,7 @@ export async function getDocPageBySlugDetail(
 	actor: ActorContext,
 	slug: string
 ): Promise<DocPageDetailDto> {
-	const page = await getDocPageBySlug(tx, actor.workspaceId, slug, actor.principalId)
+	const page = await getDocPageBySlug(tx, actor.workspaceId, slug, actor.userId)
 	if (!page || page.archivedAt !== null) {
 		throw new HttpError(404, 'not_found', 'Document page not found')
 	}
@@ -407,7 +407,7 @@ export async function getDocPageBySlugDetail(
 		workspaceId: actor.workspaceId,
 		resourceType: 'doc_page',
 		resourceId: page.id,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeDocPage(tx, actor, 'doc.read', page, acl)
 	const [stateRow, comments] = await Promise.all([
@@ -483,7 +483,7 @@ export async function createDocPage(
 			const pmJson = markdownToProseMirrorJson(builtin.markdown, `tpl:${builtin.id}`)
 			ydoc = prosemirrorJsonToYDoc(pmJson)
 		} else {
-			const tplPage = await getDocPageById(tx, actor.workspaceId, input.templateId, actor.principalId)
+			const tplPage = await getDocPageById(tx, actor.workspaceId, input.templateId, actor.userId)
 			if (!tplPage || tplPage.archivedAt !== null || !tplPage.isTemplate) {
 				throw new HttpError(404, 'not_found', 'Document template not found')
 			}
@@ -491,7 +491,7 @@ export async function createDocPage(
 				workspaceId: actor.workspaceId,
 				resourceType: 'doc_page',
 				resourceId: tplPage.id,
-				userId: actor.principalId
+				userId: actor.userId
 			})
 			await authorizeDocPage(tx, actor, 'doc.read', tplPage, tplAcl)
 			const tplState = await getDocStateRow(tx, actor.workspaceId, tplPage.id)
@@ -527,7 +527,7 @@ export async function createDocPage(
 		visibility,
 		isTemplate: input.isTemplate ?? false,
 		position,
-		createdBy: actor.principalId,
+		createdBy: actor.userId,
 		byteSize: stateBytes.byteLength
 	})
 
@@ -574,9 +574,9 @@ export async function createDocPage(
 			resourceType: 'doc_page',
 			resourceId: page.id,
 			principalType: 'user',
-			principalId: actor.principalId,
+			principalId: actor.userId,
 			permission: 'manage',
-			grantedBy: actor.principalId
+			grantedBy: actor.userId
 		})
 	}
 
@@ -631,7 +631,7 @@ export async function updateDocPage(
 	const updated = await updateDocPageRow(tx, {
 		workspaceId: actor.workspaceId,
 		pageId: page.id,
-		userId: actor.principalId,
+		userId: actor.userId,
 		expectedVersion: input.version,
 		title: input.title ?? page.title,
 		slug: nextSlug,
@@ -642,7 +642,7 @@ export async function updateDocPage(
 	})
 
 	if (!updated) {
-		const latest = await getDocPageById(tx, actor.workspaceId, pageId, actor.principalId)
+		const latest = await getDocPageById(tx, actor.workspaceId, pageId, actor.userId)
 		throwStaleVersion(
 			'Document page',
 			latest?.version ?? page.version,
@@ -657,9 +657,9 @@ export async function updateDocPage(
 			resourceType: 'doc_page',
 			resourceId: updated.id,
 			principalType: 'user',
-			principalId: actor.principalId,
+			principalId: actor.userId,
 			permission: 'manage',
-			grantedBy: actor.principalId
+			grantedBy: actor.userId
 		})
 	}
 
@@ -786,7 +786,7 @@ export async function moveDocPage(
 	const { updated, movedIds } = await updateDocPageParentAndPosition(tx, {
 		workspaceId: actor.workspaceId,
 		pageId: page.id,
-		userId: actor.principalId,
+		userId: actor.userId,
 		expectedVersion: input.version,
 		newParentId: input.parentId,
 		newPosition,
@@ -797,7 +797,7 @@ export async function moveDocPage(
 	})
 
 	if (!updated) {
-		const latest = await getDocPageById(tx, actor.workspaceId, pageId, actor.principalId)
+		const latest = await getDocPageById(tx, actor.workspaceId, pageId, actor.userId)
 		throwStaleVersion(
 			'Document page',
 			latest?.version ?? page.version,
@@ -837,7 +837,7 @@ export async function moveDocPage(
 	const changes: ChangeLogEntry[] = []
 	for (const id of movedIds) {
 		const movedRow =
-			id === updated.id ? updated : await getDocPageById(tx, actor.workspaceId, id, actor.principalId)
+			id === updated.id ? updated : await getDocPageById(tx, actor.workspaceId, id, actor.userId)
 		if (!movedRow) continue
 		changes.push({
 			entityType: 'doc_page',
@@ -912,7 +912,7 @@ export async function setDocFavorite(
 ): Promise<{ readonly data: DocPageDto }> {
 	await requireDocPageAccess(tx, actor, pageId, 'doc.read')
 	await setDocFavoriteRow(tx, actor.workspaceId, actor.principalId, pageId, favorite)
-	const refreshed = await getDocPageById(tx, actor.workspaceId, pageId, actor.principalId)
+	const refreshed = await getDocPageById(tx, actor.workspaceId, pageId, actor.userId)
 	if (!refreshed) throw new HttpError(404, 'not_found', 'Document page not found')
 	return { data: refreshed }
 }
@@ -1045,7 +1045,7 @@ export async function appendToDocPage(
 		metadata: { origin: input.origin ?? 'api:append', nodeCount: nodes.length }
 	})
 
-	const updatedPage = await getDocPageById(tx, actor.workspaceId, page.id, actor.principalId)
+	const updatedPage = await getDocPageById(tx, actor.workspaceId, page.id, actor.userId)
 	const cursor = await appendChange(tx, actor.workspaceId, {
 		entityType: 'doc_page',
 		entityId: page.id,
@@ -1134,7 +1134,7 @@ export async function issueCollabTicket(
 		id: jti,
 		workspaceId: actor.workspaceId,
 		pageId: page.id,
-		userId: actor.principalId,
+		userId: actor.userId,
 		permission,
 		tokenHash: hashCollabTicket(ticket),
 		expiresAt
@@ -1427,7 +1427,7 @@ export async function createNamedDocVersion(
 		byteSize: stateBytes.byteLength,
 		plainText,
 		authors: [actor.principalId],
-		createdBy: actor.principalId
+		createdBy: actor.userId
 	})
 
 	await emitDocsEvent(tx, {
@@ -1500,7 +1500,7 @@ export async function prepareRestoreDocVersion(
 		byteSize: currentBytes.byteLength,
 		plainText: currentPlainText,
 		authors: [actor.principalId],
-		createdBy: actor.principalId
+		createdBy: actor.userId
 	})
 
 	const targetStateBytes = new Uint8Array(targetVer.state)
@@ -1573,7 +1573,7 @@ export async function prepareRestoreDocVersion(
 		metadata: { restoredVersionId: targetVer.id, preRestoreVersionId: checkpoint.id }
 	})
 
-	const updatedPage = await getDocPageById(tx, actor.workspaceId, page.id, actor.principalId)
+	const updatedPage = await getDocPageById(tx, actor.workspaceId, page.id, actor.userId)
 	const cursor = await appendChange(tx, actor.workspaceId, {
 		entityType: 'doc_page',
 		entityId: page.id,

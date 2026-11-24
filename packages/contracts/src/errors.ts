@@ -33,7 +33,14 @@ export const ERROR_CODES = [
 	'setup_completed',
 	// agents & MCP
 	'agent_scope_exceeded',
-	'approval_required',
+	'agent_not_connected',
+	'agent_suspended',
+	'insufficient_scope',
+	'tool_rate_limited',
+	'approval_expired',
+	'tool_unknown',
+	'agent_revoked',
+	'agents_disabled',
 	'token_audience_mismatch',
 	// collaborative docs
 	'doc_too_large',
@@ -45,7 +52,17 @@ export const ERROR_CODES = [
 	'file_too_large',
 	'ssrf_blocked',
 	'webhook_signature_invalid',
-	'channel_archived'
+	'channel_archived',
+	// AI gateway (§11.3)
+	'ai_disabled',
+	'ai_provider_unconfigured',
+	'ai_provider_error',
+	// M5 shared inbox (§14)
+	'mail_domain_unverified',
+	'mail_draft_locked',
+	'mail_provider_unconfigured',
+	'mail_send_window_expired',
+	'mail_message_too_large'
 ] as const
 
 export type ErrorCode = (typeof ERROR_CODES)[number]

@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { navigateToDoc } from '@/lib/navigation'
+import { navigateToDoc, navigateToMail } from '@/lib/navigation'
 import type { TaskApiBridge } from '@/lib/sync-bootstrap'
 import { useUiStore } from '@/stores/ui-store'
 
@@ -95,6 +95,8 @@ export function InboxView({ api }: InboxViewProps) {
 												: engine.collections.docPages.get(n.entityId)?.slug
 										if (slug) navigateToDoc(slug)
 										else setDestination('docs')
+									} else if (n.entityType === 'mail_conversation') {
+										navigateToMail(n.entityId)
 									}
 								}}
 								className="min-w-0 flex-1 text-left"

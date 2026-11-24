@@ -1,10 +1,11 @@
 /**
- * Docs controller & cross-module seam (§5.4, §7.2, §10).
+ * Docs controller & cross-module seam (Â§5.4, Â§7.2, Â§10).
  */
 import type { Queryable, Sql } from '@huriro/db'
 import { Elysia } from 'elysia'
 import { withIdempotency } from '../../api/context'
 import { HttpError } from '../../api/error'
+import { markdownResponse, renderDocument, splitMdParam } from '../../api/markdown'
 import type { RealtimePubSub } from '../../realtime/pubsub'
 import type { Auth } from '../identity'
 import { workspaceDerive } from '../tenancy'
@@ -18,6 +19,7 @@ import {
 	ExportDocQuery,
 	ListPagesQuery,
 	MoveDocPageBody,
+	PageGetParam,
 	PageIdParam,
 	PageSlugParam,
 	ResolveDocCommentBody,
@@ -67,16 +69,23 @@ export { DOCS_EVENTS } from './events'
 export type { CollabDirectBridge, CollabTicketClaims } from './service'
 export {
 	acquireCollabRoomAndState,
+	appendToDocPage,
 	consumeAndAuthorizeCollabTicket,
+	createDocComment,
 	createDocPage,
+	createNamedDocVersion,
 	deleteDocPage,
+	exportDocPageMarkdown,
 	getDocPageBySlugDetail,
 	getDocPageDetail,
 	getDocPageForRedirect,
 	getDocsSnapshotData,
 	listAccessibleDocPageIds,
+	listAccessibleDocPages,
+	listDocVersions,
 	moveDocPage,
 	persistCollabDocumentState,
+	prepareRestoreDocVersion,
 	releaseCollabRoomLease,
 	renewCollabRoomLease,
 	runDocMaintenanceOnce,
@@ -150,6 +159,23 @@ export function docsModule(
 			.get('/docs/by-slug/:slug', { params: PageSlugParam }, ({ params, workspaceCtx, inWorkspace }) =>
 				inWorkspace(async (tx, actor) => {
 					try {
+						// `.md` representation (§13.1b) — see tasks by-key for why the
+						// suffix is detected inside the param.
+						const { id: ref, markdown } = splitMdParam(params.slug)
+						if (markdown) {
+							const page = /^[0-9a-f-]{36}$/i.test(ref)
+								? await getDocPageDetail(tx, actor, ref)
+								: await getDocPageBySlugDetail(tx, actor, ref)
+							const md = await exportDocPageMarkdown(tx, actor, page.page.id)
+							return markdownResponse(
+								renderDocument({
+									id: page.page.id,
+									title: page.page.title,
+									slug: page.page.slug,
+									markdown: md.markdown
+								})
+							)
+						}
 						const detail = await getDocPageBySlugDetail(tx, actor, params.slug)
 						return { ...detail, redirectedFrom: null as string | null }
 					} catch (err) {
@@ -164,8 +190,27 @@ export function docsModule(
 					}
 				})
 			)
-			.get('/docs/:id', { params: PageIdParam }, ({ params, inWorkspace }) =>
-				inWorkspace((tx, actor) => getDocPageDetail(tx, actor, params.id))
+			// GET /docs/:id accepts `<uuid>.md` too — same pattern as issues.
+			.get('/docs/:id', { params: PageGetParam }, ({ params, inWorkspace }) =>
+				inWorkspace(async (tx, actor) => {
+					const { id: ref, markdown } = splitMdParam(params.id)
+					if (!markdown && !/^[0-9a-f-]{36}$/i.test(ref)) {
+						throw new HttpError(422, 'validation_failed', 'id must be a uuid (optionally suffixed .md)')
+					}
+					const detail = /^[0-9a-f-]{36}$/i.test(ref)
+						? await getDocPageDetail(tx, actor, ref)
+						: await getDocPageBySlugDetail(tx, actor, ref)
+					if (!markdown) return detail
+					const md = await exportDocPageMarkdown(tx, actor, detail.page.id)
+					return markdownResponse(
+						renderDocument({
+							id: detail.page.id,
+							title: detail.page.title,
+							slug: detail.page.slug,
+							markdown: md.markdown
+						})
+					)
+				})
 			)
 			.patch(
 				'/docs/:id',

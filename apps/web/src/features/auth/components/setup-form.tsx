@@ -1,11 +1,12 @@
 import { t } from '@huriro/i18n'
-import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Loader2, LogOut } from 'lucide-react'
 import { type ChangeEvent, useMemo, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { completeSetup, slugifyWorkspaceName } from '@/lib/auth'
+import type { OnboardingRequired } from '@/lib/sync-bootstrap'
 import { zodResolver } from '@/lib/zod-resolver'
 import { AuthNavLink } from '../context'
 import { createSetupSchema, type SetupValues } from '../schemas'
@@ -14,9 +15,11 @@ import { PasswordInput } from './password-input'
 
 export interface SetupFormProps {
 	readonly needsSetup?: boolean | undefined
+	readonly signedInUser?: OnboardingRequired['user'] | null | undefined
 	readonly redirectTo?: string | undefined
 	readonly hideSwitchPrompt?: boolean | undefined
 	readonly onComplete: (redirectTo?: string) => void
+	readonly onSignOut?: (() => Promise<void>) | undefined
 }
 
 export function SetupSwitchPrompt({ redirectTo }: { readonly redirectTo?: string | undefined }) {
@@ -40,12 +43,15 @@ export function SetupSwitchPrompt({ redirectTo }: { readonly redirectTo?: string
  */
 export function SetupForm({
 	needsSetup = true,
+	signedInUser = null,
 	redirectTo,
 	hideSwitchPrompt = false,
-	onComplete
+	onComplete,
+	onSignOut
 }: SetupFormProps) {
 	const schema = useMemo(() => createSetupSchema(), [])
 	const [serverError, setServerError] = useState<string | null>(null)
+	const [isSigningOut, setIsSigningOut] = useState(false)
 	const isSlugManuallyEdited = useRef(false)
 
 	const {
@@ -60,8 +66,8 @@ export function SetupForm({
 			token: '',
 			workspaceName: '',
 			slug: '',
-			displayName: '',
-			email: '',
+			displayName: signedInUser?.name ?? '',
+			email: signedInUser?.email ?? '',
 			password: ''
 		}
 	})
@@ -117,8 +123,37 @@ export function SetupForm({
 		}
 	}
 
+	async function handleSignOut() {
+		if (!onSignOut) return
+		setIsSigningOut(true)
+		try {
+			await onSignOut()
+		} finally {
+			setIsSigningOut(false)
+		}
+	}
+
 	return (
 		<div className="flex flex-col gap-4">
+			{signedInUser?.email ? (
+				<div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs">
+					<span className="truncate text-muted-foreground">
+						{t('auth.onboarding.signed-in-as', { email: signedInUser.email })}
+					</span>
+					{onSignOut ? (
+						<button
+							type="button"
+							disabled={isSigningOut}
+							onClick={() => void handleSignOut()}
+							className="inline-flex shrink-0 items-center gap-1 font-medium text-foreground underline-offset-4 hover:text-primary hover:underline disabled:opacity-50"
+						>
+							<LogOut className="size-3" aria-hidden />
+							<span>{t('auth.sign-out')}</span>
+						</button>
+					) : null}
+				</div>
+			) : null}
+
 			<form noValidate onSubmit={(ev) => void handleSubmit(onSubmit)(ev)} className="flex flex-col gap-4">
 				<div className="flex flex-col gap-3">
 					<p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">

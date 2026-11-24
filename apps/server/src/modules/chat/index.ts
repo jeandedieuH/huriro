@@ -55,6 +55,7 @@ export {
 	getChannelNotificationContext,
 	importChatMessage,
 	incrementChannelMentionCount,
+	listThread,
 	processChatLinkPreviewOutboxEvent
 }
 

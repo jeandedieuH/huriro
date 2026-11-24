@@ -11,7 +11,8 @@ export async function insertPendingFileRow(
 	args: {
 		readonly id: string
 		readonly workspaceId: string
-		readonly uploadedBy: string
+		/** NULL for system ingest (mail attachments — §14.6). */
+		readonly uploadedBy: string | null
 		readonly storageKey: string
 		readonly quarantineKey: string
 		readonly filename: string

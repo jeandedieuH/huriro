@@ -1,5 +1,5 @@
 import { t } from '@huriro/i18n'
-import { FileText, Home, Inbox, ListChecks, Mail, MessageSquare, Settings } from 'lucide-react'
+import { FileText, Home, Inbox, ListChecks, MessageSquare, Settings } from 'lucide-react'
 import type { AppDestination } from '@/stores/ui-store'
 import { SidebarNavItem, SidebarSection } from './sidebar-primitives'
 
@@ -29,6 +29,16 @@ export function SidebarRootNav({
 				onClick={() => onSelect?.('home')}
 			/>
 			<SidebarNavItem
+				icon={<Inbox className="size-4" />}
+				label={t('nav.inbox')}
+				active={active === 'inbox'}
+				isCurrentPage={active === 'inbox'}
+				badgeCount={inboxUnreadCount}
+				showChevron={active === 'inbox'}
+				collapsed={collapsed}
+				onClick={() => onSelect?.('inbox')}
+			/>
+			<SidebarNavItem
 				icon={<ListChecks className="size-4" />}
 				label={t('nav.tasks')}
 				active={active === 'tasks'}
@@ -56,26 +66,6 @@ export function SidebarRootNav({
 				collapsed={collapsed}
 				onClick={() => onSelect?.('chat')}
 			/>
-			<SidebarNavItem
-				icon={<Mail className="size-4" />}
-				label={t('nav.mail')}
-				disabled
-				trailingText={t('shell.coming-soon')}
-				collapsed={collapsed}
-			/>
-
-			<SidebarSection title={t('shell.section.personal')} collapsed={collapsed}>
-				<SidebarNavItem
-					icon={<Inbox className="size-4" />}
-					label={t('nav.inbox')}
-					active={active === 'inbox'}
-					isCurrentPage={active === 'inbox'}
-					badgeCount={inboxUnreadCount}
-					showChevron={active === 'inbox'}
-					collapsed={collapsed}
-					onClick={() => onSelect?.('inbox')}
-				/>
-			</SidebarSection>
 
 			<SidebarSection title={t('shell.section.manage')} collapsed={collapsed}>
 				<SidebarNavItem

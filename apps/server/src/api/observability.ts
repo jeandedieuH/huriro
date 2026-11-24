@@ -8,6 +8,24 @@ import type { Elysia } from 'elysia'
 import pino from 'pino'
 import client from 'prom-client'
 
+const SECRET_PATTERNS = [/hrk_[A-Za-z0-9_-]{8}_[A-Za-z0-9_-]{10,}/g]
+
+/** Scrub credential-shaped strings (e.g. `hrk_…` API keys) from arbitrary log text. */
+export function scrubSecrets(text: string): string {
+	let out = text
+	for (const re of SECRET_PATTERNS) out = out.replace(re, '[redacted]')
+	return out
+}
+
+function deepScrub(value: unknown): unknown {
+	if (typeof value === 'string') return scrubSecrets(value)
+	if (Array.isArray(value)) return value.map(deepScrub)
+	if (value !== null && typeof value === 'object') {
+		return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, deepScrub(v)]))
+	}
+	return value
+}
+
 export const log = pino({
 	level: process.env['LOG_LEVEL'] ?? 'info',
 	base: { service: 'huriro' },
@@ -23,10 +41,14 @@ export const log = pino({
 			'*.signingSecret',
 			'*.privateKey',
 			'*.apiToken',
-			'*.authSecret'
+			'*.authSecret',
+			'*.apiKey'
 		],
 		remove: true
-	}
+	},
+	// Value-level scrub for hrk_ API keys that reach a log field as part of a
+	// message/detail string (redact.paths only covers whole fields).
+	formatters: { log: (obj) => deepScrub(obj) as Record<string, unknown> }
 })
 
 export const metrics = new client.Registry()

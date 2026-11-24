@@ -39,6 +39,9 @@ export const ACTIONS = [
 	// agents & approvals
 	'agent.manage',
 	'approval.decide',
+	// AI gateway (§11.3): use AI features vs manage provider config
+	'ai.use',
+	'ai.manage',
 	// audit & admin
 	'audit.read',
 	'settings.manage',
@@ -101,9 +104,11 @@ export const SYSTEM_ROLES: readonly SystemRole[] = [
 			'channel.post',
 			'mail.read',
 			'mail.assign',
+			'mail.send',
 			'file.read',
 			'file.write',
-			'approval.decide'
+			'approval.decide',
+			'ai.use'
 		]
 	},
 	{ key: 'guest', name: 'Guest', rank: ROLE_RANKS.guest, permissions: [] }

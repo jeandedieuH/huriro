@@ -1,5 +1,5 @@
 import { t } from '@huriro/i18n'
-import { AlertCircle, ArrowRight, Loader2, Sparkles } from 'lucide-react'
+import { AlertCircle, Loader2, Sparkles } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
@@ -69,6 +69,32 @@ export function SignUpForm({
 
 	const passwordValue = watch('password')
 
+	if (needsSetup) {
+		return (
+			<div className="flex flex-col items-center gap-4 py-2 text-center">
+				<div className="inline-flex size-11 items-center justify-center rounded-full bg-primary/12 text-primary">
+					<Sparkles className="size-5" aria-hidden />
+				</div>
+				<div className="space-y-1">
+					<h2 className="text-base font-semibold text-foreground">{t('auth.setup.title')}</h2>
+					<p className="text-xs leading-relaxed text-muted-foreground">{t('auth.sign-up.setup-required')}</p>
+				</div>
+				<div className="flex w-full flex-col gap-2 pt-1 sm:flex-row">
+					<Button asChild className="flex-1">
+						<AuthNavLink to="/setup" redirect={redirectTo}>
+							{t('auth.sign-in.setup-link')}
+						</AuthNavLink>
+					</Button>
+					<Button asChild tone="outline" className="flex-1">
+						<AuthNavLink to="/sign-in" redirect={redirectTo}>
+							{t('auth.sign-in.title')}
+						</AuthNavLink>
+					</Button>
+				</div>
+			</div>
+		)
+	}
+
 	async function onSubmit(values: SignUpValues) {
 		setServerError(null)
 		try {
@@ -85,23 +111,6 @@ export function SignUpForm({
 
 	return (
 		<div className="flex flex-col gap-4">
-			{needsSetup ? (
-				<div className="flex items-center justify-between gap-3 rounded-lg border border-primary/25 bg-primary/8 px-3 py-2.5 text-xs">
-					<div className="flex items-center gap-2 text-foreground">
-						<Sparkles className="size-3.5 shrink-0 text-primary" aria-hidden />
-						<span>{t('auth.sign-in.setup-notice')}</span>
-					</div>
-					<AuthNavLink
-						to="/setup"
-						redirect={redirectTo}
-						className="inline-flex shrink-0 items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
-					>
-						<span>{t('auth.sign-in.setup-link')}</span>
-						<ArrowRight className="size-3" aria-hidden />
-					</AuthNavLink>
-				</div>
-			) : null}
-
 			<SocialAuthButtons
 				enabledProviders={socialProviders}
 				callbackURL={safeRedirect}

@@ -597,7 +597,7 @@ export async function issueRealtimeTicket(
 	const expiresAt = new Date(Date.now() + 60_000)
 	await insertRealtimeTicketRow(tx, {
 		workspaceId: actor.workspaceId,
-		userId: actor.principalId,
+		userId: actor.userId,
 		deviceId,
 		tokenHash: hashTicket(ticket),
 		expiresAt

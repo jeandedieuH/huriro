@@ -1135,6 +1135,23 @@ export async function updateIssueCommentRow(
 	return row ?? null
 }
 
+export async function softDeleteIssueCommentRow(
+	tx: Queryable,
+	args: { readonly workspaceId: string; readonly commentId: string }
+): Promise<IssueCommentDto | null> {
+	const rows = await tx<IssueCommentDto[]>`
+		UPDATE issue_comments SET deleted_at = now()
+		WHERE workspace_id = ${args.workspaceId} AND id = ${args.commentId} AND deleted_at IS NULL
+		RETURNING
+			id, workspace_id AS "workspaceId", issue_id AS "issueId",
+			author_type AS "authorType", author_id AS "authorId",
+			body, body_text AS "bodyText",
+			created_at::text AS "createdAt", updated_at::text AS "updatedAt",
+			deleted_at::text AS "deletedAt", version
+	`
+	return rows[0] ?? null
+}
+
 // ---------- Saved views ----------
 
 export async function listSavedViewsForUser(

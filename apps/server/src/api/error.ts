@@ -14,13 +14,16 @@ export class HttpError extends Error {
 	readonly code: ErrorCode
 	readonly detail?: string | undefined
 	readonly ext?: Record<string, unknown> | undefined
+	/** Extra response headers (e.g. RFC 6750 `WWW-Authenticate` challenges). */
+	readonly headers?: Record<string, string> | undefined
 
 	constructor(
 		status: number,
 		code: ErrorCode,
 		message: string,
 		detail?: string,
-		ext?: Record<string, unknown>
+		ext?: Record<string, unknown>,
+		headers?: Record<string, string>
 	) {
 		super(message)
 		this.name = 'HttpError'
@@ -28,6 +31,7 @@ export class HttpError extends Error {
 		this.code = code
 		this.detail = detail
 		this.ext = ext
+		this.headers = headers
 	}
 }
 

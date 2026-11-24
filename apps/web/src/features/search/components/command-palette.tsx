@@ -9,6 +9,7 @@ import {
 	Inbox,
 	Keyboard,
 	LayoutList,
+	Mail,
 	Moon,
 	Plus,
 	Search,
@@ -17,7 +18,7 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { navigateToChat, navigateToDoc } from '@/lib/navigation'
+import { navigateToChat, navigateToDoc, navigateToMail } from '@/lib/navigation'
 import type { TaskApiBridge } from '@/lib/sync-bootstrap'
 import { type AppDestination, useUiStore } from '@/stores/ui-store'
 
@@ -164,6 +165,15 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 				}
 			})),
 			{
+				id: 'nav-shared-mail',
+				section: 'navigation',
+				label: t('mail.sidebar.all'),
+				onRun: () => {
+					navigateToMail()
+					setOpen(false)
+				}
+			},
+			{
 				id: 'nav-my-work',
 				section: 'navigation',
 				label: t('palette.action.my-work'),
@@ -195,6 +205,10 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 							const chan = url.searchParams.get('channel') ?? undefined
 							const msgId = url.searchParams.get('message') ?? hit.entityId
 							navigateToChat(chan, msgId)
+						} else if (hit.entityType === 'mail_message') {
+							const url = new URL(hit.deepLink, 'http://localhost')
+							const convId = url.searchParams.get('conversation') ?? undefined
+							navigateToMail(convId)
 						} else {
 							setDestination('tasks')
 							selectIssue(hit.entityId, true)
@@ -362,6 +376,8 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 														<Home className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
 													) : item.id === 'nav-inbox' ? (
 														<Inbox className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+													) : item.id === 'nav-shared-mail' ? (
+														<Mail className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
 													) : item.id === 'nav-my-work' ? (
 														<UserCheck className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
 													) : item.section === 'navigation' ? (

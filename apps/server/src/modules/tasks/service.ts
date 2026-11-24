@@ -81,6 +81,7 @@ import {
 	listVisibleProjects,
 	listVisibleStatuses,
 	replaceIssueLabelsRows,
+	softDeleteIssueCommentRow,
 	softDeleteIssueRow,
 	updateCycleRow,
 	updateIssueCommentRow,
@@ -153,7 +154,7 @@ export async function listAccessibleProjects(tx: Queryable, actor: ActorContext)
 	if (actor.membership !== 'active') return []
 	return listVisibleProjects(tx, {
 		workspaceId: actor.workspaceId,
-		userId: actor.principalId,
+		userId: actor.userId,
 		isGuest: actor.roleKey === 'guest',
 		bypassAcl: isAdminProjectBypass(actor)
 	})
@@ -175,7 +176,7 @@ async function requireProjectRead(
 		workspaceId: actor.workspaceId,
 		resourceType: 'project',
 		resourceId: project.id,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeProject(tx, actor, 'project.read', project, acl)
 	return project
@@ -208,7 +209,7 @@ export async function createProject(
 		description: input.description ?? '',
 		visibility,
 		position,
-		createdBy: actor.principalId
+		createdBy: actor.userId
 	})
 
 	const statusKeys = generateNKeysBetween(null, null, DEFAULT_STATUS_TEMPLATES.length)
@@ -235,7 +236,7 @@ export async function createProject(
 			principalType: 'user',
 			principalId: actor.principalId,
 			permission: 'manage',
-			grantedBy: actor.principalId
+			grantedBy: actor.userId
 		})
 	}
 
@@ -303,7 +304,7 @@ export async function updateProject(
 		workspaceId: actor.workspaceId,
 		resourceType: 'project',
 		resourceId: projectId,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeProject(
 		tx,
@@ -360,7 +361,7 @@ export async function updateProject(
 			principalType: 'user',
 			principalId: actor.principalId,
 			permission: 'manage',
-			grantedBy: actor.principalId
+			grantedBy: actor.userId
 		})
 	}
 
@@ -463,7 +464,7 @@ export async function createProjectStatus(
 		workspaceId: actor.workspaceId,
 		resourceType: 'project',
 		resourceId: projectId,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeProject(tx, actor, 'project.write', project, acl)
 
@@ -515,7 +516,7 @@ export async function updateProjectStatus(
 		workspaceId: actor.workspaceId,
 		resourceType: 'project',
 		resourceId: project.id,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeProject(tx, actor, 'project.write', project, acl)
 
@@ -673,7 +674,7 @@ export async function createCycle(
 		workspaceId: actor.workspaceId,
 		resourceType: 'project',
 		resourceId: project.id,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeProject(tx, actor, 'project.write', project, acl)
 
@@ -722,7 +723,7 @@ export async function updateCycle(
 		workspaceId: actor.workspaceId,
 		resourceType: 'project',
 		resourceId: project.id,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeProject(tx, actor, 'project.write', project, acl)
 
@@ -870,7 +871,7 @@ export async function createIssue(
 		workspaceId: actor.workspaceId,
 		resourceType: 'project',
 		resourceId: project.id,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeProject(tx, actor, 'issue.write', project, acl)
 
@@ -914,7 +915,7 @@ export async function createIssue(
 		priority: input.priority ?? 0,
 		assigneeType,
 		assigneeId,
-		creatorId: actor.principalId,
+		creatorId: actor.userId,
 		position,
 		startDate: input.startDate ?? null,
 		dueDate: input.dueDate ?? null,
@@ -951,6 +952,25 @@ export async function createIssue(
 				identifier: created.identifier,
 				title: created.title,
 				assigneeUserId: created.assigneeId,
+				actorType: actor.kind,
+				actorId: actor.principalId
+			}
+		})
+	}
+	// §13.1a work hand-off: assigning to an agent principal emits
+	// agent.task.assigned — the literal keeps tasks free of an agents import.
+	if (created.assigneeType === 'agent' && created.assigneeId) {
+		await emitTasksEvent(tx, {
+			workspaceId: actor.workspaceId,
+			aggregate: 'issue',
+			aggregateId: created.id,
+			eventType: 'agent.task.assigned.v1',
+			payload: {
+				issueId: created.id,
+				projectId: project.id,
+				identifier: created.identifier,
+				title: created.title,
+				agentId: created.assigneeId,
 				actorType: actor.kind,
 				actorId: actor.principalId
 			}
@@ -997,7 +1017,7 @@ export async function updateIssue(
 		workspaceId: actor.workspaceId,
 		resourceType: 'project',
 		resourceId: project.id,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeProject(tx, actor, 'issue.write', project, acl)
 
@@ -1020,7 +1040,7 @@ export async function updateIssue(
 			workspaceId: actor.workspaceId,
 			resourceType: 'project',
 			resourceId: dest.id,
-			userId: actor.principalId
+			userId: actor.userId
 		})
 		await authorizeProject(tx, actor, 'issue.write', dest, destAcl)
 		targetProject = dest
@@ -1127,6 +1147,24 @@ export async function updateIssue(
 			}
 		})
 	}
+	// Same hand-off event on reassignment to an agent (§13.1a).
+	if (updated.assigneeType === 'agent' && updated.assigneeId && updated.assigneeId !== current.assigneeId) {
+		await emitTasksEvent(tx, {
+			workspaceId: actor.workspaceId,
+			aggregate: 'issue',
+			aggregateId: updated.id,
+			eventType: 'agent.task.assigned.v1',
+			payload: {
+				issueId: updated.id,
+				projectId: targetProject.id,
+				identifier: updated.identifier,
+				title: updated.title,
+				agentId: updated.assigneeId,
+				actorType: actor.kind,
+				actorId: actor.principalId
+			}
+		})
+	}
 
 	if (updated.statusId !== current.statusId) {
 		await emitTasksEvent(tx, {
@@ -1178,7 +1216,7 @@ export async function moveIssue(
 		workspaceId: actor.workspaceId,
 		resourceType: 'project',
 		resourceId: project.id,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeProject(tx, actor, 'issue.write', project, acl)
 
@@ -1367,7 +1405,7 @@ export async function deleteIssue(
 		workspaceId: actor.workspaceId,
 		resourceType: 'project',
 		resourceId: project.id,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeProject(tx, actor, 'issue.delete', project, acl)
 
@@ -1439,7 +1477,7 @@ export async function createIssueRelation(
 		workspaceId: actor.workspaceId,
 		resourceType: 'project',
 		resourceId: project.id,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeProject(tx, actor, 'issue.write', project, acl)
 	await requireProjectRead(tx, actor, target.projectId)
@@ -1449,7 +1487,7 @@ export async function createIssueRelation(
 		sourceIssueId,
 		targetIssueId: input.targetIssueId,
 		kind: input.kind,
-		createdBy: actor.principalId
+		createdBy: actor.userId
 	})
 	await emitTasksEvent(tx, {
 		workspaceId: actor.workspaceId,
@@ -1483,7 +1521,7 @@ export async function deleteIssueRelation(
 		workspaceId: actor.workspaceId,
 		resourceType: 'project',
 		resourceId: project.id,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeProject(tx, actor, 'issue.write', project, acl)
 
@@ -1524,7 +1562,7 @@ export async function createIssueComment(
 		workspaceId: actor.workspaceId,
 		resourceType: 'project',
 		resourceId: project.id,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeProject(tx, actor, 'issue.write', project, acl)
 
@@ -1593,7 +1631,7 @@ export async function updateIssueComment(
 		workspaceId: actor.workspaceId,
 		resourceType: 'project',
 		resourceId: project.id,
-		userId: actor.principalId
+		userId: actor.userId
 	})
 	await authorizeProject(tx, actor, 'issue.write', project, acl)
 
@@ -1652,6 +1690,53 @@ export async function updateIssueComment(
 	return { data: updated, cursor }
 }
 
+/**
+ * Soft-delete a comment (agent-undo seam §13.5): author-only unless admin,
+ * emits the change_log delete entry. Returns false when already deleted.
+ */
+export async function deleteIssueComment(
+	tx: Queryable,
+	actor: ActorContext,
+	issueId: string,
+	commentId: string
+): Promise<{ readonly deleted: boolean; readonly cursor: number }> {
+	const current = await getIssueCommentById(tx, actor.workspaceId, commentId)
+	if (!current || current.issueId !== issueId) {
+		throw new HttpError(404, 'not_found', 'Comment not found')
+	}
+	const issue = await getIssueById(tx, actor.workspaceId, issueId)
+	if (!issue) throw new HttpError(404, 'not_found', 'Issue not found')
+	const project = await getProjectById(tx, actor.workspaceId, issue.projectId)
+	if (!project) throw new HttpError(404, 'not_found', 'Project not found')
+	const acl = await resolveResourceAcl(tx, {
+		workspaceId: actor.workspaceId,
+		resourceType: 'project',
+		resourceId: project.id,
+		userId: actor.userId
+	})
+	await authorizeProject(tx, actor, 'issue.write', project, acl)
+
+	if (current.authorId !== actor.principalId && !isAdminProjectBypass(actor)) {
+		throw new HttpError(403, 'insufficient_role', 'Only the author or an admin can delete this comment')
+	}
+
+	const deleted = await softDeleteIssueCommentRow(tx, {
+		workspaceId: actor.workspaceId,
+		commentId
+	})
+	if (!deleted) return { deleted: false, cursor: 0 }
+
+	const cursor = await appendChange(tx, actor.workspaceId, {
+		entityType: 'issue_comment',
+		entityId: deleted.id,
+		action: 'delete',
+		scope: [`project:${project.id}`],
+		payload: null,
+		actorId: actor.principalId
+	})
+	return { deleted: true, cursor }
+}
+
 // ---------- Saved views ----------
 
 export async function listSavedViews(tx: Queryable, actor: ActorContext): Promise<SavedViewDto[]> {
@@ -1685,7 +1770,7 @@ export async function createSavedView(
 		id: input.id,
 		workspaceId: actor.workspaceId,
 		projectId: input.projectId ?? null,
-		ownerUserId: actor.principalId,
+		ownerUserId: actor.userId,
 		name: input.name.trim(),
 		layout: input.layout ?? 'list',
 		filters: (input.filters ?? {}) as Record<string, unknown>,

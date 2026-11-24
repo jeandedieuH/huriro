@@ -230,6 +230,7 @@ export async function resolveActor(
 	if (!row) {
 		return {
 			principalId: args.userId,
+			userId: args.userId,
 			workspaceId: args.workspaceId,
 			kind: 'user',
 			membership: 'none',
@@ -247,6 +248,7 @@ export async function resolveActor(
 
 	return {
 		principalId: args.userId,
+		userId: args.userId,
 		workspaceId: args.workspaceId,
 		kind: 'user',
 		membership: row.status,

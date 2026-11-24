@@ -76,6 +76,14 @@ export const SignUp: Story = {
 	)
 }
 
+export const SignUpNeedsSetup: Story = {
+	render: () => (
+		<AuthLayout title={t('auth.sign-up.title')} subtitle={t('auth.sign-up.subtitle')} onUsePreview={fn()}>
+			<SignUpForm needsSetup hideSwitchPrompt onComplete={fn()} />
+		</AuthLayout>
+	)
+}
+
 export const FirstRunSetup: Story = {
 	render: () => (
 		<AuthLayout
@@ -85,6 +93,20 @@ export const FirstRunSetup: Story = {
 			footer={<SetupSwitchPrompt />}
 		>
 			<SetupForm needsSetup hideSwitchPrompt onComplete={fn()} />
+		</AuthLayout>
+	)
+}
+
+export const FirstRunSetupSignedIn: Story = {
+	render: () => (
+		<AuthLayout title={t('auth.setup.title')} subtitle={t('auth.setup.subtitle')} wide>
+			<SetupForm
+				needsSetup
+				signedInUser={{ id: '0190a0b1-0000-7000-8000-000000000001', email: 'ada@huriro.dev', name: 'Ada' }}
+				hideSwitchPrompt
+				onComplete={fn()}
+				onSignOut={async () => {}}
+			/>
 		</AuthLayout>
 	)
 }
@@ -102,6 +124,19 @@ export const WorkspaceOnboarding: Story = {
 		<AuthLayout title={t('auth.onboarding.title')} subtitle={t('auth.onboarding.subtitle')}>
 			<OnboardingForm
 				user={{ id: '0190a0b1-0000-7000-8000-000000000001', email: 'ada@huriro.dev', name: 'Ada' }}
+				onComplete={fn()}
+				onSignOut={async () => {}}
+			/>
+		</AuthLayout>
+	)
+}
+
+export const OnboardingNeedsSetup: Story = {
+	render: () => (
+		<AuthLayout title={t('auth.onboarding.title')} subtitle={t('auth.onboarding.subtitle')}>
+			<OnboardingForm
+				user={{ id: '0190a0b1-0000-7000-8000-000000000001', email: 'ada@huriro.dev', name: 'Ada' }}
+				needsSetup
 				onComplete={fn()}
 				onSignOut={async () => {}}
 			/>

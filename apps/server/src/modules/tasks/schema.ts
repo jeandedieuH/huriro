@@ -25,6 +25,11 @@ export const IdParam = Type.Object({
 	id: Type.String({ format: 'uuid' })
 })
 
+/** GET /issues/:id only — permits the `<uuid>.md` representation suffix (§13.1b). */
+export const IssueGetParam = Type.Object({
+	id: Type.String({ minLength: 36, maxLength: 39 })
+})
+
 export const ProjectIdParam = Type.Object({
 	projectId: Type.String({ format: 'uuid' })
 })

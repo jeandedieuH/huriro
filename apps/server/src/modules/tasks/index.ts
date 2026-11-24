@@ -9,6 +9,7 @@ import type { Queryable, Sql } from '@huriro/db'
 import { Elysia } from 'elysia'
 import { withIdempotency } from '../../api/context'
 import { HttpError } from '../../api/error'
+import { markdownResponse, renderIssue, splitMdParam } from '../../api/markdown'
 import type { RealtimePubSub } from '../../realtime/pubsub'
 import type { Auth } from '../identity'
 import { workspaceDerive } from '../tenancy'
@@ -23,6 +24,7 @@ import {
 	CreateSavedViewBody,
 	CreateStatusBody,
 	IdParam,
+	IssueGetParam,
 	IssueIdParam,
 	IssueKeyParam,
 	ListCyclesQuery,
@@ -49,6 +51,7 @@ import {
 	createProjectStatus,
 	createSavedView,
 	deleteIssue,
+	deleteIssueComment,
 	deleteIssueRelation,
 	deleteSavedView,
 	ensureLabelForImport,
@@ -82,6 +85,7 @@ export {
 	createProject,
 	createSavedView,
 	deleteIssue,
+	deleteIssueComment,
 	ensureLabelForImport,
 	ensureProjectForImport,
 	getIssueByIdentifier,
@@ -89,6 +93,8 @@ export {
 	getIssueDetail,
 	getTasksSnapshotData,
 	listAccessibleProjectIds,
+	listAccessibleProjects,
+	listIssues,
 	listProjectStatuses,
 	moveIssue,
 	updateIssue,
@@ -223,6 +229,15 @@ export function tasksModule(sql: Sql, auth: Auth | null, pubsub?: RealtimePubSub
 			.get('/issues/by-key/:identifier', { params: IssueKeyParam }, ({ params, workspaceCtx, inWorkspace }) =>
 				inWorkspace(async (tx, actor) => {
 					try {
+						// `.md` representation (§13.1b): Elysia has no param
+						// suffixes, so `ENG-1.md` arrives inside the identifier.
+						const { id: ref, markdown } = splitMdParam(params.identifier)
+						if (markdown) {
+							const issue = /^[0-9a-f-]{36}$/i.test(ref)
+								? (await getIssueDetail(tx, actor, ref)).issue
+								: await getIssueByIdentifier(tx, actor, ref)
+							return markdownResponse(renderIssue(issue))
+						}
 						const issue = await getIssueByIdentifier(tx, actor, params.identifier)
 						return { issue, redirectedFrom: null }
 					} catch (err) {
@@ -241,8 +256,18 @@ export function tasksModule(sql: Sql, auth: Auth | null, pubsub?: RealtimePubSub
 					}
 				})
 			)
-			.get('/issues/:id', { params: IdParam }, ({ params, inWorkspace }) =>
-				inWorkspace((tx, actor) => getIssueDetail(tx, actor, params.id))
+			// GET /issues/:id accepts `<uuid>.md` too (§13.1b) — the looser param
+			// schema lets the suffix through and the handler re-tightens to uuid.
+			.get('/issues/:id', { params: IssueGetParam }, ({ params, inWorkspace }) =>
+				inWorkspace(async (tx, actor) => {
+					const { id: ref, markdown } = splitMdParam(params.id)
+					if (!/^[0-9a-f-]{36}$/i.test(ref)) {
+						throw new HttpError(422, 'validation_failed', 'id must be a uuid (optionally suffixed .md)')
+					}
+					const detail = await getIssueDetail(tx, actor, ref)
+					if (markdown) return markdownResponse(renderIssue(detail.issue))
+					return detail
+				})
 			)
 			.post(
 				'/issues',

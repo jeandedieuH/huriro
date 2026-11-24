@@ -1,5 +1,15 @@
 // @huriro/domain public surface — pure, no I/O (§7.2).
 
+export type { AgentScope, RiskTier } from './agent-scopes'
+export {
+	AGENT_SCOPES,
+	actionsForScopes,
+	effectiveRisk,
+	isAgentExecutable,
+	isAgentScope,
+	RISK_TIERS,
+	SCOPE_ACTIONS
+} from './agent-scopes'
 export type { ExtractedChatMentions, ExtractedRichLink } from './chat'
 export {
 	computeDmKey,
@@ -20,6 +30,12 @@ export {
 	needsRebalance,
 	rebalanceKeys
 } from './fractional-index'
+export {
+	isPlausibleEmail,
+	normalizeEmail,
+	normalizeMailSubject,
+	threadingKeyMatches
+} from './mail'
 export type { Action, SystemRoleKey } from './permissions'
 export {
 	ACTIONS,
@@ -37,6 +53,6 @@ export type {
 	DenyReason,
 	ResourceRef
 } from './policy'
-export { ACL_RESOURCE_TYPES, aclSatisfies, can, needsAcl, requiredAclLevel } from './policy'
+export { ACL_RESOURCE_TYPES, aclSatisfies, attributionOf, can, needsAcl, requiredAclLevel } from './policy'
 export type { ParsedSearchQuery, SearchMode } from './search-query'
 export { parseSearchQuery } from './search-query'

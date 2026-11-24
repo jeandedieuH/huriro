@@ -107,6 +107,7 @@ async function resolveSyncActorContext(
 	`
 	return {
 		principalId: member.userId,
+		userId: member.userId,
 		workspaceId,
 		kind: 'user',
 		membership: 'active',
@@ -148,7 +149,7 @@ export async function createGithubInstallation(
 		webhookSecretEncrypted,
 		accessTokenEncrypted,
 		syncEnabled: input.syncEnabled ?? true,
-		createdBy: actor.principalId
+		createdBy: actor.userId
 	})
 
 	await tx`
@@ -699,7 +700,7 @@ export async function retryIssueGithubPush(
 ): Promise<IssueGithubLinkDto> {
 	const prepared = await withWorkspace(
 		app,
-		{ workspaceId: actor.workspaceId, userId: actor.principalId },
+		{ workspaceId: actor.workspaceId, userId: actor.userId },
 		async (tx) => {
 			authorizeIssueLinkRead(actor)
 			const found = await getIssueGithubLinkWithInstallation(tx, actor.workspaceId, linkId)
@@ -762,18 +763,15 @@ export async function retryIssueGithubPush(
 		githubSyncTotal.inc({ direction: 'outbound', status: 'failed' })
 	}
 
-	const updated = await withWorkspace(
-		app,
-		{ workspaceId: actor.workspaceId, userId: actor.principalId },
-		(tx) =>
-			updateIssueGithubLinkSyncState(tx, {
-				workspaceId: actor.workspaceId,
-				linkId,
-				syncState: ok ? 'synced' : 'push_failed',
-				lastSyncHash: ok ? prepared.hash : null,
-				lastSyncError: errorMsg,
-				synced: ok
-			})
+	const updated = await withWorkspace(app, { workspaceId: actor.workspaceId, userId: actor.userId }, (tx) =>
+		updateIssueGithubLinkSyncState(tx, {
+			workspaceId: actor.workspaceId,
+			linkId,
+			syncState: ok ? 'synced' : 'push_failed',
+			lastSyncHash: ok ? prepared.hash : null,
+			lastSyncError: errorMsg,
+			synced: ok
+		})
 	)
 
 	return updated ?? prepared.found.link

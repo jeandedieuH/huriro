@@ -8,8 +8,8 @@
  * policy only admits `id = app.workspace_id`. The tenant context then carries
  * every subsequent tenant-scoped write in the same transaction (FORCE RLS).
  */
-import { createHash } from 'node:crypto'
-import { type Sql, withSystem } from '@huriro/db'
+import { createHash, randomBytes } from 'node:crypto'
+import { type Queryable, type Sql, withSystem } from '@huriro/db'
 import type { Auth } from '../identity'
 import { TENANCY_EVENTS } from './events'
 import {
@@ -25,6 +25,7 @@ import { seedWorkspace } from './service'
 
 const TOKEN_KEY = 'setup_token_hash'
 const DONE_KEY = 'setup_completed'
+const BOOTSTRAP_LOCK_KEY = 72819401
 
 export function hashSetupToken(token: string): string {
 	return createHash('sha256').update(token).digest('hex')
@@ -33,6 +34,67 @@ export function hashSetupToken(token: string): string {
 export async function setupStatus(sql: Sql): Promise<{ configured: boolean }> {
 	const configured = await withSystem(sql, (tx) => getSetting(tx, DONE_KEY))
 	return { configured: configured === true }
+}
+
+export type BootstrapTokenEnsureResult =
+	| { readonly status: 'configured' }
+	| { readonly status: 'existing' }
+	| { readonly status: 'generated'; readonly token: string }
+
+async function issueAndStoreSetupToken(tx: Queryable): Promise<string> {
+	const token = randomBytes(32).toString('base64url')
+	const hash = hashSetupToken(token)
+	await tx`
+		INSERT INTO huriro_bootstrap (key, value)
+		VALUES (${TOKEN_KEY}, to_jsonb(${hash}::text))
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+	`
+	return token
+}
+
+/**
+ * Ensure `huriro_bootstrap.setup_token_hash` exists whenever first-run setup is
+ * still pending. Preserves tokens provisioned by `huriro init` / Docker initdb,
+ * and auto-generates one on local dev or bare-DB first boot when missing/empty.
+ */
+export async function ensureBootstrapSetupToken(adminSql: Sql): Promise<BootstrapTokenEnsureResult> {
+	return adminSql.begin(async (tx) => {
+		await tx`SELECT pg_advisory_xact_lock(${BOOTSTRAP_LOCK_KEY})`
+
+		if ((await getSetting(tx, DONE_KEY)) === true) {
+			return { status: 'configured' }
+		}
+
+		const [existing] = await tx<{ value: unknown }[]>`
+			SELECT value FROM huriro_bootstrap WHERE key = ${TOKEN_KEY}
+		`
+		if (typeof existing?.value === 'string' && existing.value.length > 0) {
+			return { status: 'existing' }
+		}
+
+		const token = await issueAndStoreSetupToken(tx)
+		return { status: 'generated', token }
+	})
+}
+
+/**
+ * Issue a fresh one-time setup token before initial setup completes (replaces
+ * any prior unconsumed hash). Fails once `setup_completed` is true.
+ */
+export async function rotateBootstrapSetupToken(adminSql: Sql): Promise<{ readonly token: string }> {
+	return adminSql.begin(async (tx) => {
+		await tx`SELECT pg_advisory_xact_lock(${BOOTSTRAP_LOCK_KEY})`
+
+		if ((await getSetting(tx, DONE_KEY)) === true) {
+			throw new SetupError(
+				'already_configured',
+				'This instance is already configured; a new setup token cannot be issued.'
+			)
+		}
+
+		const token = await issueAndStoreSetupToken(tx)
+		return { token }
+	})
 }
 
 export interface SetupResult {
@@ -64,31 +126,29 @@ async function provisionFirstUser(
 	args: { email: string; displayName: string; password: string | undefined }
 ): Promise<string> {
 	const email = args.email.toLowerCase()
-	const existing = await findUserByEmail(tx, email)
-	if (existing) return existing.id
 	if (auth && args.password) {
 		try {
 			const res = await auth.api.signUpEmail({
 				body: { email, password: args.password, name: args.displayName }
 			})
 			return res.user.id
-		} catch (err) {
-			// Idempotent retry: a crashed setup leaves the credential behind on
-			// the auth pool (it commits independently of this tx), and RLS hides
-			// that user row from findUserByEmail — signUpEmail then reports the
-			// email taken. When the presented password verifies, reusing the same
-			// user is the intent; a wrong password still fails here.
+		} catch {
+			// Idempotent retry or an account already registered before setup:
+			// verify the credential via signInEmail instead of reusing an existing
+			// user row without checking the password.
 			try {
 				const res = await auth.api.signInEmail({ body: { email, password: args.password } })
 				return res.user.id
 			} catch {
 				throw new SetupError(
 					'auth_failed',
-					`Could not create the admin credential: ${err instanceof Error ? err.message : 'unknown error'}`
+					'Could not create or verify the admin credential. If this email is already registered, enter its existing password or use a different email.'
 				)
 			}
 		}
 	}
+	const existing = await findUserByEmail(tx, email)
+	if (existing) return existing.id
 	return insertUser(tx, { email, displayName: args.displayName })
 }
 

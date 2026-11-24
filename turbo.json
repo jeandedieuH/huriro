@@ -14,7 +14,7 @@
 		},
 		"test": {
 			"dependsOn": ["^build"],
-			"env": ["DATABASE_URL", "HURIRO_TESTCONTAINERS"]
+			"env": ["DATABASE_URL", "DATABASE_ADMIN_URL", "HURIRO_TESTCONTAINERS"]
 		},
 		"dev": {
 			"cache": false,

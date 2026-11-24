@@ -24,6 +24,6 @@
 	"scripts": {
 		"lint": "biome check .",
 		"typecheck": "tsc --noEmit -p tsconfig.json",
-		"test": "bun test"
+		"test": "bun test --timeout 30000"
 	}
 }

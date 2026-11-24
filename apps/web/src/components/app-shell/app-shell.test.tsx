@@ -23,7 +23,7 @@ describe('AppShell & Sidebar', () => {
 		vi.unstubAllGlobals()
 	})
 
-	it('renders root navigation items with unread badge and disabled Mail, and passes axe', async () => {
+	it('renders unified root navigation items with unread badges and no separate Mail entry, and passes axe', async () => {
 		const onSelectNav = vi.fn()
 		const { container } = render(
 			<AppShell
@@ -42,11 +42,11 @@ describe('AppShell & Sidebar', () => {
 		)
 
 		expect(screen.getByRole('button', { name: /^Home$/i })).toHaveAttribute('aria-current', 'page')
+		expect(screen.getByRole('button', { name: /^Inbox/i })).toHaveTextContent('3')
 		expect(screen.getByRole('button', { name: /^Tasks$/i })).toBeInTheDocument()
 		expect(screen.getByRole('button', { name: /^Docs$/i })).toBeInTheDocument()
 		expect(screen.getByRole('button', { name: /^Chat/i })).toHaveTextContent('2')
-		expect(screen.getByRole('button', { name: /Mail/i })).toBeDisabled()
-		expect(screen.getByRole('button', { name: /^Inbox/i })).toHaveTextContent('3')
+		expect(screen.queryByRole('button', { name: /^Mail$/i })).not.toBeInTheDocument()
 		expect(screen.getByRole('button', { name: /^Settings$/i })).toBeInTheDocument()
 
 		fireEvent.click(screen.getByRole('button', { name: /^Tasks$/i }))

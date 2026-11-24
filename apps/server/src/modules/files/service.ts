@@ -66,7 +66,7 @@ export async function initiateFileUpload(
 	const row = await insertPendingFileRow(tx, {
 		id,
 		workspaceId: actor.workspaceId,
-		uploadedBy: actor.principalId,
+		uploadedBy: actor.userId,
 		storageKey,
 		quarantineKey,
 		filename: sanitizeDisplayFilename(body.filename),
@@ -128,6 +128,61 @@ export async function storeQuarantinedFileBytes(
 		)
 	`
 
+	return toPublicFileDto(updated)
+}
+
+/**
+ * System-side ingest for mail attachments (§14.6): mail delivers bytes that
+ * must travel the same quarantine → scan → promote pipeline as interactive
+ * uploads. No actor authorization — the caller is the trusted mail worker,
+ * `uploadedBy` is only attribution (message sender or draft author).
+ */
+export async function ingestInboundAttachmentFile(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly uploadedBy: string | null
+		readonly filename: string
+		readonly declaredContentType: string
+		readonly bytes: Uint8Array
+	},
+	storage: BlobStorage
+): Promise<FileDto> {
+	if (args.bytes.byteLength === 0 || args.bytes.byteLength > MAX_FILE_UPLOAD_BYTES) {
+		throw new HttpError(413, 'file_too_large', 'Mail attachment exceeds 25 MB limit')
+	}
+	const id = uuid7()
+	const quarantineKey = `quarantine/${args.workspaceId}/${id}`
+	const storageKey = `files/${args.workspaceId}/${id}`
+	await insertPendingFileRow(tx, {
+		id,
+		workspaceId: args.workspaceId,
+		uploadedBy: args.uploadedBy,
+		storageKey,
+		quarantineKey,
+		filename: sanitizeDisplayFilename(args.filename),
+		declaredContentType: args.declaredContentType,
+		byteSize: args.bytes.byteLength,
+		checksum: 'pending'
+	})
+	await storage.putQuarantine(quarantineKey, args.bytes)
+	const updated = await updateFileUploadChecksum(tx, {
+		workspaceId: args.workspaceId,
+		fileId: id,
+		byteSize: args.bytes.byteLength,
+		checksum: sha256Hex(args.bytes)
+	})
+	if (!updated) throw new HttpError(500, 'internal', 'Mail attachment ingest failed')
+	await tx`
+		INSERT INTO outbox (workspace_id, aggregate, aggregate_id, event_type, payload)
+		VALUES (
+			${args.workspaceId},
+			'file',
+			${updated.id},
+			${FILES_EVENTS.Uploaded},
+			${tx.json({ fileId: updated.id, actorId: args.uploadedBy, origin: 'mail' } as never)}
+		)
+	`
 	return toPublicFileDto(updated)
 }
 

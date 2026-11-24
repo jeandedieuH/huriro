@@ -7,17 +7,28 @@
  */
 import type {
 	AddChannelMemberBody,
+	AgentApprovalDto,
+	AgentPrincipalDto,
+	AiProviderDto,
+	AiProviderUpsert,
+	AiSettingsPatch,
+	AiSettingsResponse,
 	ChannelChangesResponse,
 	ChatChannelDto,
 	ChatChannelMemberDto,
 	ChatMessageDto,
 	ChatThreadSummaryDto,
 	CollabTicketResponse,
+	ConvertToIssueBody,
 	CreateChannelBody,
 	CreateDmBody,
 	CreateDocCommentBody,
 	CreateGithubInstallationBody,
 	CreateIssueGithubLinkBody,
+	CreateMailAccountBody,
+	CreateMailIdentityBody,
+	CreateMailInboxBody,
+	CreateMailNoteBody,
 	CreateWebhookBody,
 	CreateWebhookResponse,
 	CreateWebPushSubscriptionBody,
@@ -37,7 +48,18 @@ import type {
 	IssueCommentDto,
 	IssueGithubLinkDto,
 	IssueRelationDto,
+	LinkConversationBody,
 	ListMessagesResponse,
+	MailAccountDto,
+	MailConversationDto,
+	MailConversationEventDto,
+	MailConversationStatus,
+	MailDraftDto,
+	MailIdentityDto,
+	MailInboxDto,
+	MailMessageDto,
+	MailNoteDto,
+	MailTimelineDto,
 	NotificationDto,
 	NotificationPreferencesDto,
 	ProjectDto,
@@ -45,13 +67,17 @@ import type {
 	RelationKind,
 	SearchHitDto,
 	SearchResponse,
+	SendMailDraftBody,
 	SendMessageBody,
 	UpdateChannelBody,
+	UpdateConversationBody,
 	UpdateDocCommentBody,
 	UpdateGithubInstallationBody,
+	UpdateMailAccountBody,
 	UpdateMessageBody,
 	UpdateNotificationPreferencesBody,
 	UpdateWebhookBody,
+	UpsertMailDraftBody,
 	WebhookDeliveryDto,
 	WebhookEndpointDto,
 	WebPushSubscriptionDto
@@ -94,6 +120,44 @@ export interface ResourceAclItemDto {
 	readonly principalType: 'user' | 'role' | 'workspace'
 	readonly principalId: string | null
 	readonly permission: 'read' | 'comment' | 'write' | 'manage'
+}
+
+/** API-key DTO as emitted by `agents/api-keys.ts` toDto (raw key only at create). */
+export interface AgentApiKeyDto {
+	readonly id: string
+	readonly name: string
+	readonly prefix: string
+	readonly agentId: string
+	readonly scopes: readonly string[]
+	readonly status: 'active' | 'revoked' | 'expired'
+	readonly expiresAt: string | null
+	readonly lastUsedAt: string | null
+	readonly createdAt: string
+}
+
+export interface CreatedApiKeyDto extends AgentApiKeyDto {
+	readonly key: string
+}
+
+export interface CreateApiKeyBody {
+	readonly name: string
+	readonly scopes: readonly string[]
+	readonly expiresInDays?: number | undefined
+}
+
+export type ApprovalStatusFilter =
+	| 'pending'
+	| 'approved'
+	| 'denied'
+	| 'expired'
+	| 'executing'
+	| 'executed'
+	| 'failed'
+
+export interface ListApprovalsResult {
+	readonly data: readonly AgentApprovalDto[]
+	readonly nextCursor: string | null
+	readonly hasMore: boolean
 }
 
 export interface TaskApiBridge {
@@ -187,6 +251,60 @@ export interface TaskApiBridge {
 	createIssueGithubLink(body: CreateIssueGithubLinkBody): Promise<IssueGithubLinkDto>
 	deleteIssueGithubLink(id: string): Promise<void>
 	retryIssueGithubPush(linkId: string): Promise<IssueGithubLinkDto>
+	// M3: connected apps, agent management, API keys, approvals, AI settings
+	listConnectedApps(): Promise<AgentPrincipalDto[]>
+	revokeConnectedApp(agentId: string): Promise<void>
+	listAgents(): Promise<AgentPrincipalDto[]>
+	updateAgent(
+		id: string,
+		body: { readonly name?: string | undefined; readonly status?: 'active' | 'suspended' | undefined }
+	): Promise<AgentPrincipalDto>
+	revokeAgent(id: string): Promise<void>
+	listApiKeys(): Promise<AgentApiKeyDto[]>
+	createApiKey(body: CreateApiKeyBody): Promise<CreatedApiKeyDto>
+	revokeApiKey(id: string): Promise<void>
+	listApprovals(status?: ApprovalStatusFilter): Promise<ListApprovalsResult>
+	decideApproval(
+		id: string,
+		body: { readonly decision: 'approve' | 'deny'; readonly reason?: string }
+	): Promise<AgentApprovalDto>
+	getAiSettings(): Promise<AiSettingsResponse>
+	updateAiSettings(body: AiSettingsPatch): Promise<AiSettingsResponse>
+	upsertAiProvider(body: AiProviderUpsert): Promise<AiProviderDto>
+	// M5: shared inbox mail
+	listMailAccounts(): Promise<MailAccountDto[]>
+	createMailAccount(body: CreateMailAccountBody): Promise<MailAccountDto>
+	updateMailAccount(id: string, body: UpdateMailAccountBody): Promise<MailAccountDto>
+	verifyMailAccountDomain(
+		id: string
+	): Promise<{ readonly verified: boolean; readonly missingRecords: readonly string[] }>
+	syncMailAccount(id: string): Promise<void>
+	listMailIdentities(accountId?: string): Promise<MailIdentityDto[]>
+	createMailIdentity(body: CreateMailIdentityBody): Promise<MailIdentityDto>
+	listMailInboxes(): Promise<MailInboxDto[]>
+	createMailInbox(body: CreateMailInboxBody): Promise<MailInboxDto>
+	listMailConversations(filter: {
+		readonly inboxId?: string | undefined
+		readonly status?: MailConversationStatus | undefined
+		readonly assignee?: 'me' | 'unassigned' | string | undefined
+		readonly q?: string | undefined
+		readonly cursor?: string | undefined
+	}): Promise<{ readonly data: MailConversationDto[]; readonly nextCursor: string | null }>
+	getMailTimeline(id: string): Promise<MailTimelineDto>
+	updateMailConversation(id: string, body: UpdateConversationBody): Promise<MailConversationDto>
+	createMailNote(conversationId: string, body: CreateMailNoteBody): Promise<MailNoteDto>
+	linkMailConversation(id: string, body: LinkConversationBody): Promise<void>
+	unlinkMailTask(id: string, taskId: string): Promise<void>
+	unlinkMailDoc(id: string, pageId: string): Promise<void>
+	convertMailToIssue(
+		id: string,
+		body: ConvertToIssueBody
+	): Promise<{ readonly issueId: string; readonly identifier: string }>
+	upsertMailDraft(conversationId: string, body: UpsertMailDraftBody): Promise<MailDraftDto>
+	updateMailDraft(draftId: string, body: UpsertMailDraftBody): Promise<MailDraftDto>
+	sendMailDraft(draftId: string, body: SendMailDraftBody): Promise<MailDraftDto>
+	undoMailDraft(draftId: string): Promise<MailDraftDto>
+	discardMailDraft(draftId: string): Promise<void>
 }
 
 export interface BootstrappedWorkspace {
@@ -654,6 +772,199 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 				`/api/v1/integrations/github/links/${encodeURIComponent(linkId)}/retry`,
 				{ method: 'POST' }
 			)
+		},
+		// ── M3: agents, API keys, approvals, AI settings ─────────────────
+		async listConnectedApps() {
+			const res = await apiFetch<{ data: AgentPrincipalDto[] }>('/api/v1/me/connected-apps')
+			return res.data
+		},
+		async revokeConnectedApp(agentId) {
+			await apiFetch(`/api/v1/me/connected-apps/${encodeURIComponent(agentId)}`, { method: 'DELETE' })
+		},
+		async listAgents() {
+			const res = await apiFetch<{ data: AgentPrincipalDto[] }>('/api/v1/agents')
+			return res.data
+		},
+		async updateAgent(id, body) {
+			const res = await apiFetch<{ data: AgentPrincipalDto }>(`/api/v1/agents/${encodeURIComponent(id)}`, {
+				method: 'PATCH',
+				body: JSON.stringify(body)
+			})
+			return res.data
+		},
+		async revokeAgent(id) {
+			await apiFetch(`/api/v1/agents/${encodeURIComponent(id)}`, { method: 'DELETE' })
+		},
+		async listApiKeys() {
+			const res = await apiFetch<{ data: AgentApiKeyDto[] }>('/api/v1/agents/api-keys')
+			return res.data
+		},
+		async createApiKey(body) {
+			const res = await apiFetch<{ data: CreatedApiKeyDto }>('/api/v1/agents/api-keys', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+			return res.data
+		},
+		async revokeApiKey(id) {
+			await apiFetch(`/api/v1/agents/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE' })
+		},
+		async listApprovals(status) {
+			const query = status ? `?status=${encodeURIComponent(status)}` : ''
+			return apiFetch<ListApprovalsResult>(`/api/v1/approvals${query}`)
+		},
+		async decideApproval(id, body) {
+			const res = await apiFetch<{ data: AgentApprovalDto }>(
+				`/api/v1/approvals/${encodeURIComponent(id)}/decide`,
+				{ method: 'POST', body: JSON.stringify(body) }
+			)
+			return res.data
+		},
+		async getAiSettings() {
+			return apiFetch<AiSettingsResponse>('/api/v1/ai/settings')
+		},
+		async updateAiSettings(body) {
+			return apiFetch<AiSettingsResponse>('/api/v1/ai/settings', {
+				method: 'PATCH',
+				body: JSON.stringify(body)
+			})
+		},
+		async upsertAiProvider(body) {
+			const res = await apiFetch<{ data: AiProviderDto }>('/api/v1/ai/providers', {
+				method: 'PUT',
+				body: JSON.stringify(body)
+			})
+			return res.data
+		},
+		// M5: shared inbox mail
+		async listMailAccounts() {
+			const res = await apiFetch<{ data: MailAccountDto[] }>('/api/v1/mail/accounts')
+			return res.data
+		},
+		async createMailAccount(body) {
+			return apiFetch<MailAccountDto>('/api/v1/mail/accounts', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async updateMailAccount(id, body) {
+			return apiFetch<MailAccountDto>(`/api/v1/mail/accounts/${encodeURIComponent(id)}`, {
+				method: 'PATCH',
+				body: JSON.stringify(body)
+			})
+		},
+		async verifyMailAccountDomain(id) {
+			return apiFetch<{ verified: boolean; missingRecords: string[] }>(
+				`/api/v1/mail/accounts/${encodeURIComponent(id)}/verify-domain`,
+				{ method: 'POST' }
+			)
+		},
+		async syncMailAccount(id) {
+			await apiFetch(`/api/v1/mail/accounts/${encodeURIComponent(id)}/sync`, {
+				method: 'POST',
+				body: JSON.stringify({})
+			})
+		},
+		async listMailIdentities(accountId) {
+			const q = accountId ? `?accountId=${encodeURIComponent(accountId)}` : ''
+			const res = await apiFetch<{ data: MailIdentityDto[] }>(`/api/v1/mail/identities${q}`)
+			return res.data
+		},
+		async createMailIdentity(body) {
+			return apiFetch<MailIdentityDto>('/api/v1/mail/identities', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async listMailInboxes() {
+			const res = await apiFetch<{ data: MailInboxDto[] }>('/api/v1/mail/inboxes')
+			return res.data
+		},
+		async createMailInbox(body) {
+			return apiFetch<MailInboxDto>('/api/v1/mail/inboxes', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async listMailConversations(filter) {
+			const qs = new URLSearchParams()
+			if (filter.inboxId) qs.set('inboxId', filter.inboxId)
+			if (filter.status) qs.set('status', filter.status)
+			if (filter.assignee) qs.set('assignee', filter.assignee)
+			if (filter.q) qs.set('q', filter.q)
+			if (filter.cursor) qs.set('cursor', filter.cursor)
+			const suffix = qs.size > 0 ? `?${qs.toString()}` : ''
+			return apiFetch<{ data: MailConversationDto[]; nextCursor: string | null }>(
+				`/api/v1/mail/conversations${suffix}`
+			)
+		},
+		async getMailTimeline(id) {
+			return apiFetch<MailTimelineDto>(`/api/v1/mail/conversations/${encodeURIComponent(id)}/timeline`)
+		},
+		async updateMailConversation(id, body) {
+			return apiFetch<MailConversationDto>(`/api/v1/mail/conversations/${encodeURIComponent(id)}`, {
+				method: 'PATCH',
+				body: JSON.stringify(body)
+			})
+		},
+		async createMailNote(conversationId, body) {
+			return apiFetch<MailNoteDto>(`/api/v1/mail/conversations/${encodeURIComponent(conversationId)}/notes`, {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async linkMailConversation(id, body) {
+			await apiFetch(`/api/v1/mail/conversations/${encodeURIComponent(id)}/links`, {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async unlinkMailTask(id, taskId) {
+			await apiFetch(
+				`/api/v1/mail/conversations/${encodeURIComponent(id)}/links/tasks/${encodeURIComponent(taskId)}`,
+				{ method: 'DELETE' }
+			)
+		},
+		async unlinkMailDoc(id, pageId) {
+			await apiFetch(
+				`/api/v1/mail/conversations/${encodeURIComponent(id)}/links/docs/${encodeURIComponent(pageId)}`,
+				{ method: 'DELETE' }
+			)
+		},
+		async convertMailToIssue(id, body) {
+			return apiFetch<{ issueId: string; identifier: string }>(
+				`/api/v1/mail/conversations/${encodeURIComponent(id)}/convert-to-issue`,
+				{ method: 'POST', body: JSON.stringify(body) }
+			)
+		},
+		async upsertMailDraft(conversationId, body) {
+			return apiFetch<MailDraftDto>(
+				`/api/v1/mail/conversations/${encodeURIComponent(conversationId)}/drafts`,
+				{
+					method: 'POST',
+					body: JSON.stringify(body)
+				}
+			)
+		},
+		async updateMailDraft(draftId, body) {
+			return apiFetch<MailDraftDto>(`/api/v1/mail/drafts/${encodeURIComponent(draftId)}`, {
+				method: 'PATCH',
+				body: JSON.stringify(body)
+			})
+		},
+		async sendMailDraft(draftId, body) {
+			return apiFetch<MailDraftDto>(`/api/v1/mail/drafts/${encodeURIComponent(draftId)}/send`, {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async undoMailDraft(draftId) {
+			return apiFetch<MailDraftDto>(`/api/v1/mail/drafts/${encodeURIComponent(draftId)}/undo`, {
+				method: 'POST'
+			})
+		},
+		async discardMailDraft(draftId) {
+			await apiFetch(`/api/v1/mail/drafts/${encodeURIComponent(draftId)}`, { method: 'DELETE' })
 		}
 	}
 }
@@ -1347,6 +1658,196 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 			updatedAt: previewNow
 		}
 	]
+
+	// ── M3 preview state: agent principals, API keys, approvals, AI ──────
+	let previewAgents: AgentPrincipalDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000860',
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			kind: 'external_mcp',
+			name: 'Claude Code',
+			ownerUserId: PREVIEW_USER_ID,
+			oauthClientId: 'claude-code',
+			scopeCeiling: ['tasks.read', 'tasks.write', 'docs.read', 'search.read'],
+			tierOverrides: {},
+			requireApprovalAllWrites: false,
+			status: 'active',
+			lastActiveAt: previewNow,
+			createdAt: previewNow
+		},
+		{
+			id: '0190a0b1-0000-7000-8000-000000000861',
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			kind: 'automation',
+			name: 'API key: CI deploy bot',
+			ownerUserId: PREVIEW_USER_ID,
+			oauthClientId: null,
+			scopeCeiling: ['tasks.read', 'tasks.write'],
+			tierOverrides: {},
+			requireApprovalAllWrites: true,
+			status: 'active',
+			lastActiveAt: null,
+			createdAt: previewNow
+		}
+	]
+	let previewApiKeys: AgentApiKeyDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000870',
+			name: 'CI deploy bot',
+			prefix: 'a1b2c3d4',
+			agentId: '0190a0b1-0000-7000-8000-000000000861',
+			scopes: ['tasks.read', 'tasks.write'],
+			status: 'active',
+			expiresAt: null,
+			lastUsedAt: previewNow,
+			createdAt: previewNow
+		}
+	]
+	let previewApprovals: AgentApprovalDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000880',
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			agentId: '0190a0b1-0000-7000-8000-000000000860',
+			agentName: 'Claude Code',
+			ownerUserId: PREVIEW_USER_ID,
+			tool: 'tasks.bulk_update',
+			argsHash: '9f2c1a',
+			tokenScopes: ['tasks.read', 'tasks.write'],
+			previewMd: '## Update 21 issues\n\nSet status to **Done** for all issues tagged `sprint-4`.',
+			tier: 'R2',
+			status: 'pending',
+			decidedBy: null,
+			decidedAt: null,
+			decisionReason: null,
+			expiresAt: '2026-12-31T12:00:00Z',
+			errorCode: null,
+			createdAt: previewNow
+		}
+	]
+	let previewAiEnabled = false
+	let previewAiProviders: AiProviderDto[] = []
+
+	// M5: preview-mode mail seed — enough shape for the shared inbox UI to render
+	// a believable demo without a server.
+	const PREVIEW_MAIL_ACCOUNT_ID = '0190a0b1-0000-7000-8000-000000000a01'
+	const PREVIEW_MAIL_INBOX_ID = '0190a0b1-0000-7000-8000-000000000a02'
+	const PREVIEW_MAIL_IDENTITY_ID = '0190a0b1-0000-7000-8000-000000000a03'
+	const PREVIEW_MAIL_CONV_ID = '0190a0b1-0000-7000-8000-000000000a04'
+	let previewMailAccounts: MailAccountDto[] = [
+		{
+			id: PREVIEW_MAIL_ACCOUNT_ID,
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			provider: 'inbound_parse',
+			address: 'support@preview.huriro.dev',
+			displayName: 'Support',
+			defaultInboxId: PREVIEW_MAIL_INBOX_ID,
+			status: 'active',
+			statusDetail: null,
+			lastSyncedAt: '2026-11-22T11:00:00Z',
+			createdAt: '2026-11-22T09:00:00Z',
+			updatedAt: '2026-11-22T09:00:00Z',
+			version: 1,
+			inboundUrl: null
+		}
+	]
+	let previewMailIdentities: MailIdentityDto[] = [
+		{
+			id: PREVIEW_MAIL_IDENTITY_ID,
+			accountId: PREVIEW_MAIL_ACCOUNT_ID,
+			address: 'support@preview.huriro.dev',
+			displayName: 'Huriro Support',
+			isDefault: true,
+			createdAt: '2026-11-22T09:00:00Z'
+		}
+	]
+	let previewMailInboxes: MailInboxDto[] = [
+		{
+			id: PREVIEW_MAIL_INBOX_ID,
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			name: 'Support',
+			position: 'a0',
+			settings: {},
+			openCount: 1,
+			createdAt: '2026-11-22T09:00:00Z'
+		}
+	]
+	let previewMailConversations: MailConversationDto[] = [
+		{
+			id: PREVIEW_MAIL_CONV_ID,
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			inboxId: PREVIEW_MAIL_INBOX_ID,
+			accountId: PREVIEW_MAIL_ACCOUNT_ID,
+			subject: 'Cannot export my workspace data',
+			status: 'open',
+			assigneeId: PREVIEW_USER_ID,
+			assigneeName: 'Hagen (Owner)',
+			snoozedUntil: null,
+			mergedIntoId: null,
+			lastMessageAt: '2026-11-22T11:30:00Z',
+			firstReplyAt: '2026-11-22T10:15:00Z',
+			customerEmail: 'customer@acme.example',
+			snippet: 'When I click Export in settings nothing happens…',
+			messageCount: 2,
+			createdAt: '2026-11-22T10:00:00Z',
+			updatedAt: '2026-11-22T11:30:00Z',
+			version: 1
+		}
+	]
+	const previewMailMessages: MailMessageDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000a11',
+			conversationId: PREVIEW_MAIL_CONV_ID,
+			direction: 'inbound',
+			rfcMessageId: '<m1@acme.example>',
+			fromAddr: { email: 'customer@acme.example', name: 'Acme Customer' },
+			toAddrs: [{ email: 'support@preview.huriro.dev', name: null }],
+			ccAddrs: [],
+			subject: 'Cannot export my workspace data',
+			snippet: 'When I click Export in settings nothing happens…',
+			sentAt: '2026-11-22T10:00:00Z',
+			receivedAt: '2026-11-22T10:00:00Z',
+			bodyHtml: null,
+			bodyText: 'Hi, when I click Export in settings nothing happens. Can you check? Thanks.',
+			attachments: [],
+			authResults: { spf: 'pass', dkim: 'pass', dmarc: 'pass' },
+			sendState: null,
+			createdBy: null,
+			createdAt: '2026-11-22T10:00:00Z'
+		},
+		{
+			id: '0190a0b1-0000-7000-8000-000000000a12',
+			conversationId: PREVIEW_MAIL_CONV_ID,
+			direction: 'outbound',
+			rfcMessageId: '<r1@preview.huriro.dev>',
+			fromAddr: { email: 'support@preview.huriro.dev', name: 'Huriro Support' },
+			toAddrs: [{ email: 'customer@acme.example', name: null }],
+			ccAddrs: [],
+			subject: 'Re: Cannot export my workspace data',
+			snippet: 'Thanks for reporting — we found the issue…',
+			sentAt: '2026-11-22T10:15:00Z',
+			receivedAt: '2026-11-22T10:15:00Z',
+			bodyHtml: null,
+			bodyText: 'Thanks for reporting — we found the issue and a fix ships today.',
+			attachments: [],
+			authResults: null,
+			sendState: 'sent',
+			createdBy: PREVIEW_USER_ID,
+			createdAt: '2026-11-22T10:15:00Z'
+		}
+	]
+	const previewMailEvents: (MailConversationEventDto & { readonly conversationId: string })[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000a21',
+			conversationId: PREVIEW_MAIL_CONV_ID,
+			kind: 'assigned',
+			actorId: PREVIEW_USER_ID,
+			actorName: 'Hagen (Owner)',
+			payload: { assigneeId: PREVIEW_USER_ID },
+			createdAt: '2026-11-22T10:05:00Z'
+		}
+	]
+	let previewMailNotes: MailNoteDto[] = []
+	let previewMailDrafts: MailDraftDto[] = []
 
 	function resolvePreviewRichLinks(bodyText: string): ChatMessageDto['richLinks'] {
 		const tokens = extractRichLinks(bodyText)
@@ -2725,6 +3226,287 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 			}
 			previewGithubLinks = previewGithubLinks.map((l) => (l.id === linkId ? updated : l))
 			return updated
+		},
+		// ── M3 preview stubs: agents, API keys, approvals, AI settings ────
+		async listConnectedApps() {
+			return previewAgents.filter((a) => a.status !== 'revoked' && a.oauthClientId !== null)
+		},
+		async revokeConnectedApp(agentId) {
+			previewAgents = previewAgents.map((a) => (a.id === agentId ? { ...a, status: 'revoked' as const } : a))
+		},
+		async listAgents() {
+			return previewAgents
+		},
+		async updateAgent(id, body) {
+			const existing = previewAgents.find((a) => a.id === id)
+			if (!existing) throw new Error('Agent not found')
+			const updated: AgentPrincipalDto = {
+				...existing,
+				...(body.name !== undefined ? { name: body.name } : {}),
+				...(body.status !== undefined ? { status: body.status } : {})
+			}
+			previewAgents = previewAgents.map((a) => (a.id === id ? updated : a))
+			return updated
+		},
+		async revokeAgent(id) {
+			previewAgents = previewAgents.map((a) => (a.id === id ? { ...a, status: 'revoked' as const } : a))
+		},
+		async listApiKeys() {
+			return previewApiKeys
+		},
+		async createApiKey(body) {
+			const id = generateUuidV7()
+			const prefix = id.slice(0, 8)
+			const created: CreatedApiKeyDto = {
+				id,
+				name: body.name,
+				prefix,
+				agentId: generateUuidV7(),
+				scopes: [...body.scopes],
+				status: 'active',
+				expiresAt:
+					body.expiresInDays !== undefined
+						? new Date(Date.now() + body.expiresInDays * 86_400_000).toISOString()
+						: null,
+				lastUsedAt: null,
+				createdAt: new Date().toISOString(),
+				key: `hrk_${prefix}_preview-secret-${id.slice(-12)}`
+			}
+			previewApiKeys = [created, ...previewApiKeys]
+			return created
+		},
+		async revokeApiKey(id) {
+			previewApiKeys = previewApiKeys.map((k) => (k.id === id ? { ...k, status: 'revoked' as const } : k))
+		},
+		async listApprovals(status) {
+			const data = status ? previewApprovals.filter((a) => a.status === status) : previewApprovals
+			return { data, nextCursor: null, hasMore: false }
+		},
+		async decideApproval(id, body) {
+			const existing = previewApprovals.find((a) => a.id === id)
+			if (!existing) throw new Error('Approval not found')
+			const updated: AgentApprovalDto = {
+				...existing,
+				status: body.decision === 'approve' ? 'approved' : 'denied',
+				decidedBy: PREVIEW_USER_ID,
+				decidedAt: new Date().toISOString(),
+				decisionReason: body.reason ?? null
+			}
+			previewApprovals = previewApprovals.map((a) => (a.id === id ? updated : a))
+			return updated
+		},
+		async getAiSettings() {
+			return { aiEnabled: previewAiEnabled, aiTracePrompts: false, providers: previewAiProviders }
+		},
+		async updateAiSettings(body) {
+			if (body.aiEnabled !== undefined) previewAiEnabled = body.aiEnabled
+			return { aiEnabled: previewAiEnabled, aiTracePrompts: false, providers: previewAiProviders }
+		},
+		async upsertAiProvider(body) {
+			const provider: AiProviderDto = {
+				id: generateUuidV7(),
+				kind: body.kind,
+				name: body.name,
+				baseUrl: body.baseUrl,
+				hasApiKey: body.apiKey !== undefined && body.apiKey !== null,
+				chatModel: body.chatModel ?? null,
+				embeddingModel: body.embeddingModel ?? null,
+				isDefault: previewAiProviders.length === 0,
+				createdAt: new Date().toISOString()
+			}
+			previewAiProviders = [...previewAiProviders.filter((p) => p.name !== provider.name), provider]
+			return provider
+		},
+		// M5: shared inbox mail — small in-memory seed so preview mode renders a real inbox
+		async listMailAccounts() {
+			return previewMailAccounts
+		},
+		async createMailAccount(body) {
+			const account: MailAccountDto = {
+				id: generateUuidV7(),
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				provider: body.provider,
+				address: body.address,
+				displayName: body.displayName ?? null,
+				defaultInboxId: body.defaultInboxId ?? null,
+				status: 'pending_verification',
+				statusDetail: null,
+				lastSyncedAt: null,
+				createdAt: new Date().toISOString(),
+				updatedAt: new Date().toISOString(),
+				version: 1,
+				inboundUrl: null
+			}
+			previewMailAccounts = [...previewMailAccounts, account]
+			return account
+		},
+		async updateMailAccount(id, body) {
+			const existing = previewMailAccounts.find((a) => a.id === id)
+			if (!existing) throw new Error('mail account not found')
+			const updated = { ...existing, ...body, updatedAt: new Date().toISOString() }
+			previewMailAccounts = previewMailAccounts.map((a) => (a.id === id ? updated : a))
+			return updated
+		},
+		async verifyMailAccountDomain() {
+			return { verified: false, missingRecords: ['MX huriro.in'] }
+		},
+		async syncMailAccount() {},
+		async listMailIdentities() {
+			return previewMailIdentities
+		},
+		async createMailIdentity(body) {
+			const identity: MailIdentityDto = {
+				id: generateUuidV7(),
+				accountId: body.accountId,
+				address: body.address,
+				displayName: body.displayName ?? null,
+				isDefault: body.isDefault ?? false,
+				createdAt: new Date().toISOString()
+			}
+			previewMailIdentities = [...previewMailIdentities, identity]
+			return identity
+		},
+		async listMailInboxes() {
+			return previewMailInboxes
+		},
+		async createMailInbox(body) {
+			const inbox: MailInboxDto = {
+				id: generateUuidV7(),
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				name: body.name,
+				position: 'a9',
+				settings: {},
+				openCount: 0,
+				createdAt: new Date().toISOString()
+			}
+			previewMailInboxes = [...previewMailInboxes, inbox]
+			return inbox
+		},
+		async listMailConversations(filter) {
+			const assigneeTarget =
+				filter.assignee === 'me' ? PREVIEW_USER_ID : filter.assignee === 'unassigned' ? null : filter.assignee
+			const data = previewMailConversations.filter(
+				(c) =>
+					(!filter.inboxId || c.inboxId === filter.inboxId) &&
+					(!filter.status || c.status === filter.status) &&
+					(assigneeTarget === undefined || c.assigneeId === assigneeTarget) &&
+					(!filter.q ||
+						c.subject.toLowerCase().includes(filter.q.toLowerCase()) ||
+						(c.customerEmail ?? '').toLowerCase().includes(filter.q.toLowerCase()))
+			)
+			return { data, nextCursor: null }
+		},
+		async getMailTimeline(id) {
+			const conv = previewMailConversations.find((c) => c.id === id)
+			if (!conv) throw new Error('conversation not found')
+			return {
+				conversation: conv,
+				messages: previewMailMessages.filter((m) => m.conversationId === id),
+				events: previewMailEvents.filter((e) => e.conversationId === id),
+				notes: previewMailNotes.filter((n) => n.conversationId === id),
+				drafts: previewMailDrafts.filter((d) => d.conversationId === id && d.status === 'draft'),
+				linkedTasks: [],
+				linkedDocs: []
+			}
+		},
+		async updateMailConversation(id, body) {
+			const existing = previewMailConversations.find((c) => c.id === id)
+			if (!existing) throw new Error('conversation not found')
+			const updated: MailConversationDto = {
+				...existing,
+				...(body.status !== undefined ? { status: body.status } : {}),
+				...(body.assigneeId !== undefined ? { assigneeId: body.assigneeId } : {}),
+				...(body.snoozedUntil !== undefined ? { snoozedUntil: body.snoozedUntil } : {}),
+				updatedAt: new Date().toISOString(),
+				version: existing.version + 1
+			}
+			previewMailConversations = previewMailConversations.map((c) => (c.id === id ? updated : c))
+			return updated
+		},
+		async createMailNote(conversationId, body) {
+			const note: MailNoteDto = {
+				id: generateUuidV7(),
+				conversationId,
+				authorId: PREVIEW_USER_ID,
+				authorName: 'Hagen (Owner)',
+				body: { type: 'doc', content: [] },
+				bodyText: body.bodyText,
+				mentions: [],
+				createdAt: new Date().toISOString()
+			}
+			previewMailNotes = [...previewMailNotes, note]
+			return note
+		},
+		async linkMailConversation() {},
+		async unlinkMailTask() {},
+		async unlinkMailDoc() {},
+		async convertMailToIssue() {
+			return { issueId: generateUuidV7(), identifier: 'HR-42' }
+		},
+		async upsertMailDraft(conversationId, body) {
+			const draft: MailDraftDto = {
+				id: generateUuidV7(),
+				conversationId,
+				identityId: body.identityId,
+				createdBy: PREVIEW_USER_ID,
+				body: { type: 'doc', content: [] },
+				bodyText: body.bodyText ?? '',
+				recipients: body.recipients ?? {},
+				inReplyToId: body.inReplyToId ?? null,
+				scheduledSendAt: null,
+				status: 'draft',
+				lockedBy: null,
+				lockedUntil: null,
+				version: 1,
+				createdAt: new Date().toISOString(),
+				updatedAt: new Date().toISOString()
+			}
+			previewMailDrafts = [
+				...previewMailDrafts.filter(
+					(d) =>
+						!(d.conversationId === conversationId && d.createdBy === PREVIEW_USER_ID && d.status === 'draft')
+				),
+				draft
+			]
+			return draft
+		},
+		async updateMailDraft(draftId, body) {
+			const existing = previewMailDrafts.find((d) => d.id === draftId)
+			if (!existing) throw new Error('draft not found')
+			const updated = {
+				...existing,
+				bodyText: body.bodyText ?? existing.bodyText,
+				recipients: body.recipients ?? existing.recipients,
+				version: existing.version + 1,
+				updatedAt: new Date().toISOString()
+			}
+			previewMailDrafts = previewMailDrafts.map((d) => (d.id === draftId ? updated : d))
+			return updated
+		},
+		async sendMailDraft(draftId) {
+			const existing = previewMailDrafts.find((d) => d.id === draftId)
+			if (!existing) throw new Error('draft not found')
+			const sent: MailDraftDto = {
+				...existing,
+				status: 'sent',
+				updatedAt: new Date().toISOString()
+			}
+			previewMailDrafts = previewMailDrafts.map((d) => (d.id === draftId ? sent : d))
+			return sent
+		},
+		async undoMailDraft(draftId) {
+			const existing = previewMailDrafts.find((d) => d.id === draftId)
+			if (!existing) throw new Error('draft not found')
+			const undone: MailDraftDto = {
+				...existing,
+				status: 'draft',
+				updatedAt: new Date().toISOString()
+			}
+			previewMailDrafts = previewMailDrafts.map((d) => (d.id === draftId ? undone : d))
+			return undone
+		},
+		async discardMailDraft(draftId) {
+			previewMailDrafts = previewMailDrafts.filter((d) => d.id !== draftId)
 		}
 	}
 }

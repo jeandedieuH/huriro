@@ -22,6 +22,14 @@ export { ACTIONS }
 export interface ActorContext {
 	/** User id (users.id) or agent principal id. */
 	readonly principalId: string
+	/**
+	 * Always a users.id — the caller's own id for users, the accountable
+	 * OWNER user for agents (§13.1a). `principalId` stays the attribution
+	 * identity; `userId` is who the agent acts on behalf of.
+	 */
+	readonly userId: string
+	/** Agent principal id when kind === 'agent'; undefined for human actors. */
+	readonly agentId?: string | undefined
 	readonly workspaceId: string
 	readonly kind: 'user' | 'agent'
 	/** Membership status in this workspace; 'none' = not a member. */
@@ -167,6 +175,19 @@ export function can(actor: ActorContext, action: Action, resource: ResourceRef):
 
 	// 6. Workspace-visible resources: ordinary role permission check.
 	return actor.permissions.has(action) ? allow('role') : deny('insufficient_role')
+}
+
+/**
+ * Attribution pair for audit/author columns (§13.1a): humans write as
+ * themselves (`'user'`, own id); agents write as the principal (`'agent'`,
+ * agent id) while `actor.userId` stays the accountable owner — never
+ * impersonating a person.
+ */
+export function attributionOf(actor: ActorContext): {
+	readonly actorType: 'user' | 'agent'
+	readonly actorId: string
+} {
+	return { actorType: actor.kind, actorId: actor.principalId }
 }
 
 /** True when this action needs an ACL lookup (service uses it to decide the query). */

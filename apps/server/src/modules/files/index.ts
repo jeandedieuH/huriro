@@ -7,6 +7,7 @@ import {
 	finalizeFileUpload,
 	getFileMetadata,
 	getFilesByIdsForAttachment,
+	ingestInboundAttachmentFile,
 	initiateFileUpload,
 	loadFileForDownload,
 	processFileQuarantineOutboxEvent,
@@ -19,6 +20,7 @@ export {
 	type BlobStorage,
 	FilesystemBlobStorage,
 	getFilesByIdsForAttachment,
+	ingestInboundAttachmentFile,
 	MemoryBlobStorage,
 	processFileQuarantineOutboxEvent
 }

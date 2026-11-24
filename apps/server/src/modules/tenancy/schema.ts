@@ -85,3 +85,10 @@ export const GrantAclBody = Type.Object({
 		Type.Literal('manage')
 	])
 })
+
+export const AgentsSettingsBody = Type.Object({
+	mcpEnabled: Type.Boolean({
+		description: 'Enable the /mcp + /api/v1/agent surfaces for this workspace (A13.1b)'
+	})
+})
+export const AgentsSettingsResponse = Type.Object({ mcpEnabled: Type.Boolean() })

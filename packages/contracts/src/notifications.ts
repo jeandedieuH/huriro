@@ -14,7 +14,11 @@ export const NotificationKind = Type.Union([
 	Type.Literal('chat.dm'),
 	Type.Literal('chat.reply'),
 	Type.Literal('chat.message'),
-	Type.Literal('channel.access_granted')
+	Type.Literal('channel.access_granted'),
+	Type.Literal('approval.requested'),
+	Type.Literal('mail.assigned'),
+	Type.Literal('mail.mentioned'),
+	Type.Literal('mail.reply_needed')
 ])
 export type NotificationKind = Static<typeof NotificationKind>
 

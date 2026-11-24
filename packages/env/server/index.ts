@@ -149,7 +149,75 @@ export const serverSchemas = {
 	GITHUB_APP_WEBHOOK_SECRET_FILE: z
 		.string()
 		.optional()
-		.describe('Path to file containing GITHUB_APP_WEBHOOK_SECRET (Docker secret)')
+		.describe('Path to file containing GITHUB_APP_WEBHOOK_SECRET (Docker secret)'),
+
+	// ---- M5: shared inbox (§14) ----
+	MAIL_INBOUND_DOMAIN: z
+		.string()
+		.optional()
+		.describe('Domain used for generated inbound-parse addresses, e.g. in.example.com'),
+	MAIL_MAX_MESSAGE_BYTES: z.coerce
+		.number()
+		.int()
+		.min(65_536)
+		.default(52_428_800)
+		.describe('Hard cap on raw MIME size accepted by inbound parse/provider sync'),
+	MAIL_UNDO_SEND_SECONDS: z.coerce
+		.number()
+		.int()
+		.min(0)
+		.max(120)
+		.default(10)
+		.describe('Default undo-send window for outbound replies'),
+	MAIL_PARSE_TIMEOUT_MS: z.coerce
+		.number()
+		.int()
+		.min(100)
+		.default(5_000)
+		.describe('Worker-side MIME parse/sanitize time budget per message'),
+	MAIL_SYNC_INTERVAL_SECONDS: z.coerce
+		.number()
+		.int()
+		.min(15)
+		.default(60)
+		.describe('Poll interval for IMAP/Graph accounts and Gmail backstop sync'),
+	GMAIL_CLIENT_ID: z
+		.string()
+		.optional()
+		.describe('Google OAuth client ID for Gmail mail accounts (falls back to GOOGLE_CLIENT_ID)'),
+	GMAIL_CLIENT_SECRET: z.string().optional().describe('Google OAuth client secret for mail (or use _FILE)'),
+	GMAIL_CLIENT_SECRET_FILE: z
+		.string()
+		.optional()
+		.describe('Path to file containing GMAIL_CLIENT_SECRET (Docker secret)'),
+	MICROSOFT_CLIENT_ID: z.string().optional().describe('Microsoft Entra app client ID for Graph mail'),
+	MICROSOFT_CLIENT_SECRET: z.string().optional().describe('Microsoft Entra client secret (or use _FILE)'),
+	MICROSOFT_CLIENT_SECRET_FILE: z
+		.string()
+		.optional()
+		.describe('Path to file containing MICROSOFT_CLIENT_SECRET (Docker secret)'),
+
+	// ---- agent tool rate limiting (§13.6) ----
+	AGENT_CALLS_PER_MINUTE: z.coerce
+		.number()
+		.int()
+		.min(1)
+		.max(10_000)
+		.default(60)
+		.describe('Per-principal tool calls per minute'),
+	AGENT_MAX_CONCURRENT: z.coerce
+		.number()
+		.int()
+		.min(1)
+		.max(64)
+		.default(4)
+		.describe('Per-principal concurrent tool calls'),
+	AGENT_READ_BYTES_PER_HOUR: z.coerce
+		.number()
+		.int()
+		.min(1024)
+		.default(5_242_880)
+		.describe('Per-credential read result bytes per rolling hour')
 }
 
 /**

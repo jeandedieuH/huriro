@@ -12,13 +12,18 @@
  * twoFactorEnabled→mfa_enabled) — no shadow user table, no sync drift.
  */
 
+import { cimd } from '@better-auth/cimd'
 import { drizzleAdapter } from '@better-auth/drizzle-adapter'
+import { mcp } from '@better-auth/mcp'
+import { oauthDeviceAuthorization } from '@better-auth/oauth-provider'
 import { passkey } from '@better-auth/passkey'
 import { betterAuthSchema, createAppPool, drizzlePg, uuid7 } from '@huriro/db'
+import { AGENT_SCOPES } from '@huriro/domain'
 import { betterAuth } from 'better-auth'
-import { twoFactor } from 'better-auth/plugins'
+import { jwt, twoFactor } from 'better-auth/plugins'
 import { log } from '../../api/observability'
 import type { Config } from '../../env'
+import { createCimdFetch } from './cimd-transport'
 
 export const SOCIAL_PROVIDER_IDS = ['google', 'github', 'apple'] as const
 export type SocialProviderId = (typeof SOCIAL_PROVIDER_IDS)[number]
@@ -55,10 +60,17 @@ export function createAuth(config: Config) {
 		}
 	}
 
+	const publicOrigin = baseUrl.replace(/\/+$/, '')
+	const mcpResource = `${publicOrigin}/mcp`
+	const agentRestResource = `${publicOrigin}/api/v1/agent`
+
 	return betterAuth({
 		appName: config.PASSKEY_RP_NAME,
 		baseURL: baseUrl,
 		secret: config.betterAuthSecret ?? config.secretKey,
+		// The jwt plugin's session-token endpoint stays off — OAuth tokens are
+		// minted only through /oauth2/* with a resource audience (ADR-0019).
+		disabledPaths: ['/token'],
 		database: drizzleAdapter(db, {
 			provider: 'pg',
 			schema: betterAuthSchema,
@@ -101,6 +113,44 @@ export function createAuth(config: Config) {
 			}
 		},
 		plugins: [
+			// Access-token JWTs are signed with the instance JWKS; session JWT
+			// headers stay off (sessions remain cookie-only credentials).
+			jwt({ disableSettingJwtHeader: true }),
+			// mcp() IS the OAuth provider (a separate oauthProvider() cannot be
+			// combined). One issuer, two audiences: the MCP resource plus the
+			// REST agent surface — bound to distinct RFC 8707 resources so a
+			// token minted for one is rejected by the other (ADR-0019).
+			mcp({
+				resource: mcpResource,
+				loginPage: '/sign-in',
+				// Consent screen lands with the OAuth UI in stage 6; the backend
+				// redirects here and stage 6 implements it.
+				consentPage: '/oauth/consent',
+				scopes: ['openid', 'profile', 'email', 'offline_access', ...AGENT_SCOPES],
+				resources: [
+					{
+						identifier: agentRestResource,
+						name: 'Huriro Agent API',
+						allowedScopes: [...AGENT_SCOPES]
+					}
+				],
+				// No consent skip for anything beyond read — first-party CLI included.
+				refreshTokenReuseInterval: 0,
+				allowDynamicClientRegistration: false,
+				// Clients must be explicitly linked to a resource before they can
+				// request tokens for it; CIMD-registered clients get only /mcp.
+				enforcePerClientResources: true,
+				clientRegistrationDefaultResources: [mcpResource]
+			}),
+			cimd({
+				metadataProfile: 'mcp-2026-07-28',
+				fetchClientMetadataResource: createCimdFetch()
+			}),
+			oauthDeviceAuthorization({
+				verificationUri: `${publicOrigin}/device`,
+				expiresIn: '15m',
+				interval: '5s'
+			}),
 			passkey({ rpID, rpName: config.PASSKEY_RP_NAME, origin }),
 			twoFactor({
 				issuer: config.PASSKEY_RP_NAME,

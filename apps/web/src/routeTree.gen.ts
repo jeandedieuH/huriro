@@ -11,8 +11,10 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ChatRouteImport } from './routes/chat'
+import { Route as DeviceRouteImport } from './routes/device'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as InboxRouteImport } from './routes/inbox'
+import { Route as MailRouteImport } from './routes/mail'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SetupRouteImport } from './routes/setup'
@@ -21,6 +23,7 @@ import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as DocsIndexRouteImport } from './routes/docs.index'
 import { Route as DocsSlugRouteImport } from './routes/docs.$slug'
+import { Route as OauthConsentRouteImport } from './routes/oauth/consent'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -32,6 +35,11 @@ const ChatRoute = ChatRouteImport.update({
   path: '/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DeviceRoute = DeviceRouteImport.update({
+  id: '/device',
+  path: '/device',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DocsRoute = DocsRouteImport.update({
   id: '/docs',
   path: '/docs',
@@ -40,6 +48,11 @@ const DocsRoute = DocsRouteImport.update({
 const InboxRoute = InboxRouteImport.update({
   id: '/inbox',
   path: '/inbox',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MailRoute = MailRouteImport.update({
+  id: '/mail',
+  path: '/mail',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OnboardingRoute = OnboardingRouteImport.update({
@@ -82,12 +95,19 @@ const DocsSlugRoute = DocsSlugRouteImport.update({
   path: '/$slug',
   getParentRoute: () => DocsRoute,
 } as any)
+const OauthConsentRoute = OauthConsentRouteImport.update({
+  id: '/oauth/consent',
+  path: '/oauth/consent',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/chat': typeof ChatRoute
+  '/device': typeof DeviceRoute
   '/docs': typeof DocsRouteWithChildren
   '/inbox': typeof InboxRoute
+  '/mail': typeof MailRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
@@ -95,12 +115,15 @@ export interface FileRoutesByFullPath {
   '/sign-up': typeof SignUpRoute
   '/tasks': typeof TasksRoute
   '/docs/$slug': typeof DocsSlugRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/docs/': typeof DocsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/chat': typeof ChatRoute
+  '/device': typeof DeviceRoute
   '/inbox': typeof InboxRoute
+  '/mail': typeof MailRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
@@ -108,14 +131,17 @@ export interface FileRoutesByTo {
   '/sign-up': typeof SignUpRoute
   '/tasks': typeof TasksRoute
   '/docs/$slug': typeof DocsSlugRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/docs': typeof DocsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/chat': typeof ChatRoute
+  '/device': typeof DeviceRoute
   '/docs': typeof DocsRouteWithChildren
   '/inbox': typeof InboxRoute
+  '/mail': typeof MailRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
@@ -123,6 +149,7 @@ export interface FileRoutesById {
   '/sign-up': typeof SignUpRoute
   '/tasks': typeof TasksRoute
   '/docs/$slug': typeof DocsSlugRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/docs/': typeof DocsIndexRoute
 }
 export interface FileRouteTypes {
@@ -130,8 +157,10 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/chat'
+    | '/device'
     | '/docs'
     | '/inbox'
+    | '/mail'
     | '/onboarding'
     | '/settings'
     | '/setup'
@@ -139,12 +168,15 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/tasks'
     | '/docs/$slug'
+    | '/oauth/consent'
     | '/docs/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/chat'
+    | '/device'
     | '/inbox'
+    | '/mail'
     | '/onboarding'
     | '/settings'
     | '/setup'
@@ -152,13 +184,16 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/tasks'
     | '/docs/$slug'
+    | '/oauth/consent'
     | '/docs'
   id:
     | '__root__'
     | '/'
     | '/chat'
+    | '/device'
     | '/docs'
     | '/inbox'
+    | '/mail'
     | '/onboarding'
     | '/settings'
     | '/setup'
@@ -166,20 +201,24 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/tasks'
     | '/docs/$slug'
+    | '/oauth/consent'
     | '/docs/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ChatRoute: typeof ChatRoute
+  DeviceRoute: typeof DeviceRoute
   DocsRoute: typeof DocsRouteWithChildren
   InboxRoute: typeof InboxRoute
+  MailRoute: typeof MailRoute
   OnboardingRoute: typeof OnboardingRoute
   SettingsRoute: typeof SettingsRoute
   SetupRoute: typeof SetupRoute
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
   TasksRoute: typeof TasksRoute
+  OauthConsentRoute: typeof OauthConsentRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -198,6 +237,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/device': {
+      id: '/device'
+      path: '/device'
+      fullPath: '/device'
+      preLoaderRoute: typeof DeviceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/docs': {
       id: '/docs'
       path: '/docs'
@@ -210,6 +256,13 @@ declare module '@tanstack/react-router' {
       path: '/inbox'
       fullPath: '/inbox'
       preLoaderRoute: typeof InboxRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mail': {
+      id: '/mail'
+      path: '/mail'
+      fullPath: '/mail'
+      preLoaderRoute: typeof MailRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/onboarding': {
@@ -268,6 +321,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsSlugRouteImport
       parentRoute: typeof DocsRoute
     }
+    '/oauth/consent': {
+      id: '/oauth/consent'
+      path: '/oauth/consent'
+      fullPath: '/oauth/consent'
+      preLoaderRoute: typeof OauthConsentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -286,14 +346,17 @@ const DocsRouteWithChildren = DocsRoute._addFileChildren(DocsRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ChatRoute: ChatRoute,
+  DeviceRoute: DeviceRoute,
   DocsRoute: DocsRouteWithChildren,
   InboxRoute: InboxRoute,
+  MailRoute: MailRoute,
   OnboardingRoute: OnboardingRoute,
   SettingsRoute: SettingsRoute,
   SetupRoute: SetupRoute,
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
   TasksRoute: TasksRoute,
+  OauthConsentRoute: OauthConsentRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

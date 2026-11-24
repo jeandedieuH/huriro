@@ -4,7 +4,7 @@ import { useCollectionItems, useSyncEngine } from '@huriro/sync-client'
 import { Bell, FileText } from 'lucide-react'
 import { useMemo } from 'react'
 import { StatusIcon } from '@/features/tasks/components/priority-status-badge'
-import { navigateToDoc } from '@/lib/navigation'
+import { navigateToDoc, navigateToMail } from '@/lib/navigation'
 import { useWorkspace } from '@/lib/workspace'
 import { useUiStore } from '@/stores/ui-store'
 
@@ -122,6 +122,10 @@ export function HomeView() {
 				return
 			}
 			setDestination('docs')
+			return
+		}
+		if (n.entityType === 'mail_conversation') {
+			navigateToMail(n.entityId)
 			return
 		}
 		setDestination('inbox')

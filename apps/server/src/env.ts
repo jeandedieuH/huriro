@@ -31,6 +31,8 @@ export interface Config extends Env {
 	readonly vapidPrivateKey: string | undefined
 	readonly githubAppPrivateKey: string | undefined
 	readonly githubAppWebhookSecret: string | undefined
+	readonly gmailClientSecret: string | undefined
+	readonly msClientSecret: string | undefined
 }
 
 let cached: Config | null = null
@@ -62,6 +64,9 @@ export async function loadEnv(source: Record<string, string | undefined> = proce
 		env.GITHUB_APP_PRIVATE_KEY ?? (await readSecretFile(env.GITHUB_APP_PRIVATE_KEY_FILE))
 	const githubAppWebhookSecret =
 		env.GITHUB_APP_WEBHOOK_SECRET ?? (await readSecretFile(env.GITHUB_APP_WEBHOOK_SECRET_FILE))
+	const gmailClientSecret = env.GMAIL_CLIENT_SECRET ?? (await readSecretFile(env.GMAIL_CLIENT_SECRET_FILE))
+	const msClientSecret =
+		env.MICROSOFT_CLIENT_SECRET ?? (await readSecretFile(env.MICROSOFT_CLIENT_SECRET_FILE))
 
 	if (!databaseUrl) problems.push('DATABASE_URL or DATABASE_URL_FILE is required')
 	if (env.HURIRO_ENV === 'production' && !secretKey) {
@@ -104,7 +109,9 @@ export async function loadEnv(source: Record<string, string | undefined> = proce
 		appleClientSecret,
 		vapidPrivateKey,
 		githubAppPrivateKey,
-		githubAppWebhookSecret
+		githubAppWebhookSecret,
+		gmailClientSecret,
+		msClientSecret
 	}
 	return cached
 }

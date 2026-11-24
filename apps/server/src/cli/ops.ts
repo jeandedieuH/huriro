@@ -8,6 +8,7 @@ import { mkdir } from 'node:fs/promises'
 import { migrate, migrationsDir } from '@huriro/db'
 import postgres from 'postgres'
 import { loadEnv } from '../env'
+import { rotateBootstrapSetupToken, SetupError } from '../modules/tenancy'
 
 export async function migrateCmd(args: string[]): Promise<void> {
 	const dir = flag(args, '--dir') ?? migrationsDir
@@ -42,6 +43,31 @@ export async function createAdmin(args: string[]): Promise<void> {
 			ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
 		`
 		console.log(`instance admin: ${row!.id} <${email}>`)
+	} finally {
+		await sql.end()
+	}
+}
+
+export async function setupTokenCmd(): Promise<void> {
+	const env = await loadEnv()
+	const sql = postgres(env.databaseAdminUrl, { max: 1 })
+	try {
+		const { token } = await rotateBootstrapSetupToken(sql)
+		console.log(
+			[
+				'First-run setup URL:',
+				`  ${env.HURIRO_URL}/setup`,
+				'',
+				'ONE-TIME SETUP TOKEN (shown once; only its sha256 is stored):',
+				`  ${token}`
+			].join('\n')
+		)
+	} catch (err) {
+		if (err instanceof SetupError && err.code === 'already_configured') {
+			console.error(err.message)
+			process.exit(1)
+		}
+		throw err
 	} finally {
 		await sql.end()
 	}

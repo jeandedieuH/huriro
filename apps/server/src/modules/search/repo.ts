@@ -346,6 +346,10 @@ export async function executeSearchQuery(
 			deepLink = channelId
 				? `/chat?channel=${channelId}&message=${r.entityId}`
 				: `/chat?message=${r.entityId}`
+		} else if (r.entityType === 'mail_message') {
+			const conversationId =
+				typeof r.metadata?.['conversationId'] === 'string' ? r.metadata['conversationId'] : r.containerId
+			deepLink = conversationId ? `/mail?conversation=${conversationId}` : '/mail'
 		} else {
 			deepLink = `/tasks/issues/${r.entityId}`
 		}

@@ -16,6 +16,6 @@ save = true
 [test]
 # bun test defaults; integration tests that need Docker gate on HURIRO_TESTCONTAINERS.
 coverage = false
-# Integration suites issue hundreds of real HTTP calls + DB txns per test on
-# dev/docker Postgres — the 5s default flakes on Windows and loaded CI.
-timeout = 30000
+# NOTE: `timeout` is not a supported bunfig key in Bun 1.x — suites needing a
+# longer limit pass --timeout in their package.json test script (server,
+# test-utils). Integration tests on dev/docker Postgres flake at the 5s default.

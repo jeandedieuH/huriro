@@ -1,5 +1,18 @@
 import { t } from '@huriro/i18n'
-import { Bell, Download, GitBranch, Keyboard, Palette, SlidersHorizontal, Users, Webhook } from 'lucide-react'
+import {
+	Bell,
+	Bot,
+	CheckCheck,
+	Download,
+	GitBranch,
+	Keyboard,
+	Mail,
+	Palette,
+	SlidersHorizontal,
+	Sparkles,
+	Users,
+	Webhook
+} from 'lucide-react'
 import {
 	SidebarNavItem,
 	SidebarSection,
@@ -44,6 +57,34 @@ export function SettingsSidebarNav({ collapsed }: { readonly collapsed?: boolean
 					active={settingsSection === 'integrations'}
 					collapsed={isCollapsed}
 					onClick={() => setSettingsSection('integrations')}
+				/>
+				<SidebarNavItem
+					icon={<Mail className="size-4" />}
+					label={t('nav.mail')}
+					active={settingsSection === 'mail'}
+					collapsed={isCollapsed}
+					onClick={() => setSettingsSection('mail')}
+				/>
+				<SidebarNavItem
+					icon={<Bot className="size-4" />}
+					label={t('settings.sidebar.agents')}
+					active={settingsSection === 'agents'}
+					collapsed={isCollapsed}
+					onClick={() => setSettingsSection('agents')}
+				/>
+				<SidebarNavItem
+					icon={<CheckCheck className="size-4" />}
+					label={t('settings.sidebar.approvals')}
+					active={settingsSection === 'approvals'}
+					collapsed={isCollapsed}
+					onClick={() => setSettingsSection('approvals')}
+				/>
+				<SidebarNavItem
+					icon={<Sparkles className="size-4" />}
+					label={t('settings.sidebar.ai')}
+					active={settingsSection === 'ai'}
+					collapsed={isCollapsed}
+					onClick={() => setSettingsSection('ai')}
 				/>
 				<SidebarNavItem
 					icon={<Users className="size-4" />}

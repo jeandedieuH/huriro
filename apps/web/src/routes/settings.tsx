@@ -3,6 +3,10 @@ import { createFileRoute } from '@tanstack/react-router'
 import { Moon, Sun } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { MailSettingsPanel } from '@/features/mail/components/mail-settings-panel'
+import { AgentsSettingsPanel } from '@/features/settings/components/agents-panel'
+import { AiSettingsPanel } from '@/features/settings/components/ai-settings-panel'
+import { ApprovalsSettingsPanel } from '@/features/settings/components/approvals-panel'
 import { GithubSettingsPanel } from '@/features/settings/components/github-settings-panel'
 import { NotificationsSettingsPanel } from '@/features/settings/components/notifications-settings-panel'
 import { WebhooksSettingsPanel } from '@/features/settings/components/webhooks-settings-panel'
@@ -66,6 +70,22 @@ function SettingsRoute() {
 
 			<div className={cn(settingsSection === 'integrations' && 'rounded-lg ring-1 ring-primary/50')}>
 				<GithubSettingsPanel />
+			</div>
+
+			<div className={cn(settingsSection === 'mail' && 'rounded-lg ring-1 ring-primary/50')}>
+				<MailSettingsPanel />
+			</div>
+
+			<div className={cn(settingsSection === 'agents' && 'rounded-lg ring-1 ring-primary/50')}>
+				<AgentsSettingsPanel />
+			</div>
+
+			<div className={cn(settingsSection === 'approvals' && 'rounded-lg ring-1 ring-primary/50')}>
+				<ApprovalsSettingsPanel />
+			</div>
+
+			<div className={cn(settingsSection === 'ai' && 'rounded-lg ring-1 ring-primary/50')}>
+				<AiSettingsPanel />
 			</div>
 
 			<div

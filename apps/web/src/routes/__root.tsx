@@ -40,12 +40,15 @@ import { type SocialProviderId, signOut } from '@/lib/auth'
 import {
 	DESTINATION_PATHS,
 	destinationFromPathname,
+	isAllowedOnboardingPath,
 	isAuthPathname,
 	registerAppNavigator,
 	registerChatNavigator,
 	registerDocNavigator,
+	registerMailNavigator,
 	sanitizeRedirectPath
 } from '@/lib/navigation'
+import { buildSignedOAuthQuery, continueOAuth, isOAuthPagePathname } from '@/lib/oauth'
 import {
 	type BootstrappedWorkspace,
 	bootstrapWorkspace,
@@ -117,19 +120,26 @@ function RootComponent() {
 	// Only reset sidebarLevel when the destination actually changes so clicking `<`
 	// to inspect the root menu isn't immediately overridden.
 	const pathname = useRouterState({ select: (s) => s.location.pathname })
+	// OAuth pages carry server-signed query params (consent, device codes) that
+	// must survive the auth-gate bounce to /sign-in and back.
+	const locationSearch = useRouterState({ select: (s) => s.location.searchStr })
 	useEffect(() => {
 		if (isAuthPathname(pathname)) return
 		const dest = destinationFromPathname(pathname)
+		const nextInboxPane = pathname === '/mail' || pathname.startsWith('/mail/') ? 'mail' : 'notifications'
 		const current = useUiStore.getState()
 		if (current.destination !== dest) {
 			useUiStore.setState({
 				destination: dest,
-				sidebarLevel: dest === 'home' ? 'root' : 'feature'
+				sidebarLevel: dest === 'home' ? 'root' : 'feature',
+				...(dest === 'inbox' ? { inboxPane: nextInboxPane } : {})
 			})
+		} else if (dest === 'inbox' && current.inboxPane !== nextInboxPane) {
+			useUiStore.setState({ inboxPane: nextInboxPane })
 		}
 	}, [pathname])
 
-	// Bridge store-mediated navigation (sidebar, palette, G-chords, docs, chat) to the router.
+	// Bridge store-mediated navigation (sidebar, palette, G-chords, docs, chat, mail) to the router.
 	useEffect(() => {
 		registerAppNavigator((dest) => void navigate({ to: DESTINATION_PATHS[dest] }))
 		registerDocNavigator((slug, hash) => {
@@ -152,10 +162,17 @@ function RootComponent() {
 					: {})
 			})
 		})
+		registerMailNavigator((conversationId) => {
+			void navigate({
+				to: '/mail',
+				...(conversationId ? { search: { conversation: conversationId } } : {})
+			})
+		})
 		return () => {
 			registerAppNavigator(null)
 			registerDocNavigator(null)
 			registerChatNavigator(null)
+			registerMailNavigator(null)
 		}
 	}, [navigate])
 
@@ -204,7 +221,12 @@ function RootComponent() {
 	useEffect(() => {
 		if (phase.kind === 'auth') {
 			if (!isAuthPathname(pathname) || pathname === '/onboarding') {
-				const redirectTarget = pathname !== '/' && !isAuthPathname(pathname) ? pathname : undefined
+				const redirectTarget =
+					pathname !== '/' && !isAuthPathname(pathname)
+						? isOAuthPagePathname(pathname)
+							? `${pathname}${locationSearch}`
+							: pathname
+						: undefined
 				void navigate({
 					to: phase.needsSetup ? '/setup' : '/sign-in',
 					...(redirectTarget ? { search: { redirect: redirectTarget } } : {}),
@@ -214,7 +236,7 @@ function RootComponent() {
 			return
 		}
 		if (phase.kind === 'onboarding') {
-			if (pathname !== '/onboarding') {
+			if (!isAllowedOnboardingPath(pathname, phase.needsSetup)) {
 				const redirectTarget = pendingRedirectRef.current ?? undefined
 				void navigate({
 					to: '/onboarding',
@@ -229,9 +251,26 @@ function RootComponent() {
 			pendingRedirectRef.current = null
 			void navigate({ href: target, replace: true })
 		}
-	}, [phase, pathname, navigate])
+	}, [phase, pathname, locationSearch, navigate])
 
 	function handleAuthenticated(redirectTo?: string) {
+		// OAuth authorize flow lands on /sign-in with a server-signed query.
+		// Now that a session exists, /oauth2/continue resumes it (→ consent or
+		// straight to the client redirect) and leaves the app entirely.
+		const signedQuery = buildSignedOAuthQuery(window.location.search)
+		if (signedQuery) {
+			void continueOAuth(signedQuery)
+				.then((result) => {
+					if (result.url) {
+						window.location.assign(result.url)
+						return
+					}
+					setBootAttempt((n) => n + 1)
+				})
+				.catch(() => setBootAttempt((n) => n + 1))
+			preferPreview.current = false
+			return
+		}
 		pendingRedirectRef.current = sanitizeRedirectPath(redirectTo)
 		preferPreview.current = false
 		setBootAttempt((n) => n + 1)
@@ -269,6 +308,16 @@ function RootComponent() {
 				...(search?.redirect ? { search: { redirect: search.redirect } } : {})
 			})
 		}
+	}
+
+	// Consent + device pages are auth-flow screens, not workspace screens —
+	// render them without the app shell even when a workspace is booted.
+	if (phase.kind === 'ready' && isOAuthPagePathname(pathname)) {
+		return (
+			<I18nProvider i18n={i18n}>
+				<Outlet />
+			</I18nProvider>
+		)
 	}
 
 	if (phase.kind === 'ready' && !(phase.boot.isPreview && isAuthPathname(pathname))) {
@@ -322,7 +371,7 @@ function RootComponent() {
 		return (
 			<I18nProvider i18n={i18n}>
 				<AuthFlowProvider value={authFlowValue}>
-					{pathname === '/onboarding' ? (
+					{isAllowedOnboardingPath(pathname, phase.needsSetup) ? (
 						<Outlet />
 					) : (
 						<AuthLayout

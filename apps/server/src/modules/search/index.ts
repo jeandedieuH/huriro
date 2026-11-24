@@ -5,7 +5,8 @@ import { workspaceDerive } from '../tenancy'
 import { SearchQuery } from './schema'
 import { processSearchOutboxEvent, searchWorkspace } from './service'
 
-export { processSearchOutboxEvent }
+export { assertCanSearch } from './policy'
+export { processSearchOutboxEvent, searchWorkspace }
 
 export function searchModule(sql: Sql, auth: Auth | null) {
 	return new Elysia({ name: 'huriro.search' })

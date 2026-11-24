@@ -6,12 +6,17 @@ export type AppDestination = 'home' | 'inbox' | 'tasks' | 'docs' | 'chat' | 'set
 export type SidebarLevel = 'root' | 'feature'
 export type TasksPreset = 'all' | 'my-tasks' | 'this-week' | 'my-week' | 'overdue' | 'due-soon' | 'trash'
 export type InboxFilter = 'unread' | 'all' | 'assigned' | 'mentions' | 'archived'
+export type InboxPane = 'notifications' | 'mail'
 export type SettingsSection =
 	| 'general'
 	| 'notifications'
 	| 'imports'
 	| 'webhooks'
+	| 'agents'
+	| 'approvals'
+	| 'ai'
 	| 'integrations'
+	| 'mail'
 	| 'appearance'
 export type TasksLayout = 'list' | 'board' | 'my-work'
 export type DocSidePanel = 'comments' | 'versions' | 'toc' | null
@@ -43,6 +48,7 @@ export interface UiState {
 	activeProjectId: string | null
 	tasksPreset: TasksPreset
 	inboxFilter: InboxFilter
+	inboxPane: InboxPane
 	settingsSection: SettingsSection
 	tasksLayout: TasksLayout
 	density: DisplayDensity
@@ -85,6 +91,7 @@ export interface UiState {
 	setActiveProjectId: (projectId: string | null) => void
 	setTasksPreset: (preset: TasksPreset) => void
 	setInboxFilter: (filter: InboxFilter) => void
+	setInboxPane: (pane: InboxPane) => void
 	setSettingsSection: (section: SettingsSection) => void
 	setTasksLayout: (layout: TasksLayout) => void
 	setDensity: (density: DisplayDensity) => void
@@ -132,6 +139,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 	activeProjectId: null,
 	tasksPreset: 'all',
 	inboxFilter: 'unread',
+	inboxPane: 'notifications',
 	settingsSection: 'imports',
 	tasksLayout: 'list',
 	density: 'comfortable',
@@ -164,7 +172,8 @@ export const useUiStore = create<UiState>((set, get) => ({
 	setDestination: (destination) => {
 		set({
 			destination,
-			sidebarLevel: destination === 'home' ? 'root' : 'feature'
+			sidebarLevel: destination === 'home' ? 'root' : 'feature',
+			...(destination === 'inbox' ? { inboxPane: 'notifications' as const } : {})
 		})
 		navigateToDestination(destination)
 	},
@@ -181,7 +190,8 @@ export const useUiStore = create<UiState>((set, get) => ({
 			focusedIssueId: null,
 			selectedIssueIds: []
 		})),
-	setInboxFilter: (inboxFilter) => set({ inboxFilter }),
+	setInboxFilter: (inboxFilter) => set({ inboxFilter, inboxPane: 'notifications' }),
+	setInboxPane: (inboxPane) => set({ inboxPane }),
 	setSettingsSection: (settingsSection) => set({ settingsSection }),
 	setTasksLayout: (tasksLayout) => set({ tasksLayout }),
 	setDensity: (density) => set({ density }),

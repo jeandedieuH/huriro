@@ -1,0 +1,15 @@
+Huriro — a secure, self-hostable, modular workspace platform.
+
+Base URL: <instance>/api/v1 (REST) · <instance>/mcp (Model Context Protocol).
+
+Auth:
+- Humans: session cookie (better-auth) + X-Huriro-Client CSRF header; tenant routes also need X-Workspace-Id.
+- Agents/MCP/CLI: OAuth 2.0 bearer tokens, audience-separated — tokens minted for /mcp work ONLY on /mcp; tokens for /api/v1/agent work ONLY there. CLI uses the device authorization grant (urn:ietf:params:oauth:grant-type:device_code, client huriro-cli).
+- CI/automation: workspace API keys hrk_<prefix>_<secret> (created via POST /api/v1/agents/api-keys, session + agent.manage) are REST-audience only — rejected on /mcp and on session routes.
+- Discovery: /.well-known/oauth-protected-resource and /.well-known/oauth-authorization-server (S256 PKCE only, no dynamic registration).
+
+Agent tool calls: POST /api/v1/agent/tools/<tool.name> with {arguments…}-shaped body, X-Workspace-Id, optional Idempotency-Key. GET /api/v1/agent/tools returns the manifest. On /mcp the same tools are registered on a stateless Streamable-HTTP endpoint (POST only).
+
+Markdown representations: GET /api/v1/issues/<id-or-key>.md and /api/v1/docs/<id-or-slug>.md (agent twins under /api/v1/agent/…) return text/markdown with untrusted-content wrapping.
+
+OpenAPI: docs/api/openapi.json (generated; do not edit by hand). CLI reference: docs/api/cli.md (generated).

@@ -229,4 +229,74 @@ describe('rls coverage', () => {
 			})
 		).toBe(false)
 	})
+
+	test('M3 agent tables: cross-tenant deny + agent_tool_calls is append-only', async () => {
+		if (skip()) return
+		const { wsA, wsB, userA, userB } = await seedTwoTenants(db!.owner)
+
+		// Seed a principal + tool-call row in wsA via the owner pool.
+		const [principal] = await db!.owner<{ id: string }[]>`
+			INSERT INTO agent_principals (workspace_id, kind, name, owner_user_id, scope_ceiling)
+			VALUES (${wsA.id}, 'automation', 'rls-test-agent', ${userA.id}, '{tasks.read}'::text[])
+			RETURNING id
+		`
+		const [call] = await db!.owner<{ id: string }[]>`
+			INSERT INTO agent_tool_calls
+				(workspace_id, agent_id, owner_user_id, tool, args_hash, requested_tier, effective_tier, status)
+			VALUES
+				(${wsA.id}, ${principal!.id}, ${userA.id}, 'tasks.search', 'h', 'R0', 'R0', 'ok')
+			RETURNING id
+		`
+
+		// wsB context sees neither row (as huriro_app, never the owner).
+		const foreignCount = await withWorkspace(
+			db!.app,
+			{ workspaceId: wsB.id, userId: userB.id },
+			async (tx) => {
+				const [a] = await tx<{ n: number }[]>`
+					SELECT count(*)::int AS n FROM agent_principals WHERE workspace_id = ${wsA.id}`
+				const [c] = await tx<{ n: number }[]>`
+					SELECT count(*)::int AS n FROM agent_tool_calls WHERE workspace_id = ${wsA.id}`
+				return a!.n + c!.n
+			}
+		)
+		expect(foreignCount).toBe(0)
+
+		// Append-only: huriro_app has SELECT+INSERT but no UPDATE/DELETE grant.
+		// Each denial runs in its own tx — a permission error aborts the block —
+		// and queries are awaited inside try/catch because postgres.js Query
+		// objects start eagerly (rejects matchers race otherwise).
+		const denied = async (q: PromiseLike<unknown>) => {
+			try {
+				await q
+				return null
+			} catch (e) {
+				return e as { code?: string; message?: string }
+			}
+		}
+		// Denials run on the bare pool: a failed statement inside sql.begin aborts
+		// the whole tx, and the ACL check fires before any tenant policy anyway.
+		const updErr = await denied(db!.app`UPDATE agent_tool_calls SET status = 'error' WHERE id = ${call!.id}`)
+		expect(updErr?.code ?? updErr?.message ?? '').toMatch(/42501|permission denied/)
+		const delErr = await denied(db!.app`DELETE FROM agent_tool_calls WHERE id = ${call!.id}`)
+		expect(delErr?.code ?? delErr?.message ?? '').toMatch(/42501|permission denied/)
+
+		// INSERT in the right tenant still works (the dispatcher depends on it).
+		await withWorkspace(db!.app, { workspaceId: wsA.id, userId: userA.id }, async (tx) => {
+			await tx`
+				INSERT INTO agent_tool_calls
+					(workspace_id, agent_id, owner_user_id, tool, args_hash, requested_tier, effective_tier, status)
+				VALUES
+					(${wsA.id}, ${principal!.id}, ${userA.id}, 'tasks.get', 'h2', 'R0', 'R0', 'ok')
+			`
+		})
+		// A foreign-workspace insert is rejected (RLS WITH CHECK and/or composite FK).
+		const insErr = await denied(db!.app`
+			INSERT INTO agent_tool_calls
+				(workspace_id, agent_id, owner_user_id, tool, args_hash, requested_tier, effective_tier, status)
+			VALUES
+				(${wsB.id}, ${principal!.id}, ${userB.id}, 'tasks.get', 'h3', 'R0', 'R0', 'ok')
+		`)
+		expect(insErr).not.toBeNull()
+	})
 })

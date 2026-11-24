@@ -15,10 +15,11 @@ import { log } from './api/observability'
 import { doctor } from './cli/doctor'
 import { genenv } from './cli/genenv'
 import { init } from './cli/init'
-import { backup, createAdmin, health, migrateCmd, restore } from './cli/ops'
+import { backup, createAdmin, health, migrateCmd, restore, setupTokenCmd } from './cli/ops'
 import { loadEnv } from './env'
 import { FilesystemBlobStorage } from './modules/files'
-import { createAuth } from './modules/identity'
+import { createAuth, ensureAgentOAuthSeed } from './modules/identity'
+import { ensureBootstrapSetupToken } from './modules/tenancy'
 import { createCollabRuntime, startRealtime } from './realtime'
 import { InProcessPubSub, PostgresNotifyPubSub } from './realtime/pubsub'
 import { startWorker } from './worker'
@@ -29,6 +30,7 @@ const USAGE = `huriro <command>
   init [--domain D] [--dir P]            write secrets, .env, Caddyfile, setup token
   doctor                                 preflight checks with fix hints
   migrate                                apply pending migrations (advisory-locked)
+  setup-token                            generate/rotate one-time setup token (before setup)
   create-admin --email E [--name N]      grant instance admin
   backup [--out DIR] [--verify]          pg_dump to file; --verify restores into scratch db
   restore <file> --yes                   pg_restore over DATABASE_ADMIN_URL's db
@@ -47,6 +49,8 @@ async function main() {
 			return doctor(args)
 		case 'migrate':
 			return migrateCmd(args)
+		case 'setup-token':
+			return setupTokenCmd()
 		case 'create-admin':
 			return createAdmin(args)
 		case 'backup':
@@ -85,6 +89,26 @@ async function serve(args: string[]) {
 	const applied = await migrate(admin, migrationsDir)
 	if (applied.length > 0) log.info({ applied: applied.map((m) => m.name) }, 'migrations applied')
 
+	if (role === 'api' || role === 'all') {
+		const bootstrap = await ensureBootstrapSetupToken(admin)
+		if (bootstrap.status === 'generated') {
+			console.log(
+				[
+					'',
+					`First-run setup is not complete yet. Open ${env.HURIRO_URL}/setup`,
+					'ONE-TIME SETUP TOKEN (shown once; only its sha256 is stored):',
+					`  ${bootstrap.token}`,
+					''
+				].join('\n')
+			)
+		} else if (bootstrap.status === 'existing') {
+			log.info(
+				{ setupUrl: `${env.HURIRO_URL}/setup` },
+				'first-run setup pending — use the setup token printed by huriro init or initial boot (or run `huriro setup-token` to rotate)'
+			)
+		}
+	}
+
 	const app = createAppPool(env.databaseUrl, { max: 10 })
 	const stoppers: (() => Promise<void> | void)[] = []
 
@@ -99,6 +123,7 @@ async function serve(args: string[]) {
 	stoppers.push(() => pubsub.close())
 
 	const auth = role === 'api' || role === 'realtime' || role === 'all' ? createAuth(env) : null
+	if (auth) await ensureAgentOAuthSeed(auth)
 	const collabTicketSecret = env.betterAuthSecret ?? env.secretKey ?? 'huriro-dev-collab'
 	const rootSecret = resolveRootEnvelopeSecret(env.secretKey)
 	const blobStorage = new FilesystemBlobStorage(env.BLOB_DIR)
@@ -123,6 +148,38 @@ async function serve(args: string[]) {
 			return { host: env.SMTP_URL, from: env.SMTP_FROM }
 		}
 	})()
+	const mailConfig = (() => {
+		let smtpRelay: { host: string; port: number; secure: boolean; user?: string; pass?: string } | undefined
+		if (env.SMTP_URL) {
+			try {
+				const u = new URL(env.SMTP_URL)
+				smtpRelay = {
+					host: u.hostname,
+					port: u.port ? Number.parseInt(u.port, 10) : u.protocol === 'smtps:' ? 465 : 587,
+					secure: u.protocol === 'smtps:',
+					...(u.username ? { user: decodeURIComponent(u.username) } : {}),
+					...(u.password ? { pass: decodeURIComponent(u.password) } : {})
+				}
+			} catch {
+				smtpRelay = { host: env.SMTP_URL, port: 587, secure: false }
+			}
+		}
+		return {
+			inboundDomain: env.MAIL_INBOUND_DOMAIN,
+			publicBaseUrl: env.HURIRO_URL,
+			maxMessageBytes: env.MAIL_MAX_MESSAGE_BYTES,
+			undoSendSeconds: env.MAIL_UNDO_SEND_SECONDS,
+			...(env.GMAIL_CLIENT_ID || env.GOOGLE_CLIENT_ID
+				? { gmailClientId: env.GMAIL_CLIENT_ID ?? env.GOOGLE_CLIENT_ID }
+				: {}),
+			...(env.gmailClientSecret || env.googleClientSecret
+				? { gmailClientSecret: env.gmailClientSecret ?? env.googleClientSecret }
+				: {}),
+			...(env.MICROSOFT_CLIENT_ID ? { msClientId: env.MICROSOFT_CLIENT_ID } : {}),
+			...(env.msClientSecret ? { msClientSecret: env.msClientSecret } : {}),
+			...(smtpRelay ? { smtpRelay } : {})
+		}
+	})()
 	const collab =
 		role === 'realtime' || role === 'all'
 			? createCollabRuntime({ sql: app, pubsub, ticketSecret: collabTicketSecret })
@@ -143,6 +200,7 @@ async function serve(args: string[]) {
 			...(env.CLAMAV_HOST ? { clamavHost: env.CLAMAV_HOST, clamavPort: env.CLAMAV_PORT } : {}),
 			...(env.githubAppWebhookSecret ? { githubAppWebhookSecret: env.githubAppWebhookSecret } : {}),
 			...(vapid ? { vapid } : {}),
+			mail: mailConfig,
 			allowedOrigins: [new URL(env.HURIRO_URL).origin],
 			...(collab ? { collabBridge: collab.bridge } : {})
 		}).listen(env.PORT)
@@ -157,6 +215,8 @@ async function serve(args: string[]) {
 			blobStorage,
 			rootSecret,
 			smtp,
+			mail: mailConfig,
+			mailSyncIntervalSeconds: env.MAIL_SYNC_INTERVAL_SECONDS,
 			...(env.CLAMAV_HOST ? { clamavHost: env.CLAMAV_HOST, clamavPort: env.CLAMAV_PORT } : {}),
 			...(vapid ? { vapid } : {})
 		})

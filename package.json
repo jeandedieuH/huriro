@@ -26,6 +26,7 @@
 		"soak:collab": "bun --cwd apps/server scripts/collab-soak.ts",
 		"verify": "turbo lint typecheck test build gen:check && bun run check:boundaries && bun run check:licenses",
 		"migrate": "bun --cwd apps/server src/index.ts migrate",
+		"setup-token": "bun --cwd apps/server src/index.ts setup-token",
 		"doctor": "bun --cwd apps/server src/index.ts doctor"
 	},
 	"devDependencies": {

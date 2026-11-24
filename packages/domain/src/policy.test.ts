@@ -4,6 +4,7 @@
  * the test asserts the WHOLE decision, not just allow/deny.
  */
 import { describe, expect, test } from 'bun:test'
+import { actionsForScopes } from './agent-scopes'
 import { ACTIONS, ROLE_RANKS } from './permissions'
 import { type AclLevel, type ActorContext, can, type Decision, type ResourceRef } from './policy'
 
@@ -12,6 +13,7 @@ const WS = '018f7c9e-7b2a-7c3d-8e4f-5a6b7c8d9e0f'
 function actor(over: Partial<ActorContext> = {}): ActorContext {
 	return {
 		principalId: 'user-1',
+		userId: 'user-1',
 		workspaceId: WS,
 		kind: 'user',
 		membership: 'active',
@@ -362,6 +364,53 @@ const CASES: Case[] = [
 		resource: wsResource,
 		expect: { effect: 'deny', reason: 'agent_scope' }
 	},
+	{
+		// Read-only token scope never implies a write action (§13.3).
+		name: 'agent with read-only scope cannot write',
+		actor: actor({
+			kind: 'agent',
+			agentScopeCeiling: actionsForScopes(['tasks.read'], ['tasks.read'])
+		}),
+		action: 'issue.write',
+		resource: { type: 'project', id: 'p1', visibility: 'workspace', acl: null },
+		expect: { effect: 'deny', reason: 'agent_scope' }
+	},
+	{
+		// Token ∩ ceiling: token holds tasks.write but the principal's ceiling
+		// only ever allowed tasks.read — the narrower set wins.
+		name: 'agent ceiling narrower than token scope denies',
+		actor: actor({
+			kind: 'agent',
+			agentScopeCeiling: actionsForScopes(['tasks.read', 'tasks.write'], ['tasks.read'])
+		}),
+		action: 'issue.write',
+		resource: { type: 'project', id: 'p1', visibility: 'workspace', acl: null },
+		expect: { effect: 'deny', reason: 'agent_scope' }
+	},
+	{
+		// Role ∩ ceiling: wide ceiling, but the owner's role lacks issue.delete.
+		name: 'agent role narrower than ceiling denies',
+		actor: actor({
+			kind: 'agent',
+			agentScopeCeiling: new Set(ACTIONS)
+		}),
+		action: 'issue.delete',
+		resource: { type: 'project', id: 'p1', visibility: 'workspace', acl: null },
+		expect: { effect: 'deny', reason: 'insufficient_role' }
+	},
+	{
+		// Membership is re-resolved per call (§13.2): a suspended owner denies
+		// before the ceiling is even consulted.
+		name: 'agent with suspended owner membership is denied',
+		actor: actor({
+			kind: 'agent',
+			membership: 'suspended',
+			agentScopeCeiling: new Set(ACTIONS)
+		}),
+		action: 'issue.read',
+		resource: { type: 'project', id: 'p1', visibility: 'workspace', acl: null },
+		expect: { effect: 'deny', reason: 'suspended' }
+	},
 
 	// --- imports -------------------------------------------------------------
 	{
@@ -462,6 +511,29 @@ const CASES: Case[] = [
 		actor: actor(),
 		action: 'file.write',
 		resource: { type: 'channel', id: 'c1', visibility: 'workspace', acl: null },
+		expect: { effect: 'allow', via: 'role' }
+	},
+
+	// --- AI gateway ----------------------------------------------------------
+	{
+		name: 'member can use AI features (ai.use)',
+		actor: actor({ permissions: new Set([...actor().permissions, 'ai.use']) }),
+		action: 'ai.use',
+		resource: wsResource,
+		expect: { effect: 'allow', via: 'role' }
+	},
+	{
+		name: 'member cannot manage AI providers (ai.manage)',
+		actor: actor(),
+		action: 'ai.manage',
+		resource: wsResource,
+		expect: { effect: 'deny', reason: 'insufficient_role' }
+	},
+	{
+		name: 'admin can manage AI providers',
+		actor: adminActor(),
+		action: 'ai.manage',
+		resource: wsResource,
 		expect: { effect: 'allow', via: 'role' }
 	}
 ]

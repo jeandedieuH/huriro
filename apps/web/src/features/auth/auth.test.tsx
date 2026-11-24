@@ -1,6 +1,7 @@
 import { activateI18n, t } from '@huriro/i18n'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { isAllowedOnboardingPath } from '@/lib/navigation'
 import { expectNoViolations } from '@/lib/test-setup'
 import { OnboardingForm } from './components/onboarding-form'
 import { SetupForm } from './components/setup-form'
@@ -248,6 +249,104 @@ describe('auth forms', () => {
 				method: 'POST',
 				body: JSON.stringify({ name: 'Acme Labs', slug: 'acme-labs' })
 			})
+		)
+
+		await expectNoViolations(container)
+	})
+
+	it('isAllowedOnboardingPath admits /setup only while bootstrap is pending', () => {
+		expect(isAllowedOnboardingPath('/onboarding', false)).toBe(true)
+		expect(isAllowedOnboardingPath('/onboarding', true)).toBe(true)
+		expect(isAllowedOnboardingPath('/setup', true)).toBe(true)
+		expect(isAllowedOnboardingPath('/setup', false)).toBe(false)
+		expect(isAllowedOnboardingPath('/sign-in', true)).toBe(false)
+		expect(isAllowedOnboardingPath('/tasks', true)).toBe(false)
+	})
+
+	it('OnboardingForm shows first-run setup CTA when needsSetup is true and passes axe', async () => {
+		const onNavigate = vi.fn()
+		const { container } = render(
+			<AuthFlowProvider
+				value={{
+					needsSetup: true,
+					socialProviders: [],
+					onboardingUser: { id: 'u-1', email: 'ada@huriro.dev', name: 'Ada' },
+					onAuthenticated: vi.fn(),
+					onUsePreview: vi.fn(),
+					onSignOut: async () => {},
+					onNavigate
+				}}
+			>
+				<OnboardingForm
+					user={{ id: 'u-1', email: 'ada@huriro.dev', name: 'Ada' }}
+					needsSetup
+					redirectTo="/tasks"
+					onComplete={vi.fn()}
+					onSignOut={async () => {}}
+				/>
+			</AuthFlowProvider>
+		)
+
+		expect(screen.getByText(t('auth.onboarding.setup-required'))).toBeInTheDocument()
+		const setupLink = screen.getByRole('link', { name: t('auth.sign-in.setup-link') })
+		expect(setupLink).toHaveAttribute('href', '/setup?redirect=%2Ftasks')
+		fireEvent.click(setupLink)
+		expect(onNavigate).toHaveBeenCalledWith('/setup', { redirect: '/tasks' })
+
+		await expectNoViolations(container)
+	})
+
+	it('SetupForm pre-fills signedInUser fields and exposes sign-out cleanly', async () => {
+		const onSignOut = vi.fn(async () => {})
+		const { container } = render(
+			<SetupForm
+				needsSetup
+				signedInUser={{ id: 'u-1', email: 'ada@huriro.dev', name: 'Ada Lovelace' }}
+				hideSwitchPrompt
+				onComplete={vi.fn()}
+				onSignOut={onSignOut}
+			/>
+		)
+
+		expect(
+			screen.getByText(t('auth.onboarding.signed-in-as', { email: 'ada@huriro.dev' }))
+		).toBeInTheDocument()
+		expect((screen.getByLabelText(t('auth.display-name')) as HTMLInputElement).value).toBe('Ada Lovelace')
+		expect((screen.getByLabelText(t('auth.email')) as HTMLInputElement).value).toBe('ada@huriro.dev')
+
+		fireEvent.click(screen.getByRole('button', { name: t('auth.sign-out') }))
+		await waitFor(() => expect(onSignOut).toHaveBeenCalled())
+
+		await expectNoViolations(container)
+	})
+
+	it('SignUpForm blocks account creation while needsSetup is true and passes axe', async () => {
+		const onNavigate = vi.fn()
+		const { container } = render(
+			<AuthFlowProvider
+				value={{
+					needsSetup: true,
+					socialProviders: ['google'],
+					onboardingUser: null,
+					onAuthenticated: vi.fn(),
+					onUsePreview: vi.fn(),
+					onSignOut: async () => {},
+					onNavigate
+				}}
+			>
+				<SignUpForm needsSetup redirectTo="/docs" onComplete={vi.fn()} />
+			</AuthFlowProvider>
+		)
+
+		expect(screen.getByText(t('auth.sign-up.setup-required'))).toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: t('auth.sign-up.submit') })).not.toBeInTheDocument()
+		expect(screen.getByRole('link', { name: t('auth.sign-in.setup-link') })).toHaveAttribute(
+			'href',
+			'/setup?redirect=%2Fdocs'
+		)
+		expect(screen.getByRole('link', { name: t('auth.sign-in.title') })).toHaveAttribute(
+			'href',
+			'/sign-in?redirect=%2Fdocs'
 		)
 
 		await expectNoViolations(container)

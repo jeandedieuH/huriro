@@ -4,7 +4,23 @@
  * DB-backed paths live in the integration suite (packages/test-utils harness).
  */
 import { describe, expect, test } from 'bun:test'
+import type { Sql } from '@huriro/db'
+import type { Auth } from '../modules/identity'
 import { createApp } from './app'
+
+function createSetupSqlStub(configured: boolean): Sql {
+	const txFn = async (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> => {
+		const query = strings.join(' ? ').replace(/\s+/g, ' ').trim()
+		if (query.startsWith('SELECT set_config')) return []
+		if (query.startsWith('SELECT value FROM instance_settings')) {
+			return values[0] === 'setup_completed' && configured ? [{ value: true }] : []
+		}
+		throw new Error(`unexpected sql query in unit test: ${query}`)
+	}
+	return Object.assign(txFn, {
+		begin: async <T>(fn: (tx: typeof txFn) => Promise<T>): Promise<T> => fn(txFn)
+	}) as unknown as Sql
+}
 
 // A stub Sql that fails fast — these tests never reach the database.
 const stubSql = new Proxy((() => {}) as never, {
@@ -314,5 +330,94 @@ describe('api contract', () => {
 		expect(res.status).toBe(401)
 		const body = (await res.json()) as { code?: string }
 		expect(body.code).toBe('webhook_signature_invalid')
+	})
+
+	// ---- pre-setup auth gating (§12.2) ----
+
+	test('POST /api/auth/sign-up/email returns 403 problem+json while instance setup is incomplete', async () => {
+		let handlerCalls = 0
+		const gatedApp = createApp({
+			sql: createSetupSqlStub(false),
+			migrationsDir: '.',
+			mode: 'selfhost',
+			auth: {
+				options: { baseURL: 'http://localhost', socialProviders: {} },
+				handler: async () => {
+					handlerCalls += 1
+					return new Response(JSON.stringify({ ok: true }), { status: 200 })
+				}
+			} as unknown as Auth
+		})
+
+		const res = await gatedApp.handle(
+			new Request('http://localhost/api/auth/sign-up/email', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ email: 'stranger@example.com', password: 'Password99!', name: 'Stranger' })
+			})
+		)
+		expect(res.status).toBe(403)
+		expect(res.headers.get('content-type')).toContain('application/problem+json')
+		const body = (await res.json()) as { code?: string }
+		expect(body.code).toBe('setup_required')
+		expect(handlerCalls).toBe(0)
+	})
+
+	test('POST /api/auth/sign-up/email forwards to auth handler after setup completes', async () => {
+		let handlerCalls = 0
+		const openApp = createApp({
+			sql: createSetupSqlStub(true),
+			migrationsDir: '.',
+			mode: 'selfhost',
+			auth: {
+				options: { baseURL: 'http://localhost', socialProviders: {} },
+				handler: async () => {
+					handlerCalls += 1
+					return new Response(JSON.stringify({ token: 'tok' }), {
+						status: 200,
+						headers: { 'content-type': 'application/json' }
+					})
+				}
+			} as unknown as Auth
+		})
+
+		const res = await openApp.handle(
+			new Request('http://localhost/api/auth/sign-up/email', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ email: 'ada@example.com', password: 'Password99!', name: 'Ada' })
+			})
+		)
+		expect(res.status).toBe(200)
+		expect(handlerCalls).toBe(1)
+	})
+
+	test('POST /api/auth/sign-in/email stays reachable while setup is incomplete', async () => {
+		let handlerCalls = 0
+		const gatedApp = createApp({
+			sql: createSetupSqlStub(false),
+			migrationsDir: '.',
+			mode: 'selfhost',
+			auth: {
+				options: { baseURL: 'http://localhost', socialProviders: {} },
+				handler: async () => {
+					handlerCalls += 1
+					return new Response(JSON.stringify({ token: 'tok' }), {
+						status: 200,
+						headers: { 'content-type': 'application/json' }
+					})
+				}
+			} as unknown as Auth
+		})
+
+		const res = await gatedApp.handle(
+			new Request('http://localhost/api/auth/sign-in/email', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ email: 'ada@example.com', password: 'Password99!' })
+			})
+		)
+		expect(res.status).toBe(200)
+		expect(handlerCalls).toBe(1)
 	})
 })
