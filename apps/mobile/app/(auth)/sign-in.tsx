@@ -1,4 +1,5 @@
 import { t } from '@huriro/i18n'
+import axios from 'axios'
 import { useRouter } from 'expo-router'
 import {
 	Alert,
@@ -64,22 +65,25 @@ export default function SignInScreen() {
 		setSubmitError(null)
 		try {
 			const cleanUrl = parsed.data.serverUrl.replace(/\/$/, '')
-			const authRes = await fetch(`${cleanUrl}/api/auth/sign-in/email`, {
-				method: 'POST',
-				headers: {
-					'content-type': 'application/json',
-					'x-huriro-client': 'huriro-mobile',
-					'x-huriro-platform': Platform.OS
-				},
-				body: JSON.stringify({
+			const authRes = await axios.post(
+				`${cleanUrl}/api/auth/sign-in/email`,
+				{
 					email: parsed.data.email,
 					password: parsed.data.password
-				})
-			})
-			if (!authRes.ok) {
+				},
+				{
+					headers: {
+						'x-huriro-client': 'huriro-mobile',
+						'x-huriro-platform': Platform.OS
+					},
+					// Resolve on any status — fetch-equivalent; branch on status below.
+					validateStatus: () => true
+				}
+			)
+			if (authRes.status >= 300) {
 				throw new Error(`Sign-in rejected (${authRes.status})`)
 			}
-			const authBody = (await authRes.json()) as {
+			const authBody = authRes.data as {
 				token?: string
 				user?: { id?: string; email?: string; name?: string }
 			}

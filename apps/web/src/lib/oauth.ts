@@ -9,9 +9,7 @@
  * the signed subset — this mirrors the oauth-provider plugin's
  * `buildSignedOAuthQuery` so the wire contract stays in one format.
  */
-import { env } from './env'
-
-const API_BASE = env.VITE_API_URL ?? ''
+import { api } from './http'
 
 /** Pages that must keep `location.search` when the auth gate bounces to sign-in. */
 export const OAUTH_PAGE_PATHS = ['/oauth/consent', '/device'] as const
@@ -45,14 +43,9 @@ export function hasOAuthQuery(search: string): boolean {
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-	const res = await fetch(`${API_BASE}${path}`, {
-		method: 'POST',
-		credentials: 'include',
-		headers: { 'content-type': 'application/json', 'x-huriro-client': 'huriro-web' },
-		body: JSON.stringify(body)
-	})
-	const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
-	if (!res.ok) {
+	const res = await api.post(path, body)
+	const json = (typeof res.data === 'object' && res.data !== null ? res.data : {}) as Record<string, unknown>
+	if (res.status >= 300) {
 		const message =
 			(typeof json['error_description'] === 'string' && json['error_description']) ||
 			(typeof json['message'] === 'string' && json['message']) ||
@@ -100,12 +93,9 @@ export interface DeviceVerification {
 
 /** Look up a user_code without deciding — shows the user what is being asked. */
 export async function deviceVerify(userCode: string): Promise<DeviceVerification> {
-	const res = await fetch(`${API_BASE}/api/auth/device?user_code=${encodeURIComponent(userCode)}`, {
-		credentials: 'include',
-		headers: { 'x-huriro-client': 'huriro-web' }
-	})
-	const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
-	if (!res.ok) {
+	const res = await api.get(`/api/auth/device?user_code=${encodeURIComponent(userCode)}`)
+	const json = (typeof res.data === 'object' && res.data !== null ? res.data : {}) as Record<string, unknown>
+	if (res.status >= 300) {
 		const message =
 			(typeof json['error_description'] === 'string' && json['error_description']) ||
 			(typeof json['message'] === 'string' && json['message']) ||

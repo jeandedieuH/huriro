@@ -1,8 +1,54 @@
 // Runtime seam — the whole CLI is tested in-process by injecting this (§13.1a).
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import axios from 'axios'
 
 export type FetchLike = (url: string | URL | Request, init?: RequestInit) => Promise<Response>
+
+// Statuses whose responses must not carry a body (per the Fetch spec).
+const NULL_BODY_STATUSES = new Set([101, 204, 205, 304])
+
+/**
+ * The real network transport for the CLI, backed by axios (Node http adapter —
+ * which also honors HTTP(S)_PROXY env vars, useful for corporate-network CLI
+ * installs). Adapted back into a fetch `Response` so the `Io` injection seam
+ * used by tests keeps its fetch-shaped contract.
+ */
+async function axiosFetch(url: string | URL | Request, init?: RequestInit): Promise<Response> {
+	const isRequest = typeof Request !== 'undefined' && url instanceof Request
+	const headers: Record<string, string> = {}
+	const mergeHeaders = (h: Headers): void => {
+		h.forEach((v, k) => {
+			headers[k] = v
+		})
+	}
+	if (isRequest) mergeHeaders(url.headers)
+	if (init?.headers) mergeHeaders(new Headers(init.headers))
+
+	const signal = init?.signal ?? (isRequest ? url.signal : undefined)
+	const res = await axios.request<string>({
+		url: String(isRequest ? url.url : url),
+		method: init?.method ?? (isRequest ? url.method : 'GET'),
+		headers,
+		// CLI request bodies are always strings today (JSON / urlencoded).
+		data: (init?.body ?? (isRequest ? await url.text() : undefined)) as string | undefined,
+		...(signal ? { signal } : {}),
+		responseType: 'text',
+		// Keep the raw body — callers parse JSON themselves through Response.
+		transformResponse: [],
+		validateStatus: () => true
+	})
+	const resHeaders = new Headers()
+	for (const [k, v] of Object.entries(res.headers as Record<string, string | string[] | undefined>)) {
+		if (v === undefined) continue
+		for (const item of Array.isArray(v) ? v : [v]) resHeaders.append(k, item)
+	}
+	return new Response(NULL_BODY_STATUSES.has(res.status) || !res.data ? null : res.data, {
+		status: res.status,
+		statusText: res.statusText,
+		headers: resHeaders
+	})
+}
 
 export interface Io {
 	readonly fetch: FetchLike
@@ -39,7 +85,7 @@ export function defaultConfigDir(env: Record<string, string | undefined>): strin
 
 export function defaultIo(env: Record<string, string | undefined> = process.env): Io {
 	return {
-		fetch: (url, init) => globalThis.fetch(url, init),
+		fetch: (url, init) => axiosFetch(url, init),
 		env,
 		stdout: (t) => process.stdout.write(`${t}\n`),
 		stderr: (t) => process.stderr.write(`${t}\n`),

@@ -1,0 +1,77 @@
+# Root .easignore file for Expo / EAS Build in Prestige Learning monorepo
+
+# Ignore VCS and IDE config
+.git/
+.github/
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+.DS_Store
+
+# Ignore dependencies and package manager files
+node_modules/
+**/node_modules/
+.pnp
+.pnp.js
+.cache/
+yarn-error.log
+
+# Ignore build outputs and caches
+dist/
+**/dist/
+build/
+**/build/
+.turbo/
+**/.turbo/
+.next/
+**/.next/
+web-build/
+**/web-build/
+*.tsbuildinfo
+
+# Ignore Docker files
+Dockerfile*
+docker-compose*.yml
+
+# Ignore documentation, notes, plans and local config files
+.agent/
+.agents/
+.windsurf/
+DEPLOYMENT.md
+README.md
+frontend-plan.md
+master-development-plan.md
+unified_workspace_platform_development_plan.md
+plan.md
+check-failures.ts
+check-recent.ts
+bts.jsonc
+
+# Ignore environment files (handled by EAS secrets/environment variables)
+.env
+.env*.local
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+apps/native/.env
+
+# Ignore temporary and test files
+tmp/
+temp/
+coverage/
+.nyc_output/
+.metro-health-check*
+
+# Ignore heavy folders of other applications in the monorepo (keeping package.json and config files for workspace resolution)
+apps/web/.next/
+apps/web/node_modules/
+
+# Ignore local native build folders (EAS build generates them dynamically)
+apps/native/android/
+apps/native/ios/

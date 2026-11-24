@@ -1,4 +1,5 @@
 import type { GithubImportPayload } from '@huriro/contracts'
+import axios from 'axios'
 import { HttpError } from '../../api/error'
 import type { NormalizedImportDataset, NormalizedImportIssue } from './linear'
 
@@ -53,13 +54,14 @@ export async function fetchGithubRepoPayload(apiToken: string, repo: string): Pr
 		authorization: `Bearer ${apiToken}`,
 		'user-agent': 'huriro-importer'
 	}
-	const res = await fetch(`https://api.github.com/repos/${cleanRepo}/issues?state=all&per_page=100`, {
-		headers
+	const res = await axios.get(`https://api.github.com/repos/${cleanRepo}/issues?state=all&per_page=100`, {
+		headers,
+		validateStatus: () => true
 	})
-	if (!res.ok) {
+	if (res.status >= 300) {
 		throw new HttpError(502, 'internal', `GitHub API responded with ${res.status}`)
 	}
-	const rawIssues = (await res.json()) as {
+	const rawIssues = res.data as {
 		id: number
 		number: number
 		title: string

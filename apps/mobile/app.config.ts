@@ -54,7 +54,10 @@ export default function defineAppConfig({ config }: ExpoConfigContext = {}) {
 			typedRoutes: true
 		},
 		extra: {
-			apiUrl: rawApiUrl
+			apiUrl: rawApiUrl,
+			eas: {
+				projectId: '80e7bbcc-280c-4ed2-9a84-ca4a1c8e88b1'
+			}
 		}
 	}
 }

@@ -35,7 +35,8 @@
 		"verify": "bun run lint && bun run typecheck && bun run test && bun run build"
 	},
 	"dependencies": {
-		"@huriro/agent-tools": "workspace:*"
+		"@huriro/agent-tools": "workspace:*",
+		"axios": "^1.21.1"
 	},
 	"devDependencies": {
 		"@types/node": "^26.6.6"

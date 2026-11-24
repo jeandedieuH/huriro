@@ -25,6 +25,7 @@
 		"@huriro/editor": "workspace:*",
 		"@huriro/env": "workspace:*",
 		"@modelcontextprotocol/server": "2.4.0",
+		"axios": "^1.21.1",
 		"better-auth": "1.7.25",
 		"elysia": "2.0.0-rc.3",
 		"imapflow": "^2.12.1",

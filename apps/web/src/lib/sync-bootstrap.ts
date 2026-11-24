@@ -63,6 +63,7 @@ import type {
 import { PREVIEW_USER_ID } from './api-bridge'
 import type { SocialProviderId } from './auth'
 import { env } from './env'
+import { API_BASE, api } from './http'
 
 export type {
 	AgentApiKeyDto,
@@ -91,28 +92,27 @@ export {
 	PREVIEW_WORKSPACE_ID
 } from './api-bridge'
 
-// Validated client env — unset means same-origin (dev proxy / single ingress).
-const API_BASE = env.VITE_API_URL ?? ''
-
 function createLiveApiBridge(workspaceId: string): TaskApiBridge {
+	// `init` keeps a fetch-shaped surface (method/headers/body-string) so bridge
+	// call sites stay unchanged; transport is the shared axios client.
 	async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-		const res = await fetch(`${API_BASE}${path}`, {
-			credentials: 'include',
-			...init,
+		const res = await api.request<T>({
+			url: path,
+			...(init?.method ? { method: init.method } : {}),
+			data: init?.body,
 			headers: {
 				'content-type': 'application/json',
 				'x-workspace-id': workspaceId,
-				'x-huriro-client': 'huriro-web',
-				...init?.headers
+				...(init?.headers as Record<string, string> | undefined)
 			}
 		})
-		if (!res.ok) {
-			let problemBody: { code?: string; type?: string; detail?: string; title?: string } | null = null
-			try {
-				problemBody = (await res.json()) as { code?: string; type?: string; detail?: string; title?: string }
-			} catch {
-				problemBody = null
-			}
+		if (res.status >= 300) {
+			const problemBody = (typeof res.data === 'object' ? res.data : null) as {
+				code?: string
+				type?: string
+				detail?: string
+				title?: string
+			} | null
 			if (
 				res.status === 503 &&
 				(problemBody?.code === 'read_only_mode' || problemBody?.type?.includes('read_only_mode'))
@@ -123,7 +123,7 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 				problemBody?.detail ?? problemBody?.title ?? `Request to ${path} failed (${res.status})`
 			)
 		}
-		return (await res.json()) as T
+		return res.data as T
 	}
 
 	return {
@@ -418,17 +418,13 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 				})
 			})
 			const bytes = await file.arrayBuffer()
-			const putRes = await fetch(`${API_BASE}${init.uploadUrl}`, {
-				method: 'PUT',
-				credentials: 'include',
+			const putRes = await api.put(init.uploadUrl, bytes, {
 				headers: {
 					'content-type': file.type || 'application/octet-stream',
-					'x-workspace-id': workspaceId,
-					'x-huriro-client': 'huriro-web'
-				},
-				body: bytes
+					'x-workspace-id': workspaceId
+				}
 			})
-			if (!putRes.ok) {
+			if (putRes.status >= 300) {
 				throw new Error(`Upload content failed (${putRes.status})`)
 			}
 			return apiFetch<FileDto>(`/api/v1/files/${encodeURIComponent(init.file.id)}/finalize`, {
@@ -787,11 +783,9 @@ interface SetupState {
 
 async function fetchSetupState(): Promise<SetupState> {
 	try {
-		const statusRes = await fetch(`${API_BASE}/api/v1/setup/status`, {
-			credentials: 'include'
-		})
-		if (statusRes.ok) {
-			const status = (await statusRes.json()) as { configured?: boolean; mode?: 'selfhost' | 'cloud' }
+		const statusRes = await api.get('/api/v1/setup/status')
+		if (statusRes.status < 300) {
+			const status = statusRes.data as { configured?: boolean; mode?: 'selfhost' | 'cloud' }
 			return {
 				needsSetup: status.configured === false,
 				mode: status.mode === 'cloud' ? 'cloud' : 'selfhost'
@@ -805,11 +799,9 @@ async function fetchSetupState(): Promise<SetupState> {
 
 async function fetchSocialProviders(): Promise<readonly SocialProviderId[]> {
 	try {
-		const res = await fetch(`${API_BASE}/api/v1/auth/providers`, {
-			credentials: 'include'
-		})
-		if (res.ok) {
-			const json = (await res.json()) as { providers?: readonly SocialProviderId[] }
+		const res = await api.get('/api/v1/auth/providers')
+		if (res.status < 300) {
+			const json = res.data as { providers?: readonly SocialProviderId[] }
 			return Array.isArray(json.providers) ? json.providers : []
 		}
 	} catch {
@@ -836,27 +828,22 @@ export async function bootstrapWorkspace(opts?: {
 }): Promise<BootResult> {
 	if (opts?.preferPreview) return createPreviewWorkspace()
 	try {
-		const res = await fetch(`${API_BASE}/api/v1/workspaces/current`, {
-			credentials: 'include',
-			headers: { 'x-huriro-client': 'huriro-web' }
-		})
+		const res = await api.get('/api/v1/workspaces/current')
 		if (res.status === 401) {
 			const [setupState, socialProviders] = await Promise.all([fetchSetupState(), fetchSocialProviders()])
 			return { kind: 'auth', needsSetup: setupState.needsSetup, socialProviders }
 		}
-		if (res.ok) {
-			const payload = (await res.json()) as {
+		if (res.status < 300) {
+			const payload = res.data as {
 				data: { id: string; slug: string; name: string; roleKey: string }[]
 			}
 			let userId = PREVIEW_USER_ID
 			let userEmail = ''
 			let userDisplayName = 'User'
 			try {
-				const sessionRes = await fetch(`${API_BASE}/api/auth/get-session`, {
-					credentials: 'include'
-				})
-				if (sessionRes.ok) {
-					const sessionJson = (await sessionRes.json()) as {
+				const sessionRes = await api.get('/api/auth/get-session')
+				if (sessionRes.status < 300) {
+					const sessionJson = sessionRes.data as {
 						user?: { id?: string; email?: string; name?: string }
 					}
 					if (sessionJson.user?.id) userId = sessionJson.user.id
@@ -877,9 +864,9 @@ export async function bootstrapWorkspace(opts?: {
 				}
 			}
 
-			const api = createLiveApiBridge(workspace.id)
+			const bridge = createLiveApiBridge(workspace.id)
 			if (userId === PREVIEW_USER_ID) {
-				const members = await api.listMembers().catch(() => [])
+				const members = await bridge.listMembers().catch(() => [])
 				if (members[0]?.userId) userId = members[0].userId
 				if (members[0]?.displayName) userDisplayName = members[0].displayName
 			}
@@ -900,7 +887,7 @@ export async function bootstrapWorkspace(opts?: {
 			await engine.bootstrap()
 			return {
 				engine,
-				api,
+				api: bridge,
 				workspaceName: workspace.name,
 				currentUserId: userId,
 				userDisplayName,

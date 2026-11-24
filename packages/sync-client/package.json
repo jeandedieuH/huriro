@@ -15,7 +15,8 @@
 		"@huriro/domain": "workspace:*",
 		"@tanstack/db": "1.0.0-rc.1.5",
 		"@tanstack/offline-transactions": "1.2.1",
-		"@tanstack/react-db": "1.0.0-rc.1.5"
+		"@tanstack/react-db": "1.0.0-rc.1.5",
+		"axios": "^1.21.1"
 	},
 	"peerDependencies": {
 		"react": "^19.0.0"

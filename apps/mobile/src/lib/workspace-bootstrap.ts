@@ -5,6 +5,7 @@ import {
 	type ReplicaStorage,
 	type SqliteDatabaseLike
 } from '@huriro/sync-client'
+import type { AxiosRequestConfig } from 'axios'
 import { HuriroMobileApiClient } from './api-client'
 import type { MobileAuthSession } from './auth-store'
 import { deriveWsUrl } from './env'
@@ -138,7 +139,8 @@ export async function bootstrapMobileRuntime(args: {
 	readonly preview?: boolean | undefined
 	readonly sqliteDb?: SqliteDatabaseLike | undefined
 	readonly platform?: 'ios' | 'android' | 'web' | undefined
-	readonly fetchImpl?: typeof fetch | undefined
+	/** Test seam — custom axios adapter routed into both api client and sync transport. */
+	readonly httpAdapter?: AxiosRequestConfig['adapter'] | undefined
 }): Promise<MobileRuntime> {
 	const workspaceId = args.session?.workspaceId ?? MOBILE_PREVIEW_WS_ID
 	const userId = args.session?.userId ?? MOBILE_PREVIEW_USER_ID
@@ -157,7 +159,7 @@ export async function bootstrapMobileRuntime(args: {
 			workspaceId,
 			platform: args.platform,
 			getToken: () => null,
-			fetchImpl: args.fetchImpl
+			httpAdapter: args.httpAdapter
 		})
 		return { engine, api, storage, isPreview: true, dispose: () => engine.dispose() }
 	}
@@ -171,7 +173,8 @@ export async function bootstrapMobileRuntime(args: {
 		getHeaders: () => ({
 			authorization: `Bearer ${session.token}`,
 			'x-huriro-platform': args.platform ?? 'ios'
-		})
+		}),
+		httpAdapter: args.httpAdapter
 	})
 
 	const engine = new HuriroSyncEngine({
@@ -189,7 +192,7 @@ export async function bootstrapMobileRuntime(args: {
 		workspaceId: session.workspaceId,
 		platform: args.platform,
 		getToken: () => session.token,
-		fetchImpl: args.fetchImpl
+		httpAdapter: args.httpAdapter
 	})
 
 	return {

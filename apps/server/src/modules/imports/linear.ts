@@ -1,4 +1,5 @@
 import type { LinearImportPayload } from '@huriro/contracts'
+import axios from 'axios'
 import { HttpError } from '../../api/error'
 
 export interface NormalizedImportIssue {
@@ -103,18 +104,18 @@ export async function fetchLinearTeamPayload(
 			}
 		}
 	`
-	const res = await fetch('https://api.linear.app/graphql', {
-		method: 'POST',
-		headers: {
-			'content-type': 'application/json',
-			authorization: apiToken
-		},
-		body: JSON.stringify({ query, variables: { key: cleanKey } })
-	})
-	if (!res.ok) {
+	const res = await axios.post(
+		'https://api.linear.app/graphql',
+		{ query, variables: { key: cleanKey } },
+		{
+			headers: { authorization: apiToken },
+			validateStatus: () => true
+		}
+	)
+	if (res.status >= 300) {
 		throw new HttpError(502, 'internal', `Linear API responded with ${res.status}`)
 	}
-	const json = (await res.json()) as {
+	const json = res.data as {
 		data?: {
 			teams?: {
 				nodes?: {

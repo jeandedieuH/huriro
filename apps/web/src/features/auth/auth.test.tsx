@@ -1,6 +1,8 @@
 import { activateI18n, t } from '@huriro/i18n'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { api } from '@/lib/http'
 import { isAllowedOnboardingPath } from '@/lib/navigation'
 import { expectNoViolations } from '@/lib/test-setup'
 import { OnboardingForm } from './components/onboarding-form'
@@ -17,12 +19,28 @@ class ResizeObserverStub {
 	disconnect() {}
 }
 
+const originalAdapter = api.defaults.adapter
+
+/** Capture axios traffic through the shared api client (the fetch stub's axios-era equivalent). */
+function stubApiAdapter(
+	respond: (config: InternalAxiosRequestConfig) => { data: unknown; status?: number }
+): { calls: { url: string; method: string; data: unknown }[] } {
+	const calls: { url: string; method: string; data: unknown }[] = []
+	api.defaults.adapter = async (config): Promise<AxiosResponse> => {
+		calls.push({ url: config.url ?? '', method: config.method ?? 'get', data: config.data })
+		const out = respond(config)
+		return { data: out.data, status: out.status ?? 200, statusText: 'OK', headers: {}, config }
+	}
+	return { calls }
+}
+
 describe('auth forms', () => {
 	beforeEach(() => {
 		vi.stubGlobal('ResizeObserver', ResizeObserverStub)
 	})
 
 	afterEach(() => {
+		if (originalAdapter !== undefined) api.defaults.adapter = originalAdapter
 		vi.unstubAllGlobals()
 		vi.restoreAllMocks()
 	})
@@ -31,20 +49,12 @@ describe('auth forms', () => {
 		const assignMock = vi.fn()
 		vi.stubGlobal('location', { ...window.location, assign: assignMock })
 
-		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-			const url = typeof input === 'string' ? input : input.toString()
-			if (url.endsWith('/api/auth/sign-in/social')) {
-				return new Response(
-					JSON.stringify({ url: 'https://accounts.google.com/o/oauth2/v2/auth', redirect: true }),
-					{ status: 200, headers: { 'content-type': 'application/json' } }
-				)
+		const { calls } = stubApiAdapter((config) => {
+			if ((config.url ?? '').endsWith('/api/auth/sign-in/social')) {
+				return { data: { url: 'https://accounts.google.com/o/oauth2/v2/auth', redirect: true } }
 			}
-			return new Response(JSON.stringify({ token: 'tok', user: { id: '1' } }), {
-				status: 200,
-				headers: { 'content-type': 'application/json' }
-			})
+			return { data: { token: 'tok', user: { id: '1' } } }
 		})
-		vi.stubGlobal('fetch', fetchMock)
 
 		const onComplete = vi.fn()
 		const onNavigate = vi.fn()
@@ -108,29 +118,19 @@ describe('auth forms', () => {
 		fireEvent.click(screen.getByRole('button', { name: t('auth.sign-in.submit') }))
 
 		await waitFor(() => expect(onComplete).toHaveBeenCalledWith('/docs/rfc'))
-		expect(fetchMock).toHaveBeenCalledWith(
-			'/api/auth/sign-in/email',
-			expect.objectContaining({
-				method: 'POST',
-				body: JSON.stringify({
-					email: 'ada@huriro.dev',
-					password: 'secret1234',
-					rememberMe: true
-				})
-			})
-		)
+		const signInCall = calls.find((c) => c.url === '/api/auth/sign-in/email')
+		expect(signInCall?.method).toBe('post')
+		expect(JSON.parse(String(signInCall?.data))).toEqual({
+			email: 'ada@huriro.dev',
+			password: 'secret1234',
+			rememberMe: true
+		})
 
 		await expectNoViolations(container)
 	})
 
 	it('SignUpForm checks password strength + confirmation mismatch, submits, links to /sign-in, and passes axe', async () => {
-		const fetchMock = vi.fn(async () => {
-			return new Response(JSON.stringify({ token: 'tok', user: { id: '1' } }), {
-				status: 200,
-				headers: { 'content-type': 'application/json' }
-			})
-		})
-		vi.stubGlobal('fetch', fetchMock)
+		const { calls } = stubApiAdapter(() => ({ data: { token: 'tok', user: { id: '1' } } }))
 
 		const onComplete = vi.fn()
 		const onNavigate = vi.fn()
@@ -173,17 +173,13 @@ describe('auth forms', () => {
 		fireEvent.click(screen.getByRole('button', { name: t('auth.sign-up.submit') }))
 
 		await waitFor(() => expect(onComplete).toHaveBeenCalledWith('/inbox'))
-		expect(fetchMock).toHaveBeenCalledWith(
-			'/api/auth/sign-up/email',
-			expect.objectContaining({
-				method: 'POST',
-				body: JSON.stringify({
-					name: 'Ada Lovelace',
-					email: 'ada@huriro.dev',
-					password: 'CorrectHorse99!'
-				})
-			})
-		)
+		const signUpCall = calls.find((c) => c.url === '/api/auth/sign-up/email')
+		expect(signUpCall?.method).toBe('post')
+		expect(JSON.parse(String(signUpCall?.data))).toEqual({
+			name: 'Ada Lovelace',
+			email: 'ada@huriro.dev',
+			password: 'CorrectHorse99!'
+		})
 
 		await expectNoViolations(container)
 	})
@@ -221,13 +217,7 @@ describe('auth forms', () => {
 	})
 
 	it('OnboardingForm supports workspace creation + invite tabs and passes axe', async () => {
-		const fetchMock = vi.fn(async () => {
-			return new Response(JSON.stringify({ id: 'ws-1', slug: 'acme', name: 'Acme' }), {
-				status: 200,
-				headers: { 'content-type': 'application/json' }
-			})
-		})
-		vi.stubGlobal('fetch', fetchMock)
+		const { calls } = stubApiAdapter(() => ({ data: { id: 'ws-1', slug: 'acme', name: 'Acme' } }))
 
 		const onComplete = vi.fn()
 		const { container } = render(
@@ -243,13 +233,9 @@ describe('auth forms', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: t('auth.onboarding.create-submit') }))
 		await waitFor(() => expect(onComplete).toHaveBeenCalled())
-		expect(fetchMock).toHaveBeenCalledWith(
-			'/api/v1/workspaces',
-			expect.objectContaining({
-				method: 'POST',
-				body: JSON.stringify({ name: 'Acme Labs', slug: 'acme-labs' })
-			})
-		)
+		const createCall = calls.find((c) => c.url === '/api/v1/workspaces')
+		expect(createCall?.method).toBe('post')
+		expect(JSON.parse(String(createCall?.data))).toEqual({ name: 'Acme Labs', slug: 'acme-labs' })
 
 		await expectNoViolations(container)
 	})

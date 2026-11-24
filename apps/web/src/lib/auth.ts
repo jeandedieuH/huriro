@@ -3,26 +3,16 @@
  *   - better-auth routes are mounted at /api/auth/* on the api service
  *   - setup, provider discovery, workspace creation, and invites live under /api/v1/*
  */
-import { env } from './env'
-
-const API_BASE = env.VITE_API_URL ?? ''
+import { api } from './http'
 
 export const SOCIAL_PROVIDER_IDS = ['google', 'github', 'apple'] as const
 export type SocialProviderId = (typeof SOCIAL_PROVIDER_IDS)[number]
 
 /** POST JSON and parse response; surfaces server error messages (problem+json or better-auth). */
 async function post<T = void>(path: string, body: unknown): Promise<T> {
-	const res = await fetch(`${API_BASE}${path}`, {
-		method: 'POST',
-		credentials: 'include',
-		headers: {
-			'content-type': 'application/json',
-			'x-huriro-client': 'huriro-web'
-		},
-		body: JSON.stringify(body)
-	})
-	if (!res.ok) {
-		const parsed = (await res.json().catch(() => null)) as {
+	const res = await api.post(path, body)
+	if (res.status >= 300) {
+		const parsed = (typeof res.data === 'object' ? res.data : null) as {
 			message?: string
 			detail?: string
 			title?: string
@@ -31,9 +21,10 @@ async function post<T = void>(path: string, body: unknown): Promise<T> {
 		throw new Error(message)
 	}
 	if (res.status === 204) return undefined as T
-	const text = await res.text()
-	if (!text) return undefined as T
-	return JSON.parse(text) as T
+	if (!res.data) return undefined as T
+	// axios pre-parses JSON bodies; a raw string here means non-JSON content —
+	// JSON.parse preserves the old res.text()+parse behavior (throws on junk).
+	return (typeof res.data === 'string' ? JSON.parse(res.data) : res.data) as T
 }
 
 export interface SignInInput {
@@ -86,9 +77,9 @@ export async function signInWithSocial(
 
 export async function fetchAuthProviders(): Promise<readonly SocialProviderId[]> {
 	try {
-		const res = await fetch(`${API_BASE}/api/v1/auth/providers`, { credentials: 'include' })
-		if (!res.ok) return []
-		const json = (await res.json()) as { providers?: readonly SocialProviderId[] }
+		const res = await api.get('/api/v1/auth/providers')
+		if (res.status >= 300) return []
+		const json = res.data as { providers?: readonly SocialProviderId[] }
 		return Array.isArray(json.providers) ? json.providers : []
 	} catch {
 		return []

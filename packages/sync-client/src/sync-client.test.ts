@@ -738,47 +738,41 @@ describe('HuriroSyncEngine', () => {
 	})
 
 	test('HttpSyncTransport forwards clientName, credentials, and dynamic headers', async () => {
-		const originalFetch = globalThis.fetch
-		const calls: { url: string; headers: Headers; credentials: RequestCredentials | undefined }[] = []
-		globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-			calls.push({
-				url: String(input),
-				headers: new Headers(init?.headers),
-				credentials: init?.credentials
-			})
-			return new Response(
-				JSON.stringify({
-					cursor: 1,
-					serverTime: new Date().toISOString(),
-					projects: [],
-					projectStatuses: [],
-					labels: [],
-					cycles: [],
-					issues: [],
-					savedViews: [],
-					notifications: [],
-					docPages: []
-				} satisfies SyncSnapshotResponse),
-				{ status: 200, headers: { 'content-type': 'application/json' } }
-			)
-		}) as unknown as typeof fetch
-
-		try {
-			const transport = new HttpSyncTransport({
-				baseUrl: 'https://huriro.example/',
-				workspaceId: WS_ID,
-				clientName: 'huriro-mobile',
-				credentials: 'omit',
-				getHeaders: () => ({ authorization: 'Bearer test-mobile-token' })
-			})
-			await transport.fetchSnapshot()
-			expect(calls).toHaveLength(1)
-			expect(calls[0]?.url).toBe('https://huriro.example/api/v1/sync/snapshot')
-			expect(calls[0]?.credentials).toBe('omit')
-			expect(calls[0]?.headers.get('x-huriro-client')).toBe('huriro-mobile')
-			expect(calls[0]?.headers.get('authorization')).toBe('Bearer test-mobile-token')
-		} finally {
-			globalThis.fetch = originalFetch
+		const calls: { url: string; headers: Headers; withCredentials: boolean | undefined }[] = []
+		const snapshot: SyncSnapshotResponse = {
+			cursor: 1,
+			serverTime: new Date().toISOString(),
+			projects: [],
+			projectStatuses: [],
+			labels: [],
+			cycles: [],
+			issues: [],
+			savedViews: [],
+			notifications: [],
+			docPages: []
 		}
+
+		const transport = new HttpSyncTransport({
+			baseUrl: 'https://huriro.example/',
+			workspaceId: WS_ID,
+			clientName: 'huriro-mobile',
+			credentials: 'omit',
+			getHeaders: () => ({ authorization: 'Bearer test-mobile-token' }),
+			httpAdapter: async (config) => {
+				calls.push({
+					url: config.url ?? '',
+					headers: new Headers(config.headers as Record<string, string>),
+					withCredentials: config.withCredentials
+				})
+				return { data: snapshot, status: 200, statusText: 'OK', headers: {}, config }
+			}
+		})
+		await transport.fetchSnapshot()
+		expect(calls).toHaveLength(1)
+		expect(calls[0]?.url).toBe('https://huriro.example/api/v1/sync/snapshot')
+		// fetch `credentials: 'omit'` ⇔ axios `withCredentials: false`
+		expect(calls[0]?.withCredentials).toBe(false)
+		expect(calls[0]?.headers.get('x-huriro-client')).toBe('huriro-mobile')
+		expect(calls[0]?.headers.get('authorization')).toBe('Bearer test-mobile-token')
 	})
 })

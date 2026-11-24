@@ -21,6 +21,7 @@ import type {
 	UpdateIssueBody
 } from '@huriro/contracts'
 import { generateKeyBetween } from '@huriro/domain'
+import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
 import { HuriroSyncCollections, type PersistedReplicaState } from './collections'
 import {
 	generateUuidV7,
@@ -51,7 +52,7 @@ export class HttpSyncTransport implements SyncTransport {
 	private readonly workspaceId: string
 	private readonly getHeaders: (() => Record<string, string>) | undefined
 	private readonly clientName: string
-	private readonly credentials: RequestCredentials
+	private readonly http: AxiosInstance
 
 	constructor(args: {
 		readonly baseUrl?: string | undefined
@@ -59,12 +60,23 @@ export class HttpSyncTransport implements SyncTransport {
 		readonly getHeaders?: (() => Record<string, string>) | undefined
 		readonly clientName?: string | undefined
 		readonly credentials?: RequestCredentials | undefined
+		/** Test seam — injects a custom axios adapter instead of real network I/O. */
+		readonly httpAdapter?: AxiosRequestConfig['adapter'] | undefined
 	}) {
 		this.baseUrl = (args.baseUrl ?? '').replace(/\/$/, '')
 		this.workspaceId = args.workspaceId
 		this.getHeaders = args.getHeaders
 		this.clientName = args.clientName ?? 'huriro-web'
-		this.credentials = args.credentials ?? 'include'
+		const credentials = args.credentials ?? 'include'
+		this.http = axios.create({
+			// fetch `credentials: 'include'` ⇔ axios `withCredentials: true`
+			// ('same-origin' is the axios/XHR default for same-origin requests).
+			withCredentials: credentials === 'include',
+			// fetch resolves on any HTTP status — keep that contract so the
+			// status-based branching below stays identical.
+			validateStatus: () => true,
+			...(args.httpAdapter ? { adapter: args.httpAdapter } : {})
+		})
 	}
 
 	private buildHeaders(extra?: Record<string, string>): Record<string, string> {
@@ -79,59 +91,58 @@ export class HttpSyncTransport implements SyncTransport {
 
 	async fetchChanges(since: number, limit: number, clientId: string): Promise<SyncChangesResponse> {
 		const url = `${this.baseUrl}/api/v1/sync/changes?since=${since}&limit=${limit}&clientId=${encodeURIComponent(clientId)}`
-		const res = await fetch(url, { credentials: this.credentials, headers: this.buildHeaders() })
+		const res = await this.http.get(url, { headers: this.buildHeaders() })
 		if (res.status === 410) {
 			const err = new Error('sync_cursor_expired') as Error & { status?: number }
 			err.status = 410
 			throw err
 		}
-		if (!res.ok) {
+		if (res.status >= 300) {
 			const err = new Error(`sync/changes failed (${res.status})`) as Error & { status?: number }
 			err.status = res.status
 			throw err
 		}
-		return (await res.json()) as SyncChangesResponse
+		return res.data as SyncChangesResponse
 	}
 
 	async fetchSnapshot(scope?: string): Promise<SyncSnapshotResponse> {
 		const qs = scope ? `?scope=${encodeURIComponent(scope)}` : ''
-		const res = await fetch(`${this.baseUrl}/api/v1/sync/snapshot${qs}`, {
-			credentials: this.credentials,
+		const res = await this.http.get(`${this.baseUrl}/api/v1/sync/snapshot${qs}`, {
 			headers: this.buildHeaders()
 		})
-		if (!res.ok) {
+		if (res.status >= 300) {
 			const err = new Error(`sync/snapshot failed (${res.status})`) as Error & { status?: number }
 			err.status = res.status
 			throw err
 		}
-		return (await res.json()) as SyncSnapshotResponse
+		return res.data as SyncSnapshotResponse
 	}
 
 	async sendBatch(mutations: readonly MutationEnvelope[]): Promise<MutationsBatchResponse> {
 		const idempotencyKey = mutations[0]?.mutationId ?? generateUuidV7()
-		const res = await fetch(`${this.baseUrl}/api/v1/mutations`, {
-			method: 'POST',
-			credentials: this.credentials,
-			headers: this.buildHeaders({ 'idempotency-key': idempotencyKey }),
-			body: JSON.stringify({ mutations })
-		})
-		if (!res.ok) {
+		const res = await this.http.post(
+			`${this.baseUrl}/api/v1/mutations`,
+			{ mutations },
+			{
+				headers: this.buildHeaders({ 'idempotency-key': idempotencyKey })
+			}
+		)
+		if (res.status >= 300) {
 			const err = new Error(`mutations failed (${res.status})`) as Error & { status?: number }
 			err.status = res.status
 			throw err
 		}
-		return (await res.json()) as MutationsBatchResponse
+		return res.data as MutationsBatchResponse
 	}
 
 	async fetchRealtimeTicket(deviceId: string): Promise<{ ticket: string }> {
-		const res = await fetch(`${this.baseUrl}/api/v1/realtime/ticket`, {
-			method: 'POST',
-			credentials: this.credentials,
-			headers: this.buildHeaders(),
-			body: JSON.stringify({ deviceId })
-		})
-		if (!res.ok) throw new Error(`ticket failed (${res.status})`)
-		return (await res.json()) as { ticket: string }
+		const res = await this.http.post(
+			`${this.baseUrl}/api/v1/realtime/ticket`,
+			{ deviceId },
+			{ headers: this.buildHeaders() }
+		)
+		if (res.status >= 300) throw new Error(`ticket failed (${res.status})`)
+		return res.data as { ticket: string }
 	}
 }
 

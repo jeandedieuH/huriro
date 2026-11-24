@@ -135,31 +135,36 @@ describe('Huriro mobile core (§18)', () => {
 	})
 
 	test('HuriroMobileApiClient sends mobile headers and treats web-only billing notice safely', async () => {
-		const seen: { url: string; headers: Headers; credentials: RequestCredentials | undefined }[] = []
+		const seen: { url: string; headers: Headers; withCredentials: boolean | undefined }[] = []
 		const api = new HuriroMobileApiClient({
 			serverUrl: 'https://api.huriro.example',
 			workspaceId: '0190a0b1-0000-7000-8000-000000000001',
 			platform: 'android',
 			getToken: () => 'mobile-bearer-token',
-			fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+			httpAdapter: async (config) => {
 				seen.push({
-					url: String(input),
-					headers: new Headers(init?.headers),
-					credentials: init?.credentials
+					url: config.url ?? '',
+					headers: new Headers(config.headers as Record<string, string>),
+					withCredentials: config.withCredentials
 				})
-				return new Response(JSON.stringify({ code: 'billing_disabled', title: 'Disabled' }), {
+				return {
+					data: { code: 'billing_disabled', title: 'Disabled' },
 					status: 404,
-					headers: { 'content-type': 'application/json' }
-				})
-			}) as unknown as typeof fetch
+					statusText: 'Not Found',
+					headers: {},
+					config
+				}
+			}
 		})
 
 		const summary = await api.getBillingSummaryReadOnly()
 		expect(summary).toBeNull()
+		expect(seen[0]?.url).toBe('/api/v1/billing/subscription')
 		expect(seen[0]?.headers.get('x-huriro-client')).toBe('huriro-mobile')
 		expect(seen[0]?.headers.get('x-huriro-platform')).toBe('android')
 		expect(seen[0]?.headers.get('authorization')).toBe('Bearer mobile-bearer-token')
-		expect(seen[0]?.credentials).toBe('omit')
+		// fetch `credentials: 'omit'` ⇔ axios `withCredentials: false`
+		expect(seen[0]?.withCredentials).toBe(false)
 		expect(t('settings.billing.web-only-mobile')).toContain('Huriro web app')
 	})
 })

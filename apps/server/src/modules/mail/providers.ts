@@ -12,6 +12,7 @@
  * never log them.
  */
 import { createHash } from 'node:crypto'
+import axios from 'axios'
 
 export interface MailAddress {
 	readonly email: string
@@ -169,13 +170,18 @@ export function createGmailTransport(accessToken: string): MailTransport {
 	return {
 		async send(mail) {
 			const raw = await buildRfc822(mail)
-			const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-				method: 'POST',
-				headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
-				body: JSON.stringify({ raw: raw.toString('base64url') })
-			})
-			if (!res.ok) throw new MailProviderError('gmail_send_failed', `Gmail send failed (${res.status})`)
-			const body = (await res.json()) as { id?: string }
+			const res = await axios.post(
+				'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+				{ raw: raw.toString('base64url') },
+				{
+					headers: { authorization: `Bearer ${accessToken}` },
+					// Resolve on any status (fetch semantics) — status is checked below.
+					validateStatus: () => true
+				}
+			)
+			if (res.status >= 300)
+				throw new MailProviderError('gmail_send_failed', `Gmail send failed (${res.status})`)
+			const body = res.data as { id?: string }
 			return { providerMessageId: body.id ?? null, accepted: mail.to.map((a) => a.email), rejected: [] }
 		}
 	}
@@ -186,12 +192,11 @@ export function createGraphTransport(accessToken: string): MailTransport {
 	return {
 		async send(mail) {
 			const raw = await buildRfc822(mail)
-			const res = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
-				method: 'POST',
+			const res = await axios.post('https://graph.microsoft.com/v1.0/me/sendMail', raw.toString('utf8'), {
 				headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'text/plain' },
-				body: raw.toString('utf8')
+				validateStatus: () => true
 			})
-			if (!res.ok && res.status !== 202) {
+			if (res.status >= 300 && res.status !== 202) {
 				throw new MailProviderError('graph_send_failed', `Graph send failed (${res.status})`)
 			}
 			return { providerMessageId: null, accepted: mail.to.map((a) => a.email), rejected: [] }
@@ -270,11 +275,12 @@ export function createImapPoller(): MailPoller {
 }
 
 async function gmailApi(accessToken: string, path: string): Promise<Record<string, unknown>> {
-	const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, {
-		headers: { authorization: `Bearer ${accessToken}` }
+	const res = await axios.get(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, {
+		headers: { authorization: `Bearer ${accessToken}` },
+		validateStatus: () => true
 	})
-	if (!res.ok) throw new MailProviderError('gmail_api_error', `Gmail API ${res.status}`)
-	return (await res.json()) as Record<string, unknown>
+	if (res.status >= 300) throw new MailProviderError('gmail_api_error', `Gmail API ${res.status}`)
+	return res.data as Record<string, unknown>
 }
 
 /** Gmail poller — history.list delta when we hold a historyId, else recent list. */
@@ -324,9 +330,12 @@ export function createGmailPoller(accessToken: string): MailPoller {
 }
 
 async function graphApi(accessToken: string, url: string): Promise<Record<string, unknown>> {
-	const res = await fetch(url, { headers: { authorization: `Bearer ${accessToken}` } })
-	if (!res.ok) throw new MailProviderError('graph_api_error', `Graph API ${res.status}`)
-	return (await res.json()) as Record<string, unknown>
+	const res = await axios.get(url, {
+		headers: { authorization: `Bearer ${accessToken}` },
+		validateStatus: () => true
+	})
+	if (res.status >= 300) throw new MailProviderError('graph_api_error', `Graph API ${res.status}`)
+	return res.data as Record<string, unknown>
 }
 
 /** Microsoft Graph poller — delta query on the Inbox folder. */
@@ -349,12 +358,16 @@ export function createGraphPoller(accessToken: string): MailPoller {
 				}
 				for (const m of page.value ?? []) {
 					if (!m.id || out.length >= limit) continue
-					const mimeRes = await fetch(
+					const mimeRes = await axios.get(
 						`https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(m.id)}/$value`,
-						{ headers: { authorization: `Bearer ${accessToken}` } }
+						{
+							headers: { authorization: `Bearer ${accessToken}` },
+							responseType: 'arraybuffer',
+							validateStatus: () => true
+						}
 					)
-					if (mimeRes.ok) {
-						out.push({ raw: new Uint8Array(await mimeRes.arrayBuffer()), providerMessageId: m.id })
+					if (mimeRes.status < 300) {
+						out.push({ raw: new Uint8Array(mimeRes.data as ArrayBuffer), providerMessageId: m.id })
 					}
 				}
 				if (page['@odata.deltaLink']) {
@@ -408,13 +421,13 @@ export async function refreshOAuthToken(
 				}
 			: {})
 	})
-	const res = await fetch(url, {
-		method: 'POST',
+	const res = await axios.post(url, body.toString(), {
 		headers: { 'content-type': 'application/x-www-form-urlencoded' },
-		body: body.toString()
+		validateStatus: () => true
 	})
-	if (!res.ok) throw new MailProviderError('oauth_refresh_failed', `Token refresh failed (${res.status})`)
-	const json = (await res.json()) as { access_token?: string; expires_in?: number }
+	if (res.status >= 300)
+		throw new MailProviderError('oauth_refresh_failed', `Token refresh failed (${res.status})`)
+	const json = res.data as { access_token?: string; expires_in?: number }
 	if (!json.access_token)
 		throw new MailProviderError('oauth_refresh_failed', 'Token refresh returned no access token')
 	return { accessToken: json.access_token, expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000 }

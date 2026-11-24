@@ -6,6 +6,7 @@
  * inside withWorkspace, same as the API (§12.4).
  */
 import { isUuid, type Sql, withSystem, withWorkspace } from '@huriro/db'
+import axios from 'axios'
 import { PgBoss } from 'pg-boss'
 import { resolveRootEnvelopeSecret } from '../api/crypto'
 import type { DnsResolver } from '../api/egress'
@@ -419,7 +420,7 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 	const heartbeat = deps.heartbeatUrl
 		? setInterval(() => {
 				if (deps.heartbeatUrl) {
-					fetch(deps.heartbeatUrl).catch((err) => log.warn({ err }, 'heartbeat ping failed'))
+					axios.get(deps.heartbeatUrl).catch((err) => log.warn({ err }, 'heartbeat ping failed'))
 				}
 			}, heartbeatMs)
 		: null

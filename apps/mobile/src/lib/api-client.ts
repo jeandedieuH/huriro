@@ -9,13 +9,15 @@ import type {
 	SendMessageBody,
 	UpdateNotificationPreferencesBody
 } from '@huriro/contracts'
+import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
 
 export interface MobileApiClientOptions {
 	readonly serverUrl: string
 	readonly workspaceId: string
 	readonly platform?: 'ios' | 'android' | 'web' | undefined
 	readonly getToken: () => string | null
-	readonly fetchImpl?: typeof fetch | undefined
+	/** Test seam — injects a custom axios adapter instead of real network I/O. */
+	readonly httpAdapter?: AxiosRequestConfig['adapter'] | undefined
 }
 
 export class MobileApiError extends Error {
@@ -36,20 +38,27 @@ export class MobileApiError extends Error {
  * rejecting mobile billing checkout with 403 `web_only_billing`).
  */
 export class HuriroMobileApiClient {
-	private readonly baseUrl: string
 	private readonly workspaceId: string
 	private readonly platform: 'ios' | 'android' | 'web'
 	private readonly getToken: () => string | null
-	private readonly fetchImpl: typeof fetch
+	private readonly http: AxiosInstance
 
 	constructor(opts: MobileApiClientOptions) {
-		this.baseUrl = opts.serverUrl.replace(/\/$/, '')
 		this.workspaceId = opts.workspaceId
 		this.platform = opts.platform ?? 'ios'
 		this.getToken = opts.getToken
-		this.fetchImpl = opts.fetchImpl ?? fetch
+		this.http = axios.create({
+			baseURL: opts.serverUrl.replace(/\/$/, ''),
+			// Mobile auth is bearer-only — never send cookies (fetch `credentials: 'omit'`).
+			withCredentials: false,
+			// Resolve on any HTTP status (fetch semantics); handlers branch on res.status.
+			validateStatus: () => true,
+			...(opts.httpAdapter ? { adapter: opts.httpAdapter } : {})
+		})
 	}
 
+	// `init` keeps a fetch-shaped surface (method/headers/body-string) for the
+	// method helpers below; transport is the shared axios instance.
 	async request<T>(path: string, init?: RequestInit): Promise<T> {
 		const token = this.getToken()
 		const headers: Record<string, string> = {
@@ -66,25 +75,24 @@ export class HuriroMobileApiClient {
 			})
 		}
 
-		const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
-			...init,
-			credentials: 'omit',
+		const res = await this.http.request<T>({
+			url: path,
+			...(init?.method ? { method: init.method } : {}),
+			data: init?.body,
 			headers
 		})
-		if (!res.ok) {
+		if (res.status >= 300) {
 			let code = 'request_failed'
 			let message = `Request failed (${res.status})`
-			try {
-				const errBody = (await res.json()) as { code?: string; title?: string; detail?: string }
+			if (typeof res.data === 'object' && res.data !== null) {
+				const errBody = res.data as { code?: string; title?: string; detail?: string }
 				if (errBody.code) code = errBody.code
 				if (errBody.detail || errBody.title) message = errBody.detail ?? errBody.title ?? message
-			} catch {
-				// Ignore JSON parse errors on non-JSON failure responses
 			}
 			throw new MobileApiError(res.status, code, message)
 		}
 		if (res.status === 204) return undefined as T
-		return (await res.json()) as T
+		return res.data as T
 	}
 
 	async listWorkspaces(): Promise<{ readonly id: string; readonly slug: string; readonly name: string }[]> {
