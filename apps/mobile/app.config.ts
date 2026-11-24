@@ -18,6 +18,7 @@ export default function defineAppConfig({ config }: ExpoConfigContext = {}) {
 		version: '1.0.0',
 		scheme: 'huriro',
 		orientation: 'portrait',
+		icon: './assets/images/icon.png',
 		userInterfaceStyle: 'automatic',
 		newArchEnabled: true,
 		ios: {
@@ -41,7 +42,14 @@ export default function defineAppConfig({ config }: ExpoConfigContext = {}) {
 				}
 			]
 		},
-		plugins: ['expo-router', 'expo-sqlite', 'expo-secure-store', 'expo-notifications'],
+		plugins: ['expo-router', 'expo-sqlite', 'expo-secure-store', 'expo-notifications',[
+				"expo-splash-screen",
+				{
+					"image": "./assets/images/splash.png",
+					"resizeMode": "cover",
+					"backgroundColor": "#ffffff"
+				}
+			],],
 		experiments: {
 			typedRoutes: true
 		},
