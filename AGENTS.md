@@ -19,7 +19,7 @@ A secure, self-hostable, modular workspace platform. Monorepo: Bun workspaces
 | `bun run check:shared-code`    | enforce `>= 60%` shared TypeScript client LOC in `packages/*`                                                                           |
 | `bun run dr:drill`             | disaster recovery rehearsal (`--live` runs PG18 restore & RLS drill)                                                                    |
 | `bun run chaos:smoke`          | Valkey RESP2 pub/sub failover + API rate limiter smoke test                                                                             |
-| `bun test packages/test-utils` | RLS/integration suite (needs `DATABASE_URL` or `HURIRO_TESTCONTAINERS=1`; if ryuk can't pull, also `TESTCONTAINERS_RYUK_DISABLED=true`) |
+| `bun test packages/test-utils` | RLS/integration suite (needs `DATABASE_URL` pointing at a `*_test` database — the dev DB is refused — or `HURIRO_TESTCONTAINERS=1`; if ryuk can't pull, also `TESTCONTAINERS_RYUK_DISABLED=true`) |
 
 ## Layout
 

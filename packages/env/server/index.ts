@@ -121,11 +121,68 @@ export const serverSchemas = {
 		.optional()
 		.describe('Optional ClamAV daemon host for attachment quarantine scanning'),
 	CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310).describe('ClamAV daemon TCP port'),
-	SMTP_URL: z.string().optional().describe('Optional SMTP relay URL for notification email digests'),
+	SMTP_URL: z
+		.string()
+		.optional()
+		.describe('Optional SMTP relay URL for notification email digests (or use _FILE)'),
+	SMTP_URL_FILE: z
+		.string()
+		.optional()
+		.describe('Path to file containing SMTP_URL with credentials (Docker secret)'),
 	SMTP_FROM: z
 		.string()
 		.default('noreply@huriro.local')
 		.describe('Sender address for notification email digests'),
+	EMAIL_PROVIDER: z
+		.enum(['auto', 'resend', 'smtp', 'emailit', 'noop'])
+		.default('auto')
+		.describe('Email provider: auto (cloud→emailit, selfhost→resend/smtp) | resend | smtp | emailit | noop'),
+	EMAIL_FROM: z
+		.string()
+		.optional()
+		.describe(
+			'Transactional & notification sender address, e.g. "Huriro <noreply@example.com>" (falls back to SMTP_FROM)'
+		),
+	EMAIL_REPLY_TO: z.string().optional().describe('Optional default Reply-To address for outgoing emails'),
+	EMAIL_REQUIRE_VERIFICATION: z.coerce
+		.boolean()
+		.default(false)
+		.describe('Require verified email before credential sign-in when an email provider is configured'),
+	RESEND_API_KEY: z
+		.string()
+		.optional()
+		.describe('Resend API key for self-hosted email delivery (recommended; or use _FILE)'),
+	RESEND_API_KEY_FILE: z
+		.string()
+		.optional()
+		.describe('Path to file containing RESEND_API_KEY (Docker secret)'),
+	SMTP_HOST: z.string().optional().describe('SMTP server hostname (alternative to SMTP_URL)'),
+	SMTP_PORT: z.coerce
+		.number()
+		.int()
+		.min(1)
+		.max(65535)
+		.optional()
+		.describe('SMTP server port (defaults to 465 when SMTP_SECURE=true, else 587)'),
+	SMTP_SECURE: z.coerce
+		.boolean()
+		.optional()
+		.describe('Use implicit TLS (SMTPS) for SMTP connections when true'),
+	SMTP_USER: z
+		.string()
+		.optional()
+		.describe('SMTP authentication username (alternative to embedding in SMTP_URL)'),
+	SMTP_PASS: z.string().optional().describe('SMTP authentication password (or use _FILE)'),
+	SMTP_PASS_FILE: z.string().optional().describe('Path to file containing SMTP_PASS (Docker secret)'),
+	EMAILIT_API_KEY: z
+		.string()
+		.optional()
+		.describe('Emailit API key for Huriro Cloud (HURIRO_MODE=cloud) email delivery (or use _FILE)'),
+	EMAILIT_API_KEY_FILE: z
+		.string()
+		.optional()
+		.describe('Path to file containing EMAILIT_API_KEY (Docker secret)'),
+	EMAILIT_API_BASE: z.url().optional().describe('Optional Emailit API base URL override'),
 	VAPID_PUBLIC_KEY: z.string().optional().describe('Web Push VAPID public key (base64url P-256)'),
 	VAPID_PRIVATE_KEY: z.string().optional().describe('Web Push VAPID private key (or use _FILE)'),
 	VAPID_PRIVATE_KEY_FILE: z

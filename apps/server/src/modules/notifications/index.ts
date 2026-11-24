@@ -1,10 +1,18 @@
 import type { Sql } from '@huriro/db'
+import { can } from '@huriro/domain'
 import { Elysia } from 'elysia'
 import type { DnsResolver } from '../../api/egress'
+import { HttpError } from '../../api/error'
+import type { EmailPipeline } from '../../email'
 import type { RealtimePubSub } from '../../realtime/pubsub'
 import type { Auth } from '../identity'
 import { workspaceDerive } from '../tenancy'
-import { type EmailMessage, type EmailTransport, runEmailDigestOnce } from './digest'
+import {
+	dispatchInstantNotificationEmails,
+	type EmailMessage,
+	type EmailTransport,
+	runEmailDigestOnce
+} from './digest'
 import {
 	dispatchMobilePushNotifications,
 	dispatchWebPushNotifications,
@@ -15,10 +23,13 @@ import {
 import {
 	CreateWebPushSubscriptionBody,
 	DeliveryLogQuery,
+	EmailPipelineStatusDto,
 	MobileTokenIdParam,
 	NotificationIdParam,
 	NotificationsListQuery,
 	RegisterMobilePushTokenBody,
+	SendTestEmailBody,
+	SendTestEmailResponse,
 	SubscriptionIdParam,
 	UpdateNotificationPreferencesBody
 } from './schema'
@@ -41,6 +52,7 @@ import {
 } from './service'
 
 export {
+	dispatchInstantNotificationEmails,
 	dispatchMobilePushNotifications,
 	dispatchWebPushNotifications,
 	type EmailMessage,
@@ -58,7 +70,11 @@ export function notificationsModule(
 	sql: Sql,
 	auth: Auth | null,
 	pubsub?: RealtimePubSub,
-	opts?: { readonly vapid?: VapidConfig | undefined; readonly resolver?: DnsResolver | undefined }
+	opts?: {
+		readonly vapid?: VapidConfig | undefined
+		readonly resolver?: DnsResolver | undefined
+		readonly email?: EmailPipeline | undefined
+	}
 ) {
 	return new Elysia({ name: 'huriro.notifications' })
 		.derive(workspaceDerive(sql, auth))
@@ -96,6 +112,52 @@ export function notificationsModule(
 			'/notifications/preferences',
 			{ body: UpdateNotificationPreferencesBody },
 			({ body, inWorkspace }) => inWorkspace((tx, actor) => updateMyNotificationPreferences(tx, actor, body))
+		)
+		.get('/notifications/email/status', { response: EmailPipelineStatusDto }, ({ inWorkspace }) =>
+			inWorkspace(async () => {
+				if (opts?.email) return opts.email.getStatus()
+				return {
+					configured: false,
+					mode: 'selfhost' as const,
+					provider: 'noop' as const,
+					from: 'noreply@huriro.local',
+					emailVerificationRequired: false
+				}
+			})
+		)
+		.post(
+			'/notifications/email/test',
+			{ body: SendTestEmailBody, response: SendTestEmailResponse },
+			async ({ body, workspaceCtx, inWorkspace }) => {
+				const workspaceName = await inWorkspace(async (tx, actor) => {
+					if (can(actor, 'settings.manage', { type: 'workspace' }).effect !== 'allow') {
+						throw new HttpError(403, 'insufficient_role', 'settings.manage required')
+					}
+					const [ws] = await tx<{ name: string }[]>`
+						SELECT name FROM workspaces WHERE id = ${workspaceCtx.workspaceId}
+					`
+					return ws?.name ?? 'Huriro Workspace'
+				})
+				if (!opts?.email?.configured) {
+					throw new HttpError(
+						503,
+						'email_not_configured',
+						'Email provider is not configured',
+						'Configure RESEND_API_KEY, SMTP_URL/SMTP_HOST, or EMAILIT_API_KEY on the server before sending test emails.'
+					)
+				}
+				const targetEmail = (body.to ?? workspaceCtx.session.email).trim()
+				const sent = await opts.email.sendTestEmail({
+					to: targetEmail,
+					workspaceName
+				})
+				return {
+					sent: !sent.skipped,
+					provider: sent.provider,
+					messageId: sent.messageId,
+					to: targetEmail
+				}
+			}
 		)
 		.get('/notifications/push/vapid-key', () => ({
 			publicKey: opts?.vapid?.publicKey ?? null

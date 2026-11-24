@@ -10,6 +10,7 @@ ADR-0018, §19.1. Also the operator CLI (`huriro`).
   zod/t3-env schema, fail-fast boot (§7.5). `.env.example` is generated
   (`genenv`), never hand-edited.
 - `src/api/` — Elysia app: observability hooks, problem+json mapper, SSRF egress proxy (`egress.ts`), envelope AES-256-GCM crypto (`crypto.ts`), routes.
+- `src/email/` — React Email composition (`components/`, 14 templates in `templates/`), HTML + plain-text renderer (`render.ts`), multi-provider transport pipeline (`transports.ts`: Emailit for `cloud`, Resend or SMTP/nodemailer for `selfhost`, safe noop fallback), and typed `EmailPipeline` service (`service.ts`).
 - `src/modules/<name>/` — index (routes) + schema + service + repo + policy +
   events per module (`tenancy`, `tasks`, `docs`, `chat`, `files`, `notifications`, `search`, `imports`, `webhooks`, `integrations`, `ai`, `agents`, `mail`). Only index.ts may be imported cross-module.
 - `mail` module (§14, ADR-0023): canonical store is `mail_*` tables — raw MIME
@@ -64,6 +65,9 @@ ADR-0018, §19.1. Also the operator CLI (`huriro`).
   derive.
 - `src/worker/` — pg-boss (admin URL for queue DDL) + outbox drain; job
   handlers do tenant work through the app pool inside `withWorkspace`.
+  Outbox retries use capped exponential backoff (10s→1h) and dead-letter
+  after 25 attempts (ADR-0025, §5.5): dead letters stay in `outbox` with
+  payload + error, operator surface is `huriro dead-letters [show|replay]`.
 - `src/realtime/` — `/ws` signal fan-out (cursor + revoke) + `/collab` Hocuspocus
   runtime (`collab.ts`): single-use tickets, room leases with epoch fencing,
   live readOnly enforcement, fenced Yjs persistence.

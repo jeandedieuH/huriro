@@ -10,6 +10,7 @@ import { migrate, migrationsDir, type Sql } from '@huriro/db'
 import postgres from 'postgres'
 import { loadEnv } from '../env'
 import { rotateBootstrapSetupToken, SetupError } from '../modules/tenancy'
+import { replayDeadLetterEvents } from '../worker/index'
 
 const SENTINEL_TABLES = [
 	'workspaces',
@@ -219,6 +220,96 @@ export async function health(): Promise<void> {
 		process.exit(0)
 	} catch {
 		process.exit(1)
+	}
+}
+
+/**
+ * Dead-letter browser + replay (§5.5): the operator surface for outbox events
+ * that exhausted their retry budget. `list` shows payload metadata + error;
+ * `show` the full payload; `replay` re-arms rows so the drain picks them up
+ * again with a fresh attempt budget. No silent drops, no silent revivals —
+ * every replay is an explicit operator action.
+ */
+export async function deadLettersCmd(args: string[]): Promise<void> {
+	const env = await loadEnv()
+	const sql = postgres(env.databaseAdminUrl, { max: 1 })
+	try {
+		const [sub, ...rest] = args
+		if (sub === 'replay') {
+			const all = rest.includes('--all')
+			const id = rest.find((a) => !a.startsWith('--'))
+			if (!all && !id) {
+				console.error('usage: huriro dead-letters replay <id> | --all')
+				process.exit(1)
+			}
+			const n = id ? await replayDeadLetterEvents(sql, [id]) : await replayDeadLetterEvents(sql)
+			console.log(n === 0 ? 'no dead-lettered rows matched' : `replayed ${n} dead-lettered event(s)`)
+			return
+		}
+		if (sub === 'show') {
+			const id = rest.find((a) => !a.startsWith('--'))
+			if (!id) {
+				console.error('usage: huriro dead-letters show <id>')
+				process.exit(1)
+			}
+			const [row] = await sql<
+				{
+					id: string
+					workspaceId: string | null
+					eventType: string
+					payload: unknown
+					attempts: number
+					lastError: string | null
+					createdAt: Date
+					deadLetteredAt: Date
+				}[]
+			>`
+				SELECT id, workspace_id AS "workspaceId", event_type AS "eventType", payload,
+					attempts, last_error AS "lastError", created_at AS "createdAt", dead_lettered_at AS "deadLetteredAt"
+				FROM outbox
+				WHERE id = ${id} AND dead_lettered_at IS NOT NULL
+			`
+			if (!row) {
+				console.error(`no dead-lettered outbox row with id ${id}`)
+				process.exit(1)
+			}
+			console.log(JSON.stringify(row, null, 2))
+			return
+		}
+		// default: list
+		const limit = Number.parseInt(flag(args, '--limit') ?? '50', 10)
+		const rows = await sql<
+			{
+				id: string
+				workspaceId: string | null
+				eventType: string
+				attempts: number
+				lastError: string | null
+				deadLetteredAt: Date
+			}[]
+		>`
+			SELECT id, workspace_id AS "workspaceId", event_type AS "eventType",
+				attempts, last_error AS "lastError", dead_lettered_at AS "deadLetteredAt"
+			FROM outbox
+			WHERE dead_lettered_at IS NOT NULL
+			ORDER BY dead_lettered_at DESC
+			LIMIT ${Number.isFinite(limit) ? limit : 50}
+		`
+		if (rows.length === 0) {
+			console.log('no dead-lettered outbox events')
+			return
+		}
+		for (const r of rows) {
+			const err = (r.lastError ?? '').replaceAll('\n', ' ').slice(0, 80)
+			console.log(
+				`${r.id}  ${r.eventType}  ws=${r.workspaceId ?? '-'}  attempts=${r.attempts}  at=${r.deadLetteredAt.toISOString()}\n  ${err}`
+			)
+		}
+		console.log(
+			`\n${rows.length} dead-lettered event(s) — inspect with \`huriro dead-letters show <id>\`, re-arm with \`huriro dead-letters replay <id>|--all\``
+		)
+	} finally {
+		await sql.end()
 	}
 }
 

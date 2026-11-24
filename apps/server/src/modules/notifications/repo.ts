@@ -309,6 +309,7 @@ export function defaultPreferencesDto(workspaceId: string, userId: string): Noti
 		timezone: 'UTC',
 		webPushEnabled: false,
 		mobilePushEnabled: true,
+		emailInstantEnabled: true,
 		lastDigestSentAt: null,
 		updatedAt: new Date(0).toISOString()
 	}
@@ -330,6 +331,7 @@ export async function getOrDefaultNotificationPreferences(
 			timezone,
 			web_push_enabled AS "webPushEnabled",
 			mobile_push_enabled AS "mobilePushEnabled",
+			email_instant_enabled AS "emailInstantEnabled",
 			last_digest_sent_at::text AS "lastDigestSentAt",
 			updated_at::text AS "updatedAt"
 		FROM notification_preferences
@@ -356,6 +358,7 @@ export async function getNotificationPreferencesMap(
 			timezone,
 			web_push_enabled AS "webPushEnabled",
 			mobile_push_enabled AS "mobilePushEnabled",
+			email_instant_enabled AS "emailInstantEnabled",
 			last_digest_sent_at::text AS "lastDigestSentAt",
 			updated_at::text AS "updatedAt"
 		FROM notification_preferences
@@ -381,6 +384,7 @@ export async function upsertNotificationPreferences(
 		readonly timezone?: string | undefined
 		readonly webPushEnabled?: boolean | undefined
 		readonly mobilePushEnabled?: boolean | undefined
+		readonly emailInstantEnabled?: boolean | undefined
 	}
 ): Promise<NotificationPreferencesDto> {
 	const current = await getOrDefaultNotificationPreferences(tx, workspaceId, userId)
@@ -391,15 +395,17 @@ export async function upsertNotificationPreferences(
 	const nextTz = patch.timezone ?? current.timezone
 	const nextPush = patch.webPushEnabled ?? current.webPushEnabled
 	const nextMobilePush = patch.mobilePushEnabled ?? current.mobilePushEnabled
+	const nextEmailInstant = patch.emailInstantEnabled ?? current.emailInstantEnabled
 
 	const [row] = await tx<NotificationPreferencesDto[]>`
 		INSERT INTO notification_preferences (
 			workspace_id, user_id, chat_level, email_digest_frequency,
-			quiet_hours_start, quiet_hours_end, timezone, web_push_enabled, mobile_push_enabled
+			quiet_hours_start, quiet_hours_end, timezone, web_push_enabled,
+			mobile_push_enabled, email_instant_enabled
 		)
 		VALUES (
 			${workspaceId}, ${userId}, ${nextChatLevel}, ${nextDigest},
-			${nextStart}, ${nextEnd}, ${nextTz}, ${nextPush}, ${nextMobilePush}
+			${nextStart}, ${nextEnd}, ${nextTz}, ${nextPush}, ${nextMobilePush}, ${nextEmailInstant}
 		)
 		ON CONFLICT (workspace_id, user_id) DO UPDATE
 		SET
@@ -409,7 +415,8 @@ export async function upsertNotificationPreferences(
 			quiet_hours_end = EXCLUDED.quiet_hours_end,
 			timezone = EXCLUDED.timezone,
 			web_push_enabled = EXCLUDED.web_push_enabled,
-			mobile_push_enabled = EXCLUDED.mobile_push_enabled
+			mobile_push_enabled = EXCLUDED.mobile_push_enabled,
+			email_instant_enabled = EXCLUDED.email_instant_enabled
 		RETURNING
 			workspace_id AS "workspaceId",
 			user_id AS "userId",
@@ -420,6 +427,7 @@ export async function upsertNotificationPreferences(
 			timezone,
 			web_push_enabled AS "webPushEnabled",
 			mobile_push_enabled AS "mobilePushEnabled",
+			email_instant_enabled AS "emailInstantEnabled",
 			last_digest_sent_at::text AS "lastDigestSentAt",
 			updated_at::text AS "updatedAt"
 	`
@@ -433,7 +441,7 @@ export async function insertNotificationDeliveryLog(
 		readonly workspaceId: string
 		readonly notificationId: string | null
 		readonly userId: string
-		readonly channel: 'in_app' | 'email_digest' | 'web_push' | 'mobile_push'
+		readonly channel: 'in_app' | 'email_digest' | 'email_instant' | 'web_push' | 'mobile_push'
 		readonly status: 'pending' | 'sent' | 'skipped_quiet_hours' | 'failed'
 		readonly dedupeKey?: string | null | undefined
 		readonly detail?: string | null | undefined
@@ -767,6 +775,34 @@ export async function revokeMobilePushTokenById(
 		RETURNING id
 	`
 	return rows.length > 0
+}
+
+export interface WorkspaceEmailRecipientRow {
+	readonly userId: string
+	readonly email: string
+	readonly displayName: string
+	readonly workspaceName: string
+	readonly workspaceSlug: string
+}
+
+export async function resolveWorkspaceEmailRecipients(
+	tx: Queryable,
+	workspaceId: string,
+	userIds: readonly string[]
+): Promise<Map<string, WorkspaceEmailRecipientRow>> {
+	const map = new Map<string, WorkspaceEmailRecipientRow>()
+	if (userIds.length === 0) return map
+	const rows = await tx<WorkspaceEmailRecipientRow[]>`
+		SELECT
+			user_id AS "userId",
+			email,
+			display_name AS "displayName",
+			workspace_name AS "workspaceName",
+			workspace_slug AS "workspaceSlug"
+		FROM resolve_workspace_email_recipients(${workspaceId}, ${[...userIds]}::uuid[])
+	`
+	for (const r of rows) map.set(r.userId, r)
+	return map
 }
 
 export async function touchMobilePushToken(

@@ -34,6 +34,37 @@ export interface TestDb {
 	stop(): Promise<void>
 }
 
+/**
+ * Dev-database footgun guard. The harness migrates and fills whatever
+ * `DATABASE_URL`/`DATABASE_ADMIN_URL` points at with factory fixtures — and
+ * Bun auto-loads `apps/server/.env`, so integration tests invoked without
+ * explicit env silently target the DEV database (observed: hundreds of
+ * `Workspace A <hex>` fixtures and poisoned outbox rows in a dev instance).
+ * CI and Testcontainers both use `huriro_test`, so the env-URL branches only
+ * accept database names ending in `_test`; anything else is refused loudly
+ * unless explicitly overridden.
+ */
+function assertDisposableTestDatabase(url: string): void {
+	if (process.env['HURIRO_TEST_ALLOW_NON_TEST_DB']) return
+	let dbName: string | null = null
+	try {
+		dbName = decodeURIComponent(new URL(url).pathname.replace(/^\//, '')) || null
+	} catch {
+		// Unparseable URLs fail later at connect time with their own error.
+		return
+	}
+	if (dbName?.endsWith('_test')) return
+	throw new Error(
+		`getTestDb() refuses to run against database ${JSON.stringify(dbName ?? '(default role db)')}.\n` +
+			'The test harness migrates and fills the target database with factory fixtures, so it must be disposable.\n' +
+			'Fix one of:\n' +
+			'  - point DATABASE_ADMIN_URL/DATABASE_URL at a disposable database, e.g. postgres://…@localhost:5432/huriro_test\n' +
+			'  - set HURIRO_TESTCONTAINERS=1 for a throwaway postgres container\n' +
+			'  - set HURIRO_TEST_ALLOW_NON_TEST_DB=1 only if you are certain the target is disposable\n' +
+			'Hint: Bun auto-loads apps/server/.env — your dev DATABASE_URL is picked up when running tests without explicit env.'
+	)
+}
+
 let cached: Promise<TestDb | null> | null = null
 
 /** True when a test DB is reachable in this environment. */
@@ -56,6 +87,7 @@ export async function getTestDb(): Promise<TestDb | null> {
 		const adminUrl = process.env['DATABASE_ADMIN_URL']
 		const envUrl = process.env['DATABASE_URL']
 		if (adminUrl) {
+			assertDisposableTestDatabase(adminUrl)
 			let explicitAppUrl: string | null = null
 			if (envUrl) {
 				try {
@@ -70,6 +102,7 @@ export async function getTestDb(): Promise<TestDb | null> {
 			return db
 		}
 		if (envUrl) {
+			assertDisposableTestDatabase(envUrl)
 			const db = await prepare(envUrl, null, null)
 			return db
 		}

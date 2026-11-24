@@ -18,16 +18,24 @@ export const DESTINATION_PATHS = {
 	settings: '/settings'
 } as const satisfies Record<AppDestination, string>
 
-export const AUTH_PATHS = ['/sign-in', '/sign-up', '/setup', '/onboarding'] as const
+export const AUTH_PATHS = [
+	'/sign-in',
+	'/sign-up',
+	'/setup',
+	'/onboarding',
+	'/forgot-password',
+	'/reset-password',
+	'/verify-email'
+] as const
 export type AuthPath = (typeof AUTH_PATHS)[number]
 
 export function isAuthPathname(pathname: string): boolean {
 	return AUTH_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))
 }
 
-/** While signed in without a workspace, `/setup` stays reachable iff instance bootstrap is still pending. */
+/** While signed in without a workspace, `/setup` stays reachable iff instance bootstrap is still pending, and `/verify-email` stays accessible. */
 export function isAllowedOnboardingPath(pathname: string, needsSetup: boolean): boolean {
-	return pathname === '/onboarding' || (needsSetup && pathname === '/setup')
+	return pathname === '/onboarding' || pathname === '/verify-email' || (needsSetup && pathname === '/setup')
 }
 
 /**
@@ -54,10 +62,12 @@ type NavigateFn = (dest: AppDestination) => void
 type DocNavigateFn = (slug: string, hash?: string) => void
 type ChatNavigateFn = (channelId?: string, messageId?: string) => void
 type MailNavigateFn = (conversationId?: string) => void
+type SettingsSectionNavigateFn = (section: string) => void
 let navigateFn: NavigateFn | null = null
 let docNavigateFn: DocNavigateFn | null = null
 let chatNavigateFn: ChatNavigateFn | null = null
 let mailNavigateFn: MailNavigateFn | null = null
+let settingsSectionNavigateFn: SettingsSectionNavigateFn | null = null
 
 export function registerAppNavigator(fn: NavigateFn | null) {
 	navigateFn = fn
@@ -73,6 +83,10 @@ export function registerChatNavigator(fn: ChatNavigateFn | null) {
 
 export function registerMailNavigator(fn: MailNavigateFn | null) {
 	mailNavigateFn = fn
+}
+
+export function registerSettingsSectionNavigator(fn: SettingsSectionNavigateFn | null) {
+	settingsSectionNavigateFn = fn
 }
 
 export function navigateToDestination(dest: AppDestination) {
@@ -101,4 +115,8 @@ export function navigateToMail(conversationId?: string) {
 	} else {
 		navigateFn?.('inbox')
 	}
+}
+
+export function navigateToSettingsSection(section: string) {
+	settingsSectionNavigateFn?.(section)
 }

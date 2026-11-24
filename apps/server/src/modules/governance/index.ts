@@ -1,6 +1,7 @@
 import type { Sql } from '@huriro/db'
 import { Elysia } from 'elysia'
 import { HttpError } from '../../api/error'
+import type { EmailPipeline } from '../../email'
 import type { RealtimePubSub } from '../../realtime/pubsub'
 import { type BlobStorage, MemoryBlobStorage } from '../files'
 import { type Auth, requireSession } from '../identity'
@@ -17,7 +18,8 @@ export function governanceModule(
 	sql: Sql,
 	auth: Auth | null,
 	storage: BlobStorage = new MemoryBlobStorage(),
-	pubsub?: RealtimePubSub
+	pubsub?: RealtimePubSub,
+	opts?: { readonly email?: EmailPipeline | undefined }
 ) {
 	return (
 		new Elysia({ name: 'huriro.governance' })
@@ -27,7 +29,7 @@ export function governanceModule(
 					throw new HttpError(501, 'not_implemented', 'Auth not configured')
 				}
 				const session = await requireSession(auth, request)
-				return eraseMyAccount(sql, session, body, pubsub)
+				return eraseMyAccount(sql, session, body, pubsub, opts?.email)
 			})
 			.derive(workspaceDerive(sql, auth))
 			.get('/governance/exports', ({ inWorkspace }) =>

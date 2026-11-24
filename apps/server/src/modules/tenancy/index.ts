@@ -14,6 +14,8 @@ import type { AclResourceType } from '@huriro/domain'
 import { can } from '@huriro/domain'
 import { Elysia } from 'elysia'
 import { HttpError } from '../../api/error'
+import { log } from '../../api/observability'
+import type { EmailPipeline } from '../../email'
 import type { RealtimePubSub } from '../../realtime/pubsub'
 import { type Auth, requireSession } from '../identity/index'
 import { canManageResourceAcl, canReadMembers } from './policy'
@@ -90,7 +92,8 @@ export function tenancyModule(
 	sql: Sql,
 	mode: 'selfhost' | 'cloud',
 	auth: Auth | null,
-	pubsub?: RealtimePubSub
+	pubsub?: RealtimePubSub,
+	opts?: { readonly email?: EmailPipeline | undefined }
 ) {
 	return (
 		new Elysia({ name: 'huriro.tenancy' })
@@ -153,7 +156,7 @@ export function tenancyModule(
 			.post('/invitations', { body: InviteBody }, async ({ body, request }) => {
 				if (!auth) throw new HttpError(501, 'not_implemented', 'Auth not configured')
 				const session = await requireSession(auth, request)
-				return sql.begin(async (tx) => {
+				const created = await sql.begin(async (tx) => {
 					await tx`SELECT set_config('app.workspace_id', ${body.workspaceId}, true)`
 					await tx`SELECT set_config('app.user_id', ${session.userId}, true)`
 					const roleKey = await tx<{ key: string }[]>`
@@ -166,13 +169,47 @@ export function tenancyModule(
 					}
 					const roleId = await getRoleIdByKey(tx, body.workspaceId, body.role)
 					if (!roleId) throw new HttpError(422, 'validation_failed', `Unknown role "${body.role}"`)
-					return createInvitation(tx, {
+					const invite = await createInvitation(tx, {
 						workspaceId: body.workspaceId,
 						email: body.email,
 						roleId,
 						invitedBy: session.userId
 					})
+					const [wsRow] = await tx<{ name: string }[]>`
+						SELECT name FROM workspaces WHERE id = ${body.workspaceId}
+					`
+					const [inviterRow] = await tx<{ displayName: string }[]>`
+						SELECT display_name AS "displayName" FROM users WHERE id = ${session.userId}
+					`
+					return {
+						...invite,
+						workspaceName: wsRow?.name ?? 'Huriro Workspace',
+						inviterName: inviterRow?.displayName ?? session.email
+					}
 				})
+
+				let emailSent = false
+				if (opts?.email?.configured) {
+					try {
+						const res = await opts.email.sendWorkspaceInvitation({
+							to: body.email.toLowerCase(),
+							workspaceName: created.workspaceName,
+							inviterName: created.inviterName,
+							role: body.role,
+							inviteToken: created.token
+						})
+						emailSent = !res.skipped
+					} catch (err) {
+						log.warn({ err, invitationId: created.id }, 'workspace invitation email delivery failed')
+					}
+				}
+
+				return {
+					id: created.id,
+					token: created.token,
+					emailSent,
+					emailProvider: opts?.email?.provider ?? 'noop'
+				}
 			})
 			.post('/invitations/accept', { body: AcceptBody }, async ({ body, request }) => {
 				if (!auth) throw new HttpError(501, 'not_implemented', 'Auth not configured')

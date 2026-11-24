@@ -6903,6 +6903,9 @@
 									},
 									"mobilePushEnabled": {
 										"type": "boolean"
+									},
+									"emailInstantEnabled": {
+										"type": "boolean"
 									}
 								}
 							}
@@ -6950,6 +6953,9 @@
 										"type": "boolean"
 									},
 									"mobilePushEnabled": {
+										"type": "boolean"
+									},
+									"emailInstantEnabled": {
 										"type": "boolean"
 									}
 								}
@@ -6999,6 +7005,9 @@
 									},
 									"mobilePushEnabled": {
 										"type": "boolean"
+									},
+									"emailInstantEnabled": {
+										"type": "boolean"
 									}
 								}
 							}
@@ -7006,6 +7015,143 @@
 					}
 				},
 				"operationId": "patchApiV1NotificationsPreferences"
+			}
+		},
+		"/api/v1/notifications/email/status": {
+			"get": {
+				"responses": {
+					"200": {
+						"description": "Response for status 200",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"required": [
+										"configured",
+										"mode",
+										"provider",
+										"from",
+										"emailVerificationRequired"
+									],
+									"properties": {
+										"configured": {
+											"type": "boolean"
+										},
+										"mode": {
+											"type": "string",
+											"enum": [
+												"selfhost",
+												"cloud"
+											]
+										},
+										"provider": {
+											"type": "string",
+											"enum": [
+												"emailit",
+												"resend",
+												"smtp",
+												"noop",
+												"custom"
+											]
+										},
+										"from": {
+											"type": "string"
+										},
+										"emailVerificationRequired": {
+											"type": "boolean"
+										}
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "getApiV1NotificationsEmailStatus"
+			}
+		},
+		"/api/v1/notifications/email/test": {
+			"post": {
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"to": {
+										"type": "string",
+										"format": "email"
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"to": {
+										"type": "string",
+										"format": "email"
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"to": {
+										"type": "string",
+										"format": "email"
+									}
+								}
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Response for status 200",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"required": [
+										"sent",
+										"provider",
+										"messageId",
+										"to"
+									],
+									"properties": {
+										"sent": {
+											"type": "boolean"
+										},
+										"provider": {
+											"type": "string",
+											"enum": [
+												"emailit",
+												"resend",
+												"smtp",
+												"noop",
+												"custom"
+											]
+										},
+										"messageId": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"to": {
+											"type": "string"
+										}
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1NotificationsEmailTest"
 			}
 		},
 		"/api/v1/notifications/push/vapid-key": {

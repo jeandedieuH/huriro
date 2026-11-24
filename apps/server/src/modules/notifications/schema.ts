@@ -2,8 +2,11 @@ import { Type } from 'typebox'
 
 export {
 	CreateWebPushSubscriptionBody,
+	EmailPipelineStatusDto,
 	NotificationsListQuery,
 	RegisterMobilePushTokenBody,
+	SendTestEmailBody,
+	SendTestEmailResponse,
 	UpdateNotificationPreferencesBody
 } from '@huriro/contracts'
 

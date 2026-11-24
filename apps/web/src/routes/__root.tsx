@@ -30,6 +30,7 @@ import {
 	InboxSidebarNav
 } from '@/features/notifications/components/inbox-sidebar-nav'
 import { SettingsSidebarNav } from '@/features/settings/components/settings-sidebar-nav'
+import { isSettingsSection } from '@/features/settings/settings-sections'
 import { SyncStatusBanner } from '@/features/sync/components/sync-status-banner'
 import { TasksSidebarFooterUtility, TasksSidebarNav } from '@/features/tasks/components/tasks-sidebar-nav'
 import { type SocialProviderId, signOut } from '@/lib/auth'
@@ -42,6 +43,7 @@ import {
 	registerChatNavigator,
 	registerDocNavigator,
 	registerMailNavigator,
+	registerSettingsSectionNavigator,
 	sanitizeRedirectPath
 } from '@/lib/navigation'
 import { buildSignedOAuthQuery, continueOAuth, isOAuthPagePathname } from '@/lib/oauth'
@@ -182,11 +184,21 @@ function RootComponent() {
 				...(conversationId ? { search: { conversation: conversationId } } : {})
 			})
 		})
+		registerSettingsSectionNavigator((section) => {
+			if (isSettingsSection(section)) {
+				void navigate({
+					to: '/settings',
+					search: { section },
+					replace: true
+				})
+			}
+		})
 		return () => {
 			registerAppNavigator(null)
 			registerDocNavigator(null)
 			registerChatNavigator(null)
 			registerMailNavigator(null)
+			registerSettingsSectionNavigator(null)
 		}
 	}, [navigate])
 
@@ -267,7 +279,12 @@ function RootComponent() {
 			}
 			return
 		}
-		if (phase.kind === 'ready' && !phase.boot.isPreview && isAuthPathname(pathname)) {
+		if (
+			phase.kind === 'ready' &&
+			!phase.boot.isPreview &&
+			isAuthPathname(pathname) &&
+			pathname !== '/verify-email'
+		) {
 			const target = pendingRedirectRef.current ?? '/'
 			pendingRedirectRef.current = null
 			void navigate({ href: target, replace: true })
@@ -321,7 +338,14 @@ function RootComponent() {
 		onUsePreview: handleUsePreview,
 		onSignOut: handleSignOut,
 		onNavigate: (
-			path: '/sign-in' | '/sign-up' | '/setup' | '/onboarding',
+			path:
+				| '/sign-in'
+				| '/sign-up'
+				| '/setup'
+				| '/onboarding'
+				| '/forgot-password'
+				| '/reset-password'
+				| '/verify-email',
 			search?: { readonly redirect?: string | undefined }
 		) => {
 			void navigate({
@@ -337,6 +361,16 @@ function RootComponent() {
 		return (
 			<I18nProvider i18n={i18n}>
 				<Outlet />
+			</I18nProvider>
+		)
+	}
+
+	if (phase.kind === 'ready' && pathname === '/verify-email') {
+		return (
+			<I18nProvider i18n={i18n}>
+				<AuthFlowProvider value={authFlowValue}>
+					<Outlet />
+				</AuthFlowProvider>
 			</I18nProvider>
 		)
 	}

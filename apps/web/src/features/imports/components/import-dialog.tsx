@@ -13,7 +13,7 @@ import type {
 } from '@huriro/contracts'
 import { t } from '@huriro/i18n'
 import { strFromU8, unzipSync } from 'fflate'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
 	Dialog,
@@ -51,10 +51,11 @@ const SAMPLE_LINEAR_JSON = JSON.stringify(
 
 export function ImportDialog({ api, onImported }: ImportDialogProps) {
 	const open = useUiStore((s) => s.importDialogOpen)
+	const importDialogSource = useUiStore((s) => s.importDialogSource)
 	const setOpen = useUiStore((s) => s.setImportDialogOpen)
 	const pushToast = useUiStore((s) => s.pushToast)
 
-	const [source, setSource] = useState<ImportSource>('linear')
+	const [source, setSource] = useState<ImportSource>(importDialogSource)
 	const [projectKey, setProjectKey] = useState('IMP')
 	const [payloadText, setPayloadText] = useState(SAMPLE_LINEAR_JSON)
 	const [docFiles, setDocFiles] = useState<Array<{ path: string; markdown: string }>>([])
@@ -62,6 +63,15 @@ export function ImportDialog({ api, onImported }: ImportDialogProps) {
 	const [result, setResult] = useState<ImportJobDto | null>(null)
 	const [error, setError] = useState<string | null>(null)
 	const [busy, setBusy] = useState(false)
+
+	useEffect(() => {
+		if (!open) return
+		setSource(importDialogSource)
+		setDocFiles([])
+		setDryRun(null)
+		setResult(null)
+		setError(null)
+	}, [open, importDialogSource])
 
 	async function handleDocFileUpload(files: FileList | null) {
 		if (!files || files.length === 0) return

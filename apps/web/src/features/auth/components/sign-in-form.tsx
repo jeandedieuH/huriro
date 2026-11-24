@@ -126,7 +126,20 @@ export function SignInForm({
 					/>
 				</FormField>
 
-				<FormField id="sign-in-password" label={t('auth.password')} error={errors.password?.message}>
+				<FormField
+					id="sign-in-password"
+					label={t('auth.password')}
+					error={errors.password?.message}
+					action={
+						<AuthNavLink
+							to="/forgot-password"
+							redirect={redirectTo}
+							className="font-medium text-primary underline-offset-4 hover:underline"
+						>
+							{t('auth.forgot-password.link')}
+						</AuthNavLink>
+					}
+				>
 					<PasswordInput
 						id="sign-in-password"
 						autoComplete="current-password"

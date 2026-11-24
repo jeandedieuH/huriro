@@ -76,6 +76,7 @@ export const notificationPreferences = pgTable(
 		timezone: text('timezone').notNull().default('UTC'),
 		webPushEnabled: boolean('web_push_enabled').notNull().default(false),
 		mobilePushEnabled: boolean('mobile_push_enabled').notNull().default(true),
+		emailInstantEnabled: boolean('email_instant_enabled').notNull().default(true),
 		lastDigestSentAt: timestamp('last_digest_sent_at', { withTimezone: true }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
@@ -94,7 +95,9 @@ export const notificationDeliveryLog = pgTable(
 		userId: uuid('user_id')
 			.notNull()
 			.references(() => users.id, { onDelete: 'cascade' }),
-		channel: text('channel', { enum: ['in_app', 'email_digest', 'web_push', 'mobile_push'] }).notNull(),
+		channel: text('channel', {
+			enum: ['in_app', 'email_digest', 'email_instant', 'web_push', 'mobile_push']
+		}).notNull(),
 		status: text('status', { enum: ['pending', 'sent', 'skipped_quiet_hours', 'failed'] }).notNull(),
 		dedupeKey: text('dedupe_key'),
 		detail: text('detail'),

@@ -1,6 +1,7 @@
+import type { ImportSource } from '@huriro/contracts'
 import { create } from 'zustand'
 import type { ToastItem, ToastTone } from '@/components/ui/toast'
-import { navigateToDestination } from '@/lib/navigation'
+import { navigateToDestination, navigateToSettingsSection } from '@/lib/navigation'
 
 export type AppDestination = 'home' | 'inbox' | 'tasks' | 'docs' | 'chat' | 'settings'
 export type SidebarLevel = 'root' | 'feature'
@@ -9,6 +10,7 @@ export type InboxFilter = 'unread' | 'all' | 'assigned' | 'mentions' | 'archived
 export type InboxPane = 'notifications' | 'mail'
 export type SettingsSection =
 	| 'general'
+	| 'members'
 	| 'notifications'
 	| 'billing'
 	| 'governance'
@@ -73,6 +75,7 @@ export interface UiState {
 	createProjectOpen: boolean
 	conflictDialogOpen: boolean
 	importDialogOpen: boolean
+	importDialogSource: ImportSource
 	serverReadOnly: boolean
 
 	// Docs workspace ephemeral state
@@ -114,6 +117,7 @@ export interface UiState {
 	setCreateProjectOpen: (open: boolean) => void
 	setConflictDialogOpen: (conflictDialogOpen: boolean) => void
 	setImportDialogOpen: (open: boolean) => void
+	openImportDialog: (source?: ImportSource) => void
 	setServerReadOnly: (readOnly: boolean) => void
 	setDocsSidebarOpen: (open: boolean) => void
 	setActiveDocSidePanel: (panel: DocSidePanel) => void
@@ -144,7 +148,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 	tasksPreset: 'all',
 	inboxFilter: 'unread',
 	inboxPane: 'notifications',
-	settingsSection: 'imports',
+	settingsSection: 'general',
 	tasksLayout: 'list',
 	density: 'comfortable',
 	theme: 'light',
@@ -163,6 +167,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 	createProjectOpen: false,
 	conflictDialogOpen: false,
 	importDialogOpen: false,
+	importDialogSource: 'linear',
 	serverReadOnly: false,
 
 	docsSidebarOpen: true,
@@ -197,7 +202,12 @@ export const useUiStore = create<UiState>((set, get) => ({
 		})),
 	setInboxFilter: (inboxFilter) => set({ inboxFilter, inboxPane: 'notifications' }),
 	setInboxPane: (inboxPane) => set({ inboxPane }),
-	setSettingsSection: (settingsSection) => set({ settingsSection }),
+	setSettingsSection: (settingsSection) => {
+		set({ settingsSection })
+		if (get().destination === 'settings') {
+			navigateToSettingsSection(settingsSection)
+		}
+	},
 	setTasksLayout: (tasksLayout) => set({ tasksLayout }),
 	setDensity: (density) => set({ density }),
 	toggleTheme: () =>
@@ -238,6 +248,11 @@ export const useUiStore = create<UiState>((set, get) => ({
 	setCreateProjectOpen: (createProjectOpen) => set({ createProjectOpen }),
 	setConflictDialogOpen: (conflictDialogOpen) => set({ conflictDialogOpen }),
 	setImportDialogOpen: (importDialogOpen) => set({ importDialogOpen }),
+	openImportDialog: (source) =>
+		set((s) => ({
+			importDialogOpen: true,
+			importDialogSource: source ?? s.importDialogSource
+		})),
 	setServerReadOnly: (serverReadOnly) => set({ serverReadOnly }),
 	setDocsSidebarOpen: (docsSidebarOpen) => set({ docsSidebarOpen }),
 	setActiveDocSidePanel: (activeDocSidePanel) => set({ activeDocSidePanel }),

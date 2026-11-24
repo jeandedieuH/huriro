@@ -45,6 +45,7 @@ import type {
 	DocPageDto,
 	DocVersionDetailDto,
 	DocVersionDto,
+	EmailPipelineStatusDto,
 	EraseAccountBody,
 	EraseAccountResponse,
 	FileDto,
@@ -71,6 +72,7 @@ import type {
 	SearchHitDto,
 	SendMailDraftBody,
 	SendMessageBody,
+	SendTestEmailResponse,
 	UpdateChannelBody,
 	UpdateConversationBody,
 	UpdateDocCommentBody,
@@ -215,6 +217,12 @@ export interface TaskApiBridge {
 	uploadFile(file: File): Promise<FileDto>
 	getNotificationPreferences(): Promise<NotificationPreferencesDto>
 	updateNotificationPreferences(body: UpdateNotificationPreferencesBody): Promise<NotificationPreferencesDto>
+	getEmailStatus(): Promise<EmailPipelineStatusDto>
+	sendTestEmail(to?: string): Promise<SendTestEmailResponse>
+	createInvitation(body: {
+		readonly email: string
+		readonly role: 'admin' | 'member' | 'guest'
+	}): Promise<CreateInvitationResponse>
 	getVapidPublicKey(): Promise<string | null>
 	listWebPushSubscriptions(): Promise<WebPushSubscriptionDto[]>
 	registerWebPushSubscription(body: CreateWebPushSubscriptionBody): Promise<WebPushSubscriptionDto>
@@ -297,6 +305,13 @@ export interface TaskApiBridge {
 	createWorkspaceExport(): Promise<WorkspaceExportDto>
 	getWorkspaceExportDownloadUrl(exportId: string): string
 	eraseMyAccount(body: EraseAccountBody): Promise<EraseAccountResponse>
+}
+
+export interface CreateInvitationResponse {
+	readonly id: string
+	readonly token: string
+	readonly emailSent: boolean
+	readonly emailProvider: string
 }
 
 export interface BootstrappedWorkspace {

@@ -79,6 +79,7 @@ export const NotificationPreferencesDto = Type.Object({
 	timezone: Type.String(),
 	webPushEnabled: Type.Boolean(),
 	mobilePushEnabled: Type.Boolean(),
+	emailInstantEnabled: Type.Boolean(),
 	lastDigestSentAt: Type.Union([Type.String(), Type.Null()]),
 	updatedAt: Type.String()
 })
@@ -91,7 +92,8 @@ export const UpdateNotificationPreferencesBody = Type.Object({
 	quietHoursEnd: Type.Optional(Type.Union([Type.String({ pattern: '^\\d{2}:\\d{2}$' }), Type.Null()])),
 	timezone: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
 	webPushEnabled: Type.Optional(Type.Boolean()),
-	mobilePushEnabled: Type.Optional(Type.Boolean())
+	mobilePushEnabled: Type.Optional(Type.Boolean()),
+	emailInstantEnabled: Type.Optional(Type.Boolean())
 })
 export type UpdateNotificationPreferencesBody = Static<typeof UpdateNotificationPreferencesBody>
 
@@ -154,6 +156,7 @@ export const NotificationDeliveryLogDto = Type.Object({
 	channel: Type.Union([
 		Type.Literal('in_app'),
 		Type.Literal('email_digest'),
+		Type.Literal('email_instant'),
 		Type.Literal('web_push'),
 		Type.Literal('mobile_push')
 	]),
@@ -168,3 +171,34 @@ export const NotificationDeliveryLogDto = Type.Object({
 	createdAt: Type.String()
 })
 export type NotificationDeliveryLogDto = Static<typeof NotificationDeliveryLogDto>
+
+export const EmailProviderName = Type.Union([
+	Type.Literal('emailit'),
+	Type.Literal('resend'),
+	Type.Literal('smtp'),
+	Type.Literal('noop'),
+	Type.Literal('custom')
+])
+export type EmailProviderName = Static<typeof EmailProviderName>
+
+export const EmailPipelineStatusDto = Type.Object({
+	configured: Type.Boolean(),
+	mode: Type.Union([Type.Literal('selfhost'), Type.Literal('cloud')]),
+	provider: EmailProviderName,
+	from: Type.String(),
+	emailVerificationRequired: Type.Boolean()
+})
+export type EmailPipelineStatusDto = Static<typeof EmailPipelineStatusDto>
+
+export const SendTestEmailBody = Type.Object({
+	to: Type.Optional(Type.String({ format: 'email' }))
+})
+export type SendTestEmailBody = Static<typeof SendTestEmailBody>
+
+export const SendTestEmailResponse = Type.Object({
+	sent: Type.Boolean(),
+	provider: EmailProviderName,
+	messageId: Type.Union([Type.String(), Type.Null()]),
+	to: Type.String()
+})
+export type SendTestEmailResponse = Static<typeof SendTestEmailResponse>

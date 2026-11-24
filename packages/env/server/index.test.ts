@@ -58,6 +58,24 @@ describe('createServerEnv', () => {
 		expect(env.CLAMAV_HOST).toBeUndefined()
 		expect(env.GITHUB_APP_WEBHOOK_SECRET).toBeUndefined()
 	})
+
+	test('email notification pipeline env defaults and optional fields apply cleanly', () => {
+		const env = createServerEnv(REQUIRED_SOURCE)
+		expect(env.EMAIL_PROVIDER).toBe('auto')
+		expect(env.EMAIL_REQUIRE_VERIFICATION).toBe(false)
+		expect(env.EMAIL_FROM).toBeUndefined()
+		expect(env.EMAIL_REPLY_TO).toBeUndefined()
+		expect(env.RESEND_API_KEY).toBeUndefined()
+		expect(env.EMAILIT_API_KEY).toBeUndefined()
+		expect(env.SMTP_HOST).toBeUndefined()
+		expect(env.SMTP_PORT).toBeUndefined()
+		expect(env.SMTP_SECURE).toBeUndefined()
+	})
+
+	test('email env rejects invalid EMAIL_PROVIDER and invalid EMAILIT_API_BASE', () => {
+		expect(() => createServerEnv({ ...REQUIRED_SOURCE, EMAIL_PROVIDER: 'sendgrid' })).toThrow()
+		expect(() => createServerEnv({ ...REQUIRED_SOURCE, EMAILIT_API_BASE: 'not-a-url' })).toThrow()
+	})
 })
 
 describe('describeEnvSchemas', () => {

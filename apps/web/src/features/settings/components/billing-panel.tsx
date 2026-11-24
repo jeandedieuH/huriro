@@ -6,9 +6,15 @@ import { z } from 'zod'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useWorkspace } from '@/lib/workspace'
+import {
+	SettingsCard,
+	SettingsCardBody,
+	SettingsCardHeader,
+	SettingsNotice,
+	SettingsSkeleton
+} from './settings-primitives'
 
 const RwandaPhoneSchema = z
 	.string()
@@ -119,188 +125,217 @@ export function BillingSettingsPanel() {
 	}
 
 	if (loading) {
-		return (
-			<div className="space-y-3 rounded-lg border border-border bg-card p-4">
-				<Skeleton className="h-5 w-48" />
-				<Skeleton className="h-24 w-full" />
-			</div>
-		)
+		return <SettingsSkeleton rows={3} />
 	}
 
 	const sub = summary?.subscription
 	const usage = summary?.usage
 	const quote = summary?.quote
+	const seatLimit = sub?.seatLimit ?? 5
+	const activeSeats = usage?.activeSeats ?? 0
+	const seatRatio = seatLimit > 0 ? Math.min(100, Math.round((activeSeats / seatLimit) * 100)) : 0
 
 	return (
-		<section
-			aria-labelledby="settings-billing-heading"
-			className="space-y-4 rounded-lg border border-border bg-card p-4"
-		>
-			<div className="flex flex-wrap items-start justify-between gap-2">
-				<div>
-					<h2 id="settings-billing-heading" className="text-sm font-semibold">
-						{t('settings.billing.title')}
-					</h2>
-					<p className="text-xs text-muted-foreground">{t('settings.billing.desc')}</p>
-				</div>
-				{sub ? (
-					<div className="flex items-center gap-1.5">
-						<Badge tone="default">{sub.plan.toUpperCase()}</Badge>
-						<Badge tone={sub.status === 'active' ? 'secondary' : 'danger'}>{sub.status}</Badge>
-					</div>
-				) : null}
-			</div>
-
-			{usage && quote ? (
-				<div className="grid gap-3 rounded-md border border-border bg-muted/30 p-3 sm:grid-cols-3">
-					<div>
-						<div className="text-[11px] text-muted-foreground">{t('settings.billing.price-usd')}</div>
-						<div className="text-sm font-semibold">${quote.usdAmount.toFixed(2)} USD / mo</div>
-					</div>
-					<div>
-						<div className="text-[11px] text-muted-foreground">{t('settings.billing.price-rwf')}</div>
-						<div className="text-sm font-semibold">{quote.rwfAmount.toLocaleString('en-US')} RWF</div>
-						<div className="text-[10px] text-muted-foreground">
-							{t('settings.billing.fx-rate', {
-								rate: quote.exchangeRateUsdToRwf,
-								source: quote.exchangeRateSource
-							})}
-						</div>
-					</div>
-					<div>
-						<div className="text-[11px] text-muted-foreground">{t('settings.billing.seats')}</div>
-						<div className="text-sm font-semibold">
-							{usage.activeSeats} / {sub?.seatLimit ?? 5}
-						</div>
-					</div>
-				</div>
-			) : null}
-
-			<div className="space-y-1.5">
-				<label htmlFor="billing-receipt-email" className="text-xs font-medium">
-					Receipt / billing email (optional)
-				</label>
-				<Input
-					id="billing-receipt-email"
-					type="email"
-					value={billingEmail}
-					onChange={(e) => setBillingEmail(e.target.value)}
-					placeholder="billing@company.rw"
+		<div className="space-y-5">
+			<SettingsCard labelledBy="settings-billing-heading">
+				<SettingsCardHeader
+					headingId="settings-billing-heading"
+					icon={<CreditCard className="size-4" />}
+					title={t('settings.billing.title')}
+					description={t('settings.billing.desc')}
+					action={
+						sub ? (
+							<div className="flex items-center gap-1.5">
+								<Badge tone="default">{sub.plan.toUpperCase()}</Badge>
+								<Badge tone={sub.status === 'active' ? 'success' : 'danger'}>{sub.status}</Badge>
+							</div>
+						) : null
+					}
 				/>
-			</div>
+				<SettingsCardBody>
+					{usage && quote ? (
+						<div className="grid gap-3 sm:grid-cols-3">
+							<div className="rounded-lg border border-border bg-surface-2/40 p-3.5">
+								<p className="text-[11px] font-medium text-muted-foreground">
+									{t('settings.billing.price-usd')}
+								</p>
+								<p className="mt-1 text-base font-semibold text-foreground tnum">
+									${quote.usdAmount.toFixed(2)} USD / mo
+								</p>
+							</div>
+							<div className="rounded-lg border border-border bg-surface-2/40 p-3.5">
+								<p className="text-[11px] font-medium text-muted-foreground">
+									{t('settings.billing.price-rwf')}
+								</p>
+								<p className="mt-1 text-base font-semibold text-foreground tnum">
+									{quote.rwfAmount.toLocaleString('en-US')} RWF
+								</p>
+								<p className="mt-0.5 text-[11px] text-muted-foreground tnum">
+									{t('settings.billing.fx-rate', {
+										rate: quote.exchangeRateUsdToRwf,
+										source: quote.exchangeRateSource
+									})}
+								</p>
+							</div>
+							<div className="rounded-lg border border-border bg-surface-2/40 p-3.5">
+								<p className="text-[11px] font-medium text-muted-foreground">{t('settings.billing.seats')}</p>
+								<p className="mt-1 text-base font-semibold text-foreground tnum">
+									{activeSeats} / {seatLimit}
+								</p>
+								<div
+									role="progressbar"
+									aria-label={t('settings.billing.seats')}
+									aria-valuenow={activeSeats}
+									aria-valuemin={0}
+									aria-valuemax={seatLimit}
+									className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+								>
+									<div className="h-full rounded-full bg-primary" style={{ width: `${seatRatio}%` }} />
+								</div>
+							</div>
+						</div>
+					) : null}
+				</SettingsCardBody>
+			</SettingsCard>
 
-			<Tabs defaultValue="irembopay">
-				<TabsList>
-					<TabsTrigger value="irembopay">
-						<Smartphone className="mr-1.5 size-3.5" aria-hidden />
-						{t('settings.billing.provider-irembopay')}
-					</TabsTrigger>
-					<TabsTrigger value="polar">
-						<CreditCard className="mr-1.5 size-3.5" aria-hidden />
-						{t('settings.billing.provider-polar')}
-					</TabsTrigger>
-				</TabsList>
+			<SettingsCard labelledBy="settings-billing-payment-heading">
+				<SettingsCardHeader
+					headingId="settings-billing-payment-heading"
+					icon={<Smartphone className="size-4" />}
+					title={t('settings.billing.payment-title')}
+				/>
+				<SettingsCardBody>
+					<div className="space-y-1.5">
+						<label htmlFor="billing-receipt-email" className="text-xs font-medium text-foreground">
+							{t('settings.billing.receipt-email')}
+						</label>
+						<Input
+							id="billing-receipt-email"
+							type="email"
+							value={billingEmail}
+							onChange={(e) => setBillingEmail(e.target.value)}
+							placeholder="billing@company.rw"
+						/>
+					</div>
 
-				<TabsContent value="irembopay" className="mt-3">
-					<form onSubmit={(e) => void handleIremboCheckout(e)} className="space-y-3">
-						<div
-							className="flex flex-wrap gap-2"
-							role="radiogroup"
-							aria-label={t('settings.billing.momo-method')}
-						>
-							{(
-								[
-									{ id: 'mtn_momo', label: t('settings.billing.momo-mtn') },
-									{ id: 'airtel_money', label: t('settings.billing.momo-airtel') },
-									{ id: 'irembopay_hosted', label: t('settings.billing.irembopay-hosted') }
-								] as const
-							).map((opt) => (
+					<Tabs defaultValue="irembopay">
+						<TabsList>
+							<TabsTrigger value="irembopay">
+								<Smartphone className="mr-1.5 size-3.5" aria-hidden />
+								{t('settings.billing.provider-irembopay')}
+							</TabsTrigger>
+							<TabsTrigger value="polar">
+								<CreditCard className="mr-1.5 size-3.5" aria-hidden />
+								{t('settings.billing.provider-polar')}
+							</TabsTrigger>
+						</TabsList>
+
+						<TabsContent value="irembopay" className="mt-3">
+							<form onSubmit={(e) => void handleIremboCheckout(e)} className="space-y-3">
+								<fieldset className="m-0 border-0 p-0">
+									<legend className="mb-1.5 text-xs font-medium text-foreground">
+										{t('settings.billing.momo-method')}
+									</legend>
+									<div className="flex flex-wrap gap-2">
+										{(
+											[
+												{ id: 'mtn_momo', label: t('settings.billing.momo-mtn') },
+												{ id: 'airtel_money', label: t('settings.billing.momo-airtel') },
+												{ id: 'irembopay_hosted', label: t('settings.billing.irembopay-hosted') }
+											] as const
+										).map((opt) => (
+											<Button
+												key={opt.id}
+												type="button"
+												size="sm"
+												tone={momoChannel === opt.id ? 'default' : 'outline'}
+												aria-pressed={momoChannel === opt.id}
+												onClick={() => setMomoChannel(opt.id)}
+											>
+												{opt.label}
+											</Button>
+										))}
+									</div>
+								</fieldset>
+
+								{momoChannel !== 'irembopay_hosted' ? (
+									<div className="space-y-1.5">
+										<label htmlFor="billing-momo-phone" className="text-xs font-medium text-foreground">
+											{t('settings.billing.momo-phone')}
+										</label>
+										<Input
+											id="billing-momo-phone"
+											type="tel"
+											className="font-mono tnum"
+											value={phoneNumber}
+											onChange={(e) => setPhoneNumber(e.target.value)}
+											placeholder="0788123456"
+										/>
+									</div>
+								) : null}
+
+								<Button type="submit" size="sm" disabled={busy} loading={busy}>
+									{t('settings.billing.pay-momo', {
+										amount: (quote?.rwfAmount ?? 14000).toLocaleString('en-US')
+									})}
+								</Button>
+							</form>
+						</TabsContent>
+
+						<TabsContent value="polar" className="mt-3 space-y-3">
+							<p className="text-xs leading-relaxed text-muted-foreground">
+								{t('settings.billing.polar-desc', {
+									amount: `$${quote?.usdAmount.toFixed(2) ?? '10.00'} USD`
+								})}
+							</p>
+							<div className="flex flex-wrap gap-2">
 								<Button
-									key={opt.id}
 									type="button"
 									size="sm"
-									tone={momoChannel === opt.id ? 'default' : 'outline'}
-									aria-pressed={momoChannel === opt.id}
-									onClick={() => setMomoChannel(opt.id)}
+									disabled={busy}
+									loading={busy}
+									onClick={() => void handlePolarCheckout()}
 								>
-									{opt.label}
+									{t('settings.billing.upgrade-polar')}
 								</Button>
-							))}
-						</div>
-
-						{momoChannel !== 'irembopay_hosted' ? (
-							<div className="space-y-1.5">
-								<label htmlFor="billing-momo-phone" className="text-xs font-medium">
-									{t('settings.billing.momo-phone')}
-								</label>
-								<Input
-									id="billing-momo-phone"
-									type="tel"
-									value={phoneNumber}
-									onChange={(e) => setPhoneNumber(e.target.value)}
-									placeholder="0788123456"
-								/>
+								{sub?.provider === 'polar' && sub.providerCustomerId ? (
+									<Button
+										type="button"
+										size="sm"
+										tone="outline"
+										disabled={busy}
+										onClick={() => void handleOpenPortal()}
+									>
+										{t('settings.billing.manage-portal')}
+									</Button>
+								) : null}
 							</div>
-						) : null}
+						</TabsContent>
+					</Tabs>
 
-						<Button type="submit" size="sm" disabled={busy}>
-							{t('settings.billing.pay-momo', {
-								amount: (quote?.rwfAmount ?? 14000).toLocaleString('en-US')
-							})}
-						</Button>
-					</form>
-				</TabsContent>
-
-				<TabsContent value="polar" className="mt-3 space-y-3">
-					<p className="text-xs text-muted-foreground">
-						International Visa/Mastercard/Apple Pay checkout processed securely by Polar ($
-						{quote?.usdAmount.toFixed(2) ?? '10.00'} USD / workspace).
-					</p>
-					<div className="flex flex-wrap gap-2">
-						<Button type="button" size="sm" disabled={busy} onClick={() => void handlePolarCheckout()}>
-							{t('settings.billing.upgrade-polar')}
-						</Button>
-						{sub?.provider === 'polar' && sub.providerCustomerId ? (
-							<Button
-								type="button"
-								size="sm"
-								tone="outline"
-								disabled={busy}
-								onClick={() => void handleOpenPortal()}
-							>
-								{t('settings.billing.manage-portal')}
-							</Button>
-						) : null}
-					</div>
-				</TabsContent>
-			</Tabs>
-
-			{checkout ? (
-				<div className="rounded-md border border-border bg-muted/40 p-3 text-xs space-y-1.5">
-					<div className="font-medium">
-						{t('settings.billing.checkout-ready')} — {checkout.amount.toLocaleString('en-US')}{' '}
-						{checkout.currency}
-					</div>
-					{checkout.instructions ? <p className="text-muted-foreground">{checkout.instructions}</p> : null}
-					{checkout.url ? (
-						<a
-							href={checkout.url}
-							target="_blank"
-							rel="noopener noreferrer"
-							className="inline-flex items-center gap-1 font-medium text-primary underline"
+					{checkout ? (
+						<SettingsNotice
+							tone="success"
+							title={`${t('settings.billing.checkout-ready')} — ${checkout.amount.toLocaleString('en-US')} ${checkout.currency}`}
 						>
-							<span>Open payment checkout</span>
-							<ExternalLink className="size-3" aria-hidden />
-						</a>
+							{checkout.instructions ? <p>{checkout.instructions}</p> : null}
+							{checkout.url ? (
+								<a
+									href={checkout.url}
+									target="_blank"
+									rel="noopener noreferrer"
+									className="mt-1 inline-flex items-center gap-1 font-medium text-primary underline underline-offset-4"
+								>
+									<span>{t('settings.billing.open-checkout')}</span>
+									<ExternalLink className="size-3" aria-hidden />
+								</a>
+							) : null}
+						</SettingsNotice>
 					) : null}
-				</div>
-			) : null}
 
-			{error ? (
-				<p role="alert" className="text-xs text-destructive">
-					{error}
-				</p>
-			) : null}
-		</section>
+					{error ? <SettingsNotice tone="danger">{error}</SettingsNotice> : null}
+				</SettingsCardBody>
+			</SettingsCard>
+		</div>
 	)
 }

@@ -22,13 +22,15 @@ import { AGENT_SCOPES } from '@huriro/domain'
 import { betterAuth } from 'better-auth'
 import { jwt, twoFactor } from 'better-auth/plugins'
 import { log } from '../../api/observability'
+import { createEmailPipelineFromConfig, type EmailPipeline } from '../../email'
 import type { Config } from '../../env'
 import { createCimdFetch } from './cimd-transport'
 
 export const SOCIAL_PROVIDER_IDS = ['google', 'github', 'apple'] as const
 export type SocialProviderId = (typeof SOCIAL_PROVIDER_IDS)[number]
 
-export function createAuth(config: Config) {
+export function createAuth(config: Config, deps?: { readonly email?: EmailPipeline | undefined }) {
+	const email = deps?.email ?? createEmailPipelineFromConfig(config)
 	// The adapter's pool: huriro_auth in production, DATABASE_URL fallback in
 	// dev (where the URL typically points at the superuser anyway).
 	const authSql = createAppPool(config.databaseAuthUrl, { max: 4 })
@@ -87,6 +89,22 @@ export function createAuth(config: Config) {
 				name: 'displayName',
 				image: 'avatarUrl',
 				emailVerified: 'emailVerified'
+			},
+			changeEmail: {
+				enabled: true,
+				sendChangeEmailConfirmation: async ({ user, newEmail, url }) => {
+					try {
+						await email.sendChangeEmailConfirmation({
+							to: user.email,
+							recipientName: user.name,
+							currentEmail: user.email,
+							newEmail,
+							confirmUrl: url
+						})
+					} catch (err) {
+						log.warn({ err, userId: user.id }, 'failed to deliver change email confirmation')
+					}
+				}
 			}
 		},
 		advanced: {
@@ -97,12 +115,47 @@ export function createAuth(config: Config) {
 		},
 		emailAndPassword: {
 			enabled: true,
-			// Mail pipeline lands in M3 — verification/reset sends are stubbed and
-			// audited-logged until then; self-host signups still work.
-			requireEmailVerification: false,
+			requireEmailVerification: Boolean(config.EMAIL_REQUIRE_VERIFICATION && email.configured),
+			revokeSessionsOnPasswordReset: true,
+			resetPasswordTokenExpiresIn: 3600,
 			sendResetPassword: async ({ user, url }) => {
-				log.warn({ userId: user.id }, 'password reset requested — mail pipeline not configured (M3)')
-				void url
+				try {
+					await email.sendPasswordReset({
+						to: user.email,
+						recipientName: user.name,
+						resetUrl: url,
+						expiresInLabel: '1 hour'
+					})
+				} catch (err) {
+					log.warn({ err, userId: user.id }, 'failed to deliver password reset email')
+				}
+			},
+			onPasswordReset: async ({ user }) => {
+				try {
+					await email.sendPasswordChanged({
+						to: user.email,
+						recipientName: user.name
+					})
+				} catch (err) {
+					log.warn({ err, userId: user.id }, 'failed to deliver password changed email')
+				}
+			}
+		},
+		emailVerification: {
+			sendOnSignUp: email.configured,
+			autoSignInAfterVerification: true,
+			expiresIn: 86400,
+			sendVerificationEmail: async ({ user, url }) => {
+				try {
+					await email.sendVerifyEmail({
+						to: user.email,
+						recipientName: user.name,
+						verificationUrl: url,
+						expiresInLabel: '24 hours'
+					})
+				} catch (err) {
+					log.warn({ err, userId: user.id }, 'failed to deliver verification email')
+				}
 			}
 		},
 		socialProviders,

@@ -1,12 +1,28 @@
 import type { WebhookDeliveryDto, WebhookEndpointDto } from '@huriro/contracts'
 import { t } from '@huriro/i18n'
 import { KeyRound, RefreshCw, Trash2, Webhook } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Skeleton } from '@/components/ui/skeleton'
 import { useWorkspace } from '@/lib/workspace'
+import {
+	CopyableSecretField,
+	SettingsCard,
+	SettingsCardBody,
+	SettingsCardFooter,
+	SettingsCardHeader,
+	SettingsEmptyState,
+	SettingsNotice,
+	SettingsSkeleton
+} from './settings-primitives'
+
+const COMMON_WEBHOOK_EVENTS = [
+	'tasks.issue.created.v1',
+	'tasks.issue.updated.v1',
+	'docs.page.updated.v1',
+	'chat.message.created.v1'
+] as const
 
 export function WebhooksSettingsPanel() {
 	const { api } = useWorkspace()
@@ -41,6 +57,24 @@ export function WebhooksSettingsPanel() {
 			cancelled = true
 		}
 	}, [api])
+
+	const selectedEvents = useMemo(
+		() =>
+			new Set(
+				eventsText
+					.split(',')
+					.map((s) => s.trim())
+					.filter(Boolean)
+			),
+		[eventsText]
+	)
+
+	function togglePresetEvent(eventKey: string) {
+		const next = new Set(selectedEvents)
+		if (next.has(eventKey)) next.delete(eventKey)
+		else next.add(eventKey)
+		setEventsText([...next].join(', '))
+	}
 
 	async function handleCreate(ev: React.FormEvent) {
 		ev.preventDefault()
@@ -128,165 +162,220 @@ export function WebhooksSettingsPanel() {
 	}
 
 	if (loading) {
-		return (
-			<div className="space-y-3 rounded-lg border border-border bg-card p-4">
-				<Skeleton className="h-5 w-40" />
-				<Skeleton className="h-24 w-full" />
-			</div>
-		)
+		return <SettingsSkeleton rows={3} />
 	}
 
 	return (
-		<section
-			aria-labelledby="webhooks-settings-heading"
-			className="space-y-4 rounded-lg border border-border bg-card p-4"
-		>
-			<div>
-				<h2 id="webhooks-settings-heading" className="flex items-center gap-2 text-sm font-semibold">
-					<Webhook className="size-4 text-muted-foreground" aria-hidden />
-					<span>{t('settings.webhooks.title')}</span>
-				</h2>
-				<p className="mt-0.5 text-xs text-muted-foreground">{t('settings.webhooks.desc')}</p>
-			</div>
-
+		<div className="space-y-5">
 			{revealedSecret ? (
-				<div role="status" className="rounded-md border border-(--warning)/40 bg-(--warning)/10 p-3 text-xs">
-					<p className="font-semibold text-foreground">{t('settings.webhooks.secret-once')}</p>
-					<code className="mt-1 block break-all font-mono text-foreground">{revealedSecret}</code>
-				</div>
+				<SettingsNotice
+					tone="warning"
+					title={t('settings.webhooks.secret-once')}
+					onDismiss={() => setRevealedSecret(null)}
+				>
+					<CopyableSecretField value={revealedSecret} />
+				</SettingsNotice>
 			) : null}
 
-			<form onSubmit={(ev) => void handleCreate(ev)} className="grid gap-2 sm:grid-cols-3">
-				<div className="space-y-1">
-					<label htmlFor="webhook-name" className="text-xs font-medium">
-						{t('settings.webhooks.name')}
-					</label>
-					<Input
-						id="webhook-name"
-						value={name}
-						onChange={(ev) => setName(ev.target.value)}
-						placeholder="CI notifier"
-						required
-					/>
-				</div>
-				<div className="space-y-1">
-					<label htmlFor="webhook-url" className="text-xs font-medium">
-						{t('settings.webhooks.url')}
-					</label>
-					<Input
-						id="webhook-url"
-						type="url"
-						value={url}
-						onChange={(ev) => setUrl(ev.target.value)}
-						placeholder="https://example.com/hooks/huriro"
-						required
-					/>
-				</div>
-				<div className="space-y-1">
-					<label htmlFor="webhook-events" className="text-xs font-medium">
-						{t('settings.webhooks.events')}
-					</label>
-					<div className="flex gap-2">
-						<Input
-							id="webhook-events"
-							value={eventsText}
-							onChange={(ev) => setEventsText(ev.target.value)}
-							required
-						/>
+			<SettingsCard labelledBy="webhooks-settings-heading">
+				<SettingsCardHeader
+					headingId="webhooks-settings-heading"
+					icon={<Webhook className="size-4" />}
+					title={t('settings.webhooks.title')}
+					description={t('settings.webhooks.desc')}
+				/>
+				<form onSubmit={(ev) => void handleCreate(ev)}>
+					<SettingsCardBody>
+						<div className="grid gap-3 sm:grid-cols-2">
+							<div className="space-y-1.5">
+								<label htmlFor="webhook-name" className="text-xs font-medium text-foreground">
+									{t('settings.webhooks.name')}
+								</label>
+								<Input
+									id="webhook-name"
+									value={name}
+									onChange={(ev) => setName(ev.target.value)}
+									placeholder="CI notifier"
+									required
+								/>
+							</div>
+							<div className="space-y-1.5">
+								<label htmlFor="webhook-url" className="text-xs font-medium text-foreground">
+									{t('settings.webhooks.url')}
+								</label>
+								<Input
+									id="webhook-url"
+									type="url"
+									value={url}
+									onChange={(ev) => setUrl(ev.target.value)}
+									placeholder="https://example.com/hooks/huriro"
+									required
+								/>
+							</div>
+						</div>
+
+						<div className="space-y-2">
+							<label htmlFor="webhook-events" className="text-xs font-medium text-foreground">
+								{t('settings.webhooks.events')}
+							</label>
+							<Input
+								id="webhook-events"
+								value={eventsText}
+								onChange={(ev) => setEventsText(ev.target.value)}
+								className="font-mono text-xs"
+								required
+							/>
+							<p className="text-xs text-muted-foreground">{t('settings.webhooks.events-hint')}</p>
+							<div className="flex flex-wrap gap-1.5">
+								{COMMON_WEBHOOK_EVENTS.map((eventKey) => {
+									const active = selectedEvents.has(eventKey)
+									return (
+										<Button
+											key={eventKey}
+											type="button"
+											size="sm"
+											tone={active ? 'default' : 'outline'}
+											className="h-7 font-mono text-[11px]"
+											aria-pressed={active}
+											onClick={() => togglePresetEvent(eventKey)}
+										>
+											{eventKey}
+										</Button>
+									)
+								})}
+							</div>
+						</div>
+
+						{error ? <SettingsNotice tone="danger">{error}</SettingsNotice> : null}
+					</SettingsCardBody>
+					<SettingsCardFooter className="justify-end">
 						<Button size="sm" type="submit" loading={busy}>
 							{t('settings.webhooks.submit')}
 						</Button>
-					</div>
-				</div>
-			</form>
+					</SettingsCardFooter>
+				</form>
+			</SettingsCard>
 
-			{error ? (
-				<p role="alert" className="text-xs text-destructive">
-					{error}
-				</p>
-			) : null}
-
-			{endpoints.length === 0 ? (
-				<p className="text-xs text-muted-foreground">{t('settings.webhooks.empty')}</p>
-			) : (
-				<div className="space-y-2">
-					{endpoints.map((ep) => {
-						const deliveries = deliveriesByEp[ep.id] ?? []
-						const isExpanded = expandedEp === ep.id
-						return (
-							<div key={ep.id} className="rounded-md border border-border bg-muted/30 p-3 text-xs">
-								<div className="flex flex-wrap items-center justify-between gap-2">
-									<div className="min-w-0">
-										<div className="flex items-center gap-2">
-											<span className="font-semibold">{ep.name}</span>
-											<Badge tone={ep.enabled ? 'default' : 'secondary'}>{ep.secretPrefix}…</Badge>
-										</div>
-										<p className="truncate font-mono text-muted-foreground">{ep.url}</p>
-									</div>
-									<div className="flex flex-wrap items-center gap-1.5">
-										<Button
-											size="sm"
-											tone="outline"
-											type="button"
-											onClick={() => void handleToggleDeliveries(ep.id)}
-										>
-											{t('settings.webhooks.deliveries')}
-										</Button>
-										<Button size="sm" tone="outline" type="button" onClick={() => void handleRotate(ep)}>
-											<KeyRound className="size-3" aria-hidden />
-											<span>{t('settings.webhooks.rotate')}</span>
-										</Button>
-										<Button size="sm" tone="outline" type="button" onClick={() => void handleToggle(ep)}>
-											{ep.enabled ? t('settings.webhooks.disable') : t('settings.webhooks.enable')}
-										</Button>
-										<Button
-											size="icon"
-											tone="ghost"
-											type="button"
-											aria-label={t('settings.webhooks.delete')}
-											onClick={() => void handleDelete(ep.id)}
-										>
-											<Trash2 className="size-3.5 text-destructive" aria-hidden />
-										</Button>
-									</div>
-								</div>
-
-								{isExpanded ? (
-									<div className="mt-3 space-y-1.5 border-t border-border pt-2">
-										{deliveries.length === 0 ? (
-											<p className="text-muted-foreground">0 deliveries</p>
-										) : (
-											deliveries.map((del) => (
-												<div
-													key={del.id}
-													className="flex items-center justify-between gap-2 rounded bg-background px-2.5 py-1.5"
-												>
-													<div className="min-w-0">
-														<span className="font-mono font-medium">{del.eventType}</span>
-														<span className="ml-2 text-muted-foreground">
-															{del.status} · {del.attempts}x
-															{del.lastStatusCode ? ` (${del.lastStatusCode})` : ''}
-														</span>
-													</div>
-													<Button
-														size="sm"
-														tone="outline"
-														type="button"
-														onClick={() => void handleReplay(ep.id, del.id)}
-													>
-														<RefreshCw className="size-3" aria-hidden />
-														<span>{t('settings.webhooks.replay')}</span>
-													</Button>
+			<SettingsCard labelledBy="webhooks-list-heading">
+				<SettingsCardHeader
+					headingId="webhooks-list-heading"
+					title={t('settings.webhooks.list-title')}
+					badge={
+						<Badge tone="secondary" className="tnum">
+							{endpoints.length}
+						</Badge>
+					}
+				/>
+				<SettingsCardBody>
+					{endpoints.length === 0 ? (
+						<SettingsEmptyState
+							icon={<Webhook className="size-4" />}
+							message={t('settings.webhooks.empty')}
+						/>
+					) : (
+						<div className="space-y-3">
+							{endpoints.map((ep) => {
+								const deliveries = deliveriesByEp[ep.id] ?? []
+								const isExpanded = expandedEp === ep.id
+								return (
+									<div key={ep.id} className="rounded-lg border border-border bg-surface-2/40 p-3.5 text-xs">
+										<div className="flex flex-wrap items-start justify-between gap-3">
+											<div className="min-w-0 flex-1 space-y-1.5">
+												<div className="flex flex-wrap items-center gap-2">
+													<span className="text-sm font-semibold text-foreground">{ep.name}</span>
+													<Badge tone={ep.enabled ? 'success' : 'secondary'}>
+														{ep.enabled ? t('settings.common.active') : t('settings.common.paused')}
+													</Badge>
+													<Badge tone="outline" className="font-mono">
+														{ep.secretPrefix}…
+													</Badge>
 												</div>
-											))
-										)}
+												<p className="truncate font-mono text-muted-foreground">{ep.url}</p>
+												<div className="flex flex-wrap gap-1">
+													{ep.events.map((evName) => (
+														<Badge key={evName} tone="secondary" className="font-mono text-[11px]">
+															{evName}
+														</Badge>
+													))}
+												</div>
+											</div>
+											<div className="flex flex-wrap items-center gap-1.5">
+												<Button
+													size="sm"
+													tone="outline"
+													type="button"
+													aria-expanded={isExpanded}
+													onClick={() => void handleToggleDeliveries(ep.id)}
+												>
+													{t('settings.webhooks.deliveries')}
+												</Button>
+												<Button size="sm" tone="outline" type="button" onClick={() => void handleRotate(ep)}>
+													<KeyRound className="size-3" aria-hidden />
+													<span>{t('settings.webhooks.rotate')}</span>
+												</Button>
+												<Button size="sm" tone="outline" type="button" onClick={() => void handleToggle(ep)}>
+													{ep.enabled ? t('settings.webhooks.disable') : t('settings.webhooks.enable')}
+												</Button>
+												<Button
+													size="icon"
+													tone="ghost"
+													type="button"
+													aria-label={t('settings.webhooks.delete')}
+													onClick={() => void handleDelete(ep.id)}
+												>
+													<Trash2 className="size-3.5 text-destructive" aria-hidden />
+												</Button>
+											</div>
+										</div>
+
+										{isExpanded ? (
+											<div className="mt-3 space-y-1.5 border-t border-border pt-3">
+												{deliveries.length === 0 ? (
+													<p className="text-muted-foreground">{t('settings.webhooks.deliveries-empty')}</p>
+												) : (
+													deliveries.map((del) => (
+														<div
+															key={del.id}
+															className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 bg-background px-3 py-2"
+														>
+															<div className="flex min-w-0 flex-wrap items-center gap-2">
+																<span className="font-mono font-medium text-foreground">{del.eventType}</span>
+																<Badge
+																	tone={
+																		del.status === 'delivered'
+																			? 'success'
+																			: del.status === 'failed'
+																				? 'danger'
+																				: 'secondary'
+																	}
+																>
+																	{del.status}
+																</Badge>
+																<span className="text-muted-foreground tnum">
+																	{del.attempts}x{del.lastStatusCode ? ` (${del.lastStatusCode})` : ''}
+																</span>
+															</div>
+															<Button
+																size="sm"
+																tone="outline"
+																type="button"
+																onClick={() => void handleReplay(ep.id, del.id)}
+															>
+																<RefreshCw className="size-3" aria-hidden />
+																<span>{t('settings.webhooks.replay')}</span>
+															</Button>
+														</div>
+													))
+												)}
+											</div>
+										) : null}
 									</div>
-								) : null}
-							</div>
-						)
-					})}
-				</div>
-			)}
-		</section>
+								)
+							})}
+						</div>
+					)}
+				</SettingsCardBody>
+			</SettingsCard>
+		</div>
 	)
 }

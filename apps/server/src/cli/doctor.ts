@@ -6,6 +6,7 @@ import { readdir } from 'node:fs/promises'
 import net from 'node:net'
 import { migrationsDir, pendingMigrations, type Sql } from '@huriro/db'
 import postgres from 'postgres'
+import { createEmailPipelineFromConfig, parseSmtpConfig } from '../email'
 import { loadEnv } from '../env'
 
 interface Check {
@@ -138,6 +139,43 @@ export async function doctor(args: string[]): Promise<void> {
 				ok: valkeyOk,
 				detail: valkeyOk ? 'reachable' : 'unreachable',
 				hint: valkeyOk ? undefined : 'check VALKEY_URL or `--profile valkey` service'
+			})
+		}
+
+		const emailPipeline = createEmailPipelineFromConfig(env)
+		if (emailPipeline.provider === 'smtp') {
+			const smtpCfg = parseSmtpConfig({
+				smtpUrl: env.smtpUrl,
+				smtpHost: env.SMTP_HOST,
+				smtpPort: env.SMTP_PORT,
+				smtpSecure: env.SMTP_SECURE,
+				smtpUser: env.SMTP_USER,
+				smtpPass: env.smtpPass
+			})
+			const smtpReachable = smtpCfg ? await checkTcpPort(`smtp://${smtpCfg.host}:${smtpCfg.port}`) : false
+			checks.push({
+				name: 'email',
+				ok: smtpReachable,
+				detail: smtpReachable
+					? `smtp (${smtpCfg?.host}:${smtpCfg?.port}, from ${emailPipeline.from})`
+					: `smtp unreachable (${smtpCfg?.host ?? 'unknown'}:${smtpCfg?.port ?? 587})`,
+				hint: smtpReachable ? undefined : 'verify SMTP_URL / SMTP_HOST and network egress'
+			})
+		} else if (emailPipeline.configured) {
+			checks.push({
+				name: 'email',
+				ok: true,
+				detail: `${emailPipeline.provider} (${emailPipeline.mode}, from ${emailPipeline.from})`
+			})
+		} else {
+			checks.push({
+				name: 'email',
+				ok: false,
+				detail: `unconfigured (${emailPipeline.mode}, provider=${emailPipeline.provider})`,
+				hint:
+					env.HURIRO_MODE === 'cloud'
+						? 'set EMAILIT_API_KEY or EMAILIT_API_KEY_FILE'
+						: 'set RESEND_API_KEY_FILE (recommended) or SMTP_URL_FILE / SMTP_HOST'
 			})
 		}
 

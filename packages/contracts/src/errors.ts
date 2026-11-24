@@ -63,6 +63,8 @@ export const ERROR_CODES = [
 	'mail_provider_unconfigured',
 	'mail_send_window_expired',
 	'mail_message_too_large',
+	// email notification pipeline
+	'email_not_configured',
 	// M6 mobile, billing, governance, hardening (§19–§22)
 	'read_only_mode',
 	'billing_disabled',

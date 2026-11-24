@@ -10,7 +10,8 @@ import axios from 'axios'
 import { PgBoss } from 'pg-boss'
 import { resolveRootEnvelopeSecret } from '../api/crypto'
 import type { DnsResolver } from '../api/egress'
-import { log, outboxLag } from '../api/observability'
+import { log, outboxDeadLetters, outboxDeadLettersTotal, outboxLag } from '../api/observability'
+import type { EmailPipeline } from '../email'
 import { sweepExpiredApprovals } from '../modules/agents'
 import { processEmbeddingOutboxEvent } from '../modules/ai'
 import { captureDailyBillingUsageOnce } from '../modules/billing'
@@ -30,6 +31,7 @@ import {
 	syncAccount
 } from '../modules/mail'
 import {
+	dispatchInstantNotificationEmails,
 	dispatchMobilePushNotifications,
 	dispatchWebPushNotifications,
 	type EmailTransport,
@@ -41,6 +43,7 @@ import {
 import { processSearchOutboxEvent } from '../modules/search'
 import { enqueueWebhookDeliveriesForOutboxEvent, processDueWebhookDeliveriesOnce } from '../modules/webhooks'
 import type { RealtimePubSub } from '../realtime/pubsub'
+import { processEmailLifecycleOutboxEvent } from './email-lifecycle'
 
 export interface DrainOutboxOptions {
 	readonly blobStorage?: BlobStorage | undefined
@@ -50,12 +53,20 @@ export interface DrainOutboxOptions {
 	readonly githubClient?: GithubApiClient | undefined
 	readonly vapid?: VapidConfig | undefined
 	readonly expoPush?: ExpoPushConfig | undefined
+	readonly email?: EmailPipeline | undefined
+	readonly publicBaseUrl?: string | undefined
 	readonly egressFetch?: typeof fetch | undefined
 	readonly egressResolver?: DnsResolver | undefined
 	readonly mail?: Partial<MailModuleConfig> | undefined
 	/** When set, only this workspace's rows are claimed — used by tests so one
 	 * fixture's drain doesn't chew through every other test's backlog. */
 	readonly onlyWorkspaceId?: string | undefined
+	/** Attempt budget before a failing row is dead-lettered (§5.5). Test seam;
+	 * production uses OUTBOX_MAX_ATTEMPTS. */
+	readonly maxAttempts?: number | undefined
+	/** Base for the capped exponential backoff between attempts. Test seam —
+	 * pass 0 so drained rows are due again immediately. */
+	readonly backoffBaseMs?: number | undefined
 }
 
 export interface WorkerDeps extends DrainOutboxOptions {
@@ -72,11 +83,30 @@ export interface WorkerDeps extends DrainOutboxOptions {
 
 const OUTBOX_BATCH = 200
 
+/** Dead-letter policy (§5.5): after OUTBOX_MAX_ATTEMPTS failures a row leaves
+ * the retry loop and waits for operator replay — never silently dropped. With
+ * the 10s→1h capped backoff below the budget spans roughly 17 hours, so
+ * transient outages (deploys, ClamAV restarts, webhook endpoint flaps) recover
+ * on their own while genuinely poisoned events stop retrying forever. */
+export const OUTBOX_MAX_ATTEMPTS = 25
+const OUTBOX_BACKOFF_BASE_MS = 10_000
+const OUTBOX_BACKOFF_CAP_MS = 3_600_000
+
+/** Capped exponential backoff with ±20% jitter, where `attempts` is the
+ * failure count AFTER incrementing (first failure → base delay). A base of 0
+ * makes every retry due immediately — the deterministic mode tests use. */
+export function outboxBackoffMs(attempts: number, baseMs: number, capMs = OUTBOX_BACKOFF_CAP_MS): number {
+	const exp = Math.min(baseMs * 2 ** Math.max(0, attempts - 1), capMs)
+	if (exp <= 0) return 0
+	return Math.round(exp * (0.8 + Math.random() * 0.4))
+}
+
 interface PendingOutboxRow {
 	readonly id: string
 	readonly workspaceId: string | null
 	readonly eventType: string
 	readonly payload: Record<string, unknown>
+	readonly attempts: number
 }
 
 /**
@@ -89,20 +119,28 @@ export async function drainOutboxOnce(
 	pubsub?: RealtimePubSub,
 	opts?: DrainOutboxOptions
 ): Promise<number> {
+	// Due = unpublished, not dead-lettered, and past its backoff-scheduled
+	// next_attempt_at. Dead letters stay in the table (§5.5 — no silent drops)
+	// but out of this scan until an operator replays them.
 	const rows = await app.begin(async (tx) => {
 		const picked = opts?.onlyWorkspaceId
 			? await tx<PendingOutboxRow[]>`
-				SELECT id, workspace_id AS "workspaceId", event_type AS "eventType", payload
+				SELECT id, workspace_id AS "workspaceId", event_type AS "eventType", payload, attempts
 				FROM outbox
-				WHERE published_at IS NULL AND workspace_id = ${opts.onlyWorkspaceId}
+				WHERE published_at IS NULL
+					AND dead_lettered_at IS NULL
+					AND (next_attempt_at IS NULL OR next_attempt_at <= now())
+					AND workspace_id = ${opts.onlyWorkspaceId}
 				ORDER BY created_at ASC
 				LIMIT ${OUTBOX_BATCH}
 				FOR UPDATE SKIP LOCKED
 			`
 			: await tx<PendingOutboxRow[]>`
-				SELECT id, workspace_id AS "workspaceId", event_type AS "eventType", payload
+				SELECT id, workspace_id AS "workspaceId", event_type AS "eventType", payload, attempts
 				FROM outbox
 				WHERE published_at IS NULL
+					AND dead_lettered_at IS NULL
+					AND (next_attempt_at IS NULL OR next_attempt_at <= now())
 				ORDER BY created_at ASC
 				LIMIT ${OUTBOX_BATCH}
 				FOR UPDATE SKIP LOCKED
@@ -191,6 +229,16 @@ export async function drainOutboxOnce(
 					}).catch((err) => log.warn({ err, outboxId: row.id }, 'mobile push dispatch error'))
 				}
 
+				if (txResult.pendingEmail.length > 0 && opts?.email?.configured) {
+					await dispatchInstantNotificationEmails(app, row.workspaceId, txResult.pendingEmail, {
+						email: opts.email
+					}).catch((err) => log.warn({ err, outboxId: row.id }, 'instant email dispatch error'))
+				}
+
+				await processEmailLifecycleOutboxEvent(app, row, {
+					email: opts?.email
+				}).catch((err) => log.warn({ err, outboxId: row.id }, 'lifecycle email consumer failed'))
+
 				await processChatLinkPreviewOutboxEvent(
 					app,
 					row,
@@ -228,13 +276,43 @@ export async function drainOutboxOnce(
 			}
 			processedCount++
 		} catch (err) {
+			// These UPDATEs run in autocommit AFTER the consumer tx has rolled
+			// back, so the attempt/dead-letter bookkeeping survives the failure
+			// it records. Exhausting the attempt budget dead-letters the row:
+			// it stays in outbox with payload + error for the operator dead-letter
+			// view (`huriro dead-letters`) and is re-armed only by replay (§5.5).
 			const msg = err instanceof Error ? err.message : String(err)
-			log.error({ err, outboxId: row.id, eventType: row.eventType }, 'outbox consumer failed')
-			await app`
-				UPDATE outbox
-				SET attempts = attempts + 1, last_error = ${msg}
-				WHERE id = ${row.id}
-			`.catch(() => {})
+			const maxAttempts = opts?.maxAttempts ?? OUTBOX_MAX_ATTEMPTS
+			const newAttempts = row.attempts + 1
+			if (newAttempts >= maxAttempts) {
+				log.error(
+					{ err, outboxId: row.id, eventType: row.eventType, attempts: newAttempts },
+					'outbox event dead-lettered'
+				)
+				outboxDeadLettersTotal.inc({ event_type: row.eventType })
+				await app`
+					UPDATE outbox
+					SET attempts = ${newAttempts},
+						last_error = ${msg},
+						last_attempt_at = now(),
+						next_attempt_at = NULL,
+						dead_lettered_at = now()
+					WHERE id = ${row.id} AND dead_lettered_at IS NULL
+				`.catch(() => {})
+			} else {
+				log.error({ err, outboxId: row.id, eventType: row.eventType }, 'outbox consumer failed')
+				const retryAt = new Date(
+					Date.now() + outboxBackoffMs(newAttempts, opts?.backoffBaseMs ?? OUTBOX_BACKOFF_BASE_MS)
+				)
+				await app`
+					UPDATE outbox
+					SET attempts = ${newAttempts},
+						last_error = ${msg},
+						last_attempt_at = now(),
+						next_attempt_at = ${retryAt}
+					WHERE id = ${row.id}
+				`.catch(() => {})
+			}
 		}
 	}
 
@@ -249,8 +327,42 @@ export async function drainOutboxOnce(
 }
 
 async function updateLagMetric(app: Sql) {
-	const [row] = await app<{ n: number }[]>`SELECT count(*)::int AS n FROM outbox WHERE published_at IS NULL`
-	outboxLag.set(row?.n ?? 0)
+	// Dead letters are terminal, not lag: they would pin the alert forever even
+	// though the drain is healthy. They get their own gauge instead (§20.1).
+	const [row] = await app<{ pending: number; dead: number }[]>`
+		SELECT
+			count(*) FILTER (WHERE dead_lettered_at IS NULL)::int AS pending,
+			count(*) FILTER (WHERE dead_lettered_at IS NOT NULL)::int AS dead
+		FROM outbox
+		WHERE published_at IS NULL
+	`
+	outboxLag.set(row?.pending ?? 0)
+	outboxDeadLetters.set(row?.dead ?? 0)
+}
+
+/**
+ * Re-arm dead-lettered outbox rows for another round of draining (§5.5 replay):
+ * clears the terminal marker and resets the attempt budget/backoff, so the row
+ * is due immediately. Idempotent — replaying an already-replayed or unknown id
+ * simply matches nothing. `ids === undefined` replays every dead letter;
+ * an empty array replays none. Returns the number of rows re-armed.
+ */
+export async function replayDeadLetterEvents(app: Sql, ids?: readonly string[]): Promise<number> {
+	if (ids !== undefined && ids.length === 0) return 0
+	const rows = ids
+		? await app<{ id: string }[]>`
+			UPDATE outbox
+			SET dead_lettered_at = NULL, attempts = 0, last_error = NULL, next_attempt_at = NULL
+			WHERE dead_lettered_at IS NOT NULL AND id = ANY(${[...ids]}::uuid[])
+			RETURNING id
+		`
+		: await app<{ id: string }[]>`
+			UPDATE outbox
+			SET dead_lettered_at = NULL, attempts = 0, last_error = NULL, next_attempt_at = NULL
+			WHERE dead_lettered_at IS NOT NULL
+			RETURNING id
+		`
+	return rows.length
 }
 
 export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<void> }> {
@@ -308,7 +420,9 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 	await boss.work('notification-email-digest', async () => {
 		await runEmailDigestOnce(deps.app, {
 			transport: deps.emailTransport,
-			smtp: deps.smtp
+			smtp: deps.smtp,
+			...(deps.email !== undefined ? { email: deps.email } : {}),
+			...(deps.publicBaseUrl !== undefined ? { baseUrl: deps.publicBaseUrl } : {})
 		})
 	})
 

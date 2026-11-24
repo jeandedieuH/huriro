@@ -15,7 +15,8 @@ import { log } from './api/observability'
 import { doctor } from './cli/doctor'
 import { genenv } from './cli/genenv'
 import { init } from './cli/init'
-import { backup, createAdmin, health, migrateCmd, restore, setupTokenCmd } from './cli/ops'
+import { backup, createAdmin, deadLettersCmd, health, migrateCmd, restore, setupTokenCmd } from './cli/ops'
+import { createEmailPipelineFromConfig } from './email'
 import { loadEnv } from './env'
 import { FilesystemBlobStorage } from './modules/files'
 import { createAuth, ensureAgentOAuthSeed } from './modules/identity'
@@ -42,6 +43,9 @@ const USAGE = `huriro <command>
   restore <file> --yes                   pg_restore over DATABASE_ADMIN_URL's db
   genenv [--check]                       emit .env.example from the env schema
   health                                 exit 0 iff the app db answers (container healthcheck)
+  dead-letters [--limit N]               list outbox events parked in dead-letter state (§5.5)
+  dead-letters show <id>                 print one dead letter's full payload + error
+  dead-letters replay <id> | --all       re-arm dead letters for another round of draining
 `
 
 async function main() {
@@ -65,6 +69,8 @@ async function main() {
 			return restore(args)
 		case 'genenv':
 			return genenv(args)
+		case 'dead-letters':
+			return deadLettersCmd(args)
 		case 'health':
 			return health()
 		case undefined:
@@ -135,8 +141,12 @@ async function serve(args: string[]) {
 	}
 	stoppers.push(() => pubsub.close())
 
-	const auth = role === 'api' || role === 'realtime' || role === 'all' ? createAuth(env) : null
+	const auth =
+		role === 'api' || role === 'realtime' || role === 'all'
+			? createAuth(env, { email: createEmailPipelineFromConfig(env) })
+			: null
 	if (auth) await ensureAgentOAuthSeed(auth)
+	const emailPipeline = createEmailPipelineFromConfig(env)
 	const collabTicketSecret = env.betterAuthSecret ?? env.secretKey ?? 'huriro-dev-collab'
 	const rootSecret = resolveRootEnvelopeSecret(env.secretKey)
 	const blobStorage = new FilesystemBlobStorage(env.BLOB_DIR)
@@ -149,32 +159,52 @@ async function serve(args: string[]) {
 				}
 			: undefined
 	const smtp = (() => {
-		if (!env.SMTP_URL) return { from: env.SMTP_FROM }
-		try {
-			const u = new URL(env.SMTP_URL)
-			return {
-				host: u.hostname,
-				...(u.port ? { port: Number.parseInt(u.port, 10) } : {}),
-				from: env.SMTP_FROM
+		if (env.smtpUrl) {
+			try {
+				const u = new URL(env.smtpUrl)
+				return {
+					host: env.SMTP_HOST ?? u.hostname,
+					port: env.SMTP_PORT ?? (u.port ? Number.parseInt(u.port, 10) : u.protocol === 'smtps:' ? 465 : 587),
+					secure: env.SMTP_SECURE ?? u.protocol === 'smtps:',
+					...(env.SMTP_USER || u.username ? { user: env.SMTP_USER ?? decodeURIComponent(u.username) } : {}),
+					...((env.smtpPass ?? (u.password ? decodeURIComponent(u.password) : undefined))
+						? { pass: env.smtpPass ?? decodeURIComponent(u.password) }
+						: {}),
+					from: env.emailFrom
+				}
+			} catch {
+				return {
+					host: env.SMTP_HOST ?? env.smtpUrl,
+					...(env.SMTP_PORT !== undefined ? { port: env.SMTP_PORT } : {}),
+					...(env.SMTP_SECURE !== undefined ? { secure: env.SMTP_SECURE } : {}),
+					...(env.SMTP_USER ? { user: env.SMTP_USER } : {}),
+					...(env.smtpPass ? { pass: env.smtpPass } : {}),
+					from: env.emailFrom
+				}
 			}
-		} catch {
-			return { host: env.SMTP_URL, from: env.SMTP_FROM }
 		}
+		if (env.SMTP_HOST) {
+			return {
+				host: env.SMTP_HOST,
+				port: env.SMTP_PORT ?? (env.SMTP_SECURE ? 465 : 587),
+				secure: env.SMTP_SECURE ?? env.SMTP_PORT === 465,
+				...(env.SMTP_USER ? { user: env.SMTP_USER } : {}),
+				...(env.smtpPass ? { pass: env.smtpPass } : {}),
+				from: env.emailFrom
+			}
+		}
+		return { from: env.emailFrom }
 	})()
 	const mailConfig = (() => {
 		let smtpRelay: { host: string; port: number; secure: boolean; user?: string; pass?: string } | undefined
-		if (env.SMTP_URL) {
-			try {
-				const u = new URL(env.SMTP_URL)
-				smtpRelay = {
-					host: u.hostname,
-					port: u.port ? Number.parseInt(u.port, 10) : u.protocol === 'smtps:' ? 465 : 587,
-					secure: u.protocol === 'smtps:',
-					...(u.username ? { user: decodeURIComponent(u.username) } : {}),
-					...(u.password ? { pass: decodeURIComponent(u.password) } : {})
-				}
-			} catch {
-				smtpRelay = { host: env.SMTP_URL, port: 587, secure: false }
+		if ('host' in smtp && smtp.host) {
+			const secure = smtp.secure ?? smtp.port === 465
+			smtpRelay = {
+				host: smtp.host,
+				port: smtp.port ?? (secure ? 465 : 587),
+				secure,
+				...(smtp.user ? { user: smtp.user } : {}),
+				...(smtp.pass ? { pass: smtp.pass } : {})
 			}
 		}
 		return {
@@ -214,6 +244,7 @@ async function serve(args: string[]) {
 			collabTicketSecret,
 			blobStorage,
 			rootSecret,
+			email: emailPipeline,
 			readOnly: env.HURIRO_READ_ONLY,
 			rateLimitPerMinute: env.API_RATE_LIMIT_PER_MINUTE,
 			billing: {
@@ -249,6 +280,8 @@ async function serve(args: string[]) {
 			heartbeatUrl: env.HEARTBEAT_URL,
 			blobStorage,
 			rootSecret,
+			email: emailPipeline,
+			publicBaseUrl: env.HURIRO_URL,
 			smtp,
 			mail: mailConfig,
 			mailSyncIntervalSeconds: env.MAIL_SYNC_INTERVAL_SECONDS,

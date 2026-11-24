@@ -317,6 +317,175 @@ export const pseudo = {
 	'settings.sidebar.appearance': '⟪Ààppééààrààncéé⟫ ~~~~',
 	'settings.appearance.desc':
 		'⟪Chóóóóséé béétwéééén lííght àànd dààrk súúrfààcéés fóór thíís déévíícéé.⟫ ~~~~~~~~~~~~~~~~~~~',
+	'settings.group.workspace': '⟪Wóórkspààcéé⟫ ~~~',
+	'settings.group.integrations': '⟪Ííntéégrààtííóóns⟫ ~~~~',
+	'settings.group.automation': '⟪ÀàÍí & ààúútóómààtííóón⟫ ~~~~~',
+	'settings.group.personal': '⟪Péérsóónààl⟫ ~~~',
+	'settings.search.placeholder': '⟪Fííltéér sééttííngs…⟫ ~~~~~~',
+	'settings.search.label': '⟪Fííltéér sééttííngs sééctííóóns⟫ ~~~~~~~~',
+	'settings.search.empty': '⟪Nóó sééttííngs mààtch ýýóóúúr fííltéér.⟫ ~~~~~~~~~~~',
+	'settings.search.clear': '⟪Clééààr fííltéér⟫ ~~~~',
+	'settings.mobile.section-label': '⟪Sééttííngs sééctííóón⟫ ~~~~~~',
+	'settings.breadcrumb.label': '⟪Sééttííngs nààvíígààtííóón⟫ ~~~~~~~',
+	'settings.desc.general':
+		'⟪Wóórkspààcéé íídééntíítýý, dééplóóýýméént móódéé, àànd lóócààl sýýnc stààtúús.⟫ ~~~~~~~~~~~~~~~~~~~~~',
+	'settings.desc.members':
+		'⟪Réévííééw wóórkspààcéé méémbéérs àànd búúíílt-íín róóléé péérmííssííóóns.⟫ ~~~~~~~~~~~~~~~~~~~',
+	'settings.desc.imports':
+		'⟪Míígrààtéé ííssúúéés, dóócs, àànd chààt híístóórýý wííth àà sààféé drýý-rúún préévííééw.⟫ ~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.desc.mail':
+		'⟪Cóónnééct íínbóóúúnd óór próóvíídéér mààííl ààccóóúúnts àànd óórgààníízéé shààrééd íínbóóxéés.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.desc.integrations':
+		'⟪Cóónfíígúúréé twóó-wààýý GíítHúúb ííssúúéé sýýnchróóníízààtííóón péér próójééct.⟫ ~~~~~~~~~~~~~~~~~~~~~',
+	'settings.desc.webhooks':
+		'⟪Déélíívéér síígnééd éévéént pààýýlóóààds tóó ééxtéérnààl HTTPS ééndpóóíínts.⟫ ~~~~~~~~~~~~~~~~~~~~',
+	'settings.desc.ai':
+		'⟪Cóóntróól wóórkspààcéé ÀàÍí fééààtúúréés, ààúúdíít lóóggííng, àànd móódéél próóvíídéérs.⟫ ~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.desc.agents':
+		'⟪Màànààgéé cóónnééctééd ÓóÀàúúth ààpps, wóórkspààcéé ààgéénts, àànd RÉéST ÀàPÍí kééýýs.⟫ ~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.desc.approvals':
+		'⟪Réévííééw àànd déécíídéé pééndííng ààgéént wríítéé rééqúúéésts.⟫ ~~~~~~~~~~~~~~~~',
+	'settings.desc.billing':
+		'⟪Màànààgéé ýýóóúúr Húúrííróó Clóóúúd plààn, sééààts, àànd pààýýméént mééthóóds.⟫ ~~~~~~~~~~~~~~~~~~~~',
+	'settings.desc.governance':
+		'⟪Ééxpóórt wóórkspààcéé dààtàà búúndléés óór péérmàànééntlýý éérààséé ýýóóúúr ààccóóúúnt.⟫ ~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.desc.appearance':
+		'⟪Cúústóómíízéé thééméé, ííntéérfààcéé déénsíítýý, àànd kééýýbóóààrd prééféérééncéés.⟫ ~~~~~~~~~~~~~~~~~~~~~',
+	'settings.desc.notifications':
+		'⟪Cóóntróól chààt ààléérts, éémààííl díígéésts, qúúííéét hóóúúrs, àànd púúsh déévíícéés.⟫ ~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.general.workspace-card': '⟪Wóórkspààcéé próófííléé⟫ ~~~~~~',
+	'settings.general.workspace-id': '⟪Wóórkspààcéé ÍíD⟫ ~~~~',
+	'settings.general.deployment': '⟪Dééplóóýýméént móódéé⟫ ~~~~~',
+	'settings.general.mode.cloud': '⟪Húúrííróó Clóóúúd⟫ ~~~~',
+	'settings.general.mode.selfhost': '⟪Séélf-hóóstééd⟫ ~~~~',
+	'settings.general.stats.projects': '⟪Próójéécts⟫ ~~~',
+	'settings.general.stats.issues': '⟪Óópéén ííssúúéés⟫ ~~~~',
+	'settings.general.stats.docs': '⟪Dóócúúméénts⟫ ~~~',
+	'settings.general.session-card': '⟪Sééssííóón & lóócààl rééplíícàà⟫ ~~~~~~~~',
+	'settings.general.signed-in-as': '⟪Síígnééd íín ààs⟫ ~~~~',
+	'settings.general.storage-mode': '⟪Lóócààl stóórààgéé⟫ ~~~~~',
+	'settings.general.sync-status': '⟪Sýýnc stààtúús⟫ ~~~~',
+	'settings.general.cursor': '⟪Sýýnc cúúrsóór⟫ ~~~~',
+	'settings.general.pending-changes': '⟪Pééndííng lóócààl chààngéés⟫ ~~~~~~~',
+	'settings.general.quick-links': '⟪Qúúííck júúmp⟫ ~~~~',
+	'settings.members.directory-title': '⟪Wóórkspààcéé díírééctóórýý⟫ ~~~~~~~',
+	'settings.members.directory-desc':
+		'⟪Ààctíívéé pééóópléé whóó hààvéé ààccééss tóó thíís wóórkspààcéé.⟫ ~~~~~~~~~~~~~~~~~',
+	'settings.members.search-placeholder': '⟪Fííltéér býý nààméé, éémààííl, óór róóléé…⟫ ~~~~~~~~~~~',
+	'settings.members.search-empty': '⟪Nóó méémbéérs mààtch ýýóóúúr fííltéér.⟫ ~~~~~~~~~~',
+	'settings.members.you': '⟪Ýýóóúú⟫ ~',
+	'settings.members.count': '⟪{cóóúúnt} méémbéérs⟫ ~~~~~',
+	'settings.members.roles-title': '⟪Róóléé cààpààbíílíítííéés⟫ ~~~~~~',
+	'settings.members.roles-desc':
+		'⟪Búúíílt-íín sýýstéém róóléés éénfóórcééd ààcróóss éévéérýý wóórkspààcéé rééqúúéést.⟫ ~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.members.role.owner': '⟪Óównéér⟫ ~~',
+	'settings.members.role.admin': '⟪Ààdmíín⟫ ~~',
+	'settings.members.role.member': '⟪Méémbéér⟫ ~~',
+	'settings.members.role.guest': '⟪Gúúéést⟫ ~~',
+	'settings.members.role-permissions-count': '⟪{cóóúúnt} péérmííssííóóns⟫ ~~~~~~~',
+	'settings.members.role-guest-note': '⟪Ééxplíícíít réésóóúúrcéé ÀàCLs óónlýý⟫ ~~~~~~~~~',
+	'settings.members.cap.workspace': '⟪Wóórkspààcéé & sééttííngs⟫ ~~~~~~~',
+	'settings.members.cap.billing': '⟪Bííllííng & súúbscrííptííóón⟫ ~~~~~~~~',
+	'settings.members.cap.members': '⟪Méémbéérs & íínvíítààtííóóns⟫ ~~~~~~~',
+	'settings.members.cap.work': '⟪Próójéécts, ííssúúéés & dóócs⟫ ~~~~~~~~',
+	'settings.members.cap.comms': '⟪Chààt & shààrééd mààííl⟫ ~~~~~~',
+	'settings.members.cap.agents': '⟪Ààgéénts, ààppróóvààls & ÀàÍí⟫ ~~~~~~~~',
+	'settings.members.cap.allowed': '⟪Ààllóówééd⟫ ~~',
+	'settings.members.cap.restricted': '⟪Nóót íínclúúdééd⟫ ~~~~',
+	'settings.members.error': '⟪Cóóúúld nóót lóóààd wóórkspààcéé méémbéérs.⟫ ~~~~~~~~~~~~',
+	'settings.appearance.theme-title': '⟪Cóólóór thééméé⟫ ~~~~',
+	'settings.appearance.theme-desc':
+		'⟪Chóóóóséé hóów Húúrííróó rééndéérs súúrfààcéés óón thíís déévíícéé.⟫ ~~~~~~~~~~~~~~~~~~',
+	'settings.appearance.theme-light': '⟪Lííght⟫ ~~',
+	'settings.appearance.theme-light-desc':
+		'⟪Críísp nééúútrààl súúrfààcéés óóptíímíízééd fóór brííght éénvííróónméénts.⟫ ~~~~~~~~~~~~~~~~~~~~',
+	'settings.appearance.theme-dark': '⟪Dààrk⟫ ~',
+	'settings.appearance.theme-dark-desc':
+		'⟪Lóów-glààréé dààrk súúrfààcéés túúnééd fóór ééxtééndééd fóócúús.⟫ ~~~~~~~~~~~~~~~~~',
+	'settings.appearance.active': '⟪Ààctíívéé⟫ ~~',
+	'settings.appearance.density-title': '⟪Ííntéérfààcéé déénsíítýý⟫ ~~~~~~',
+	'settings.appearance.density-desc':
+		'⟪Ààdjúúst véértíícààl spààcííng ààcróóss ííssúúéé líísts àànd wóórkspààcéé róóws.⟫ ~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.appearance.density-comfortable-desc':
+		'⟪Bààlààncééd 36 px róóws wííth géénééróóúús brééààthííng róóóóm.⟫ ~~~~~~~~~~~~~~~~~',
+	'settings.appearance.density-compact-desc':
+		'⟪Tííghtéér 32 px róóws tóó scààn móóréé íítééms ààt óóncéé.⟫ ~~~~~~~~~~~~~~~~',
+	'settings.appearance.keyboard-title': '⟪Kééýýbóóààrd nààvíígààtííóón⟫ ~~~~~~~',
+	'settings.appearance.keyboard-desc':
+		'⟪Sííngléé-chààrààctéér shóórtcúúts néévéér fííréé whííléé týýpííng íín ààn íínpúút.⟫ ~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.appearance.shortcuts-view': '⟪Vííééw shóórtcúúts⟫ ~~~~~',
+	'settings.imports.hero-title': '⟪Brííng ýýóóúúr tééààm’s híístóórýý ííntóó Húúrííróó⟫ ~~~~~~~~~~~~~',
+	'settings.imports.hero-desc':
+		'⟪Éévéérýý íímpóórt rúúns àà zééróó-wríítéé drýý-rúún préévííééw fíírst àànd skííps ààlrééààdýý-íímpóórtééd réécóórds.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.imports.sources-title': '⟪Súúppóórtééd sóóúúrcéés⟫ ~~~~~~',
+	'settings.imports.source-linear-desc':
+		'⟪Ííssúúéés, prííóóríítííéés, stààtéés, àànd léégààcýý íídééntíífííéér réédííréécts.⟫ ~~~~~~~~~~~~~~~~~~~~~',
+	'settings.imports.source-github-desc':
+		'⟪Réépóósíítóórýý ííssúúéés àànd cóómméént híístóórýý mààppééd tóó àà próójééct.⟫ ~~~~~~~~~~~~~~~~~~~~',
+	'settings.imports.source-jira-desc':
+		'⟪CSV óór JSÓóN ííssúúéé ééxpóórts wííth stààtúús àànd prííóóríítýý mààppííng.⟫ ~~~~~~~~~~~~~~~~~~~~~',
+	'settings.imports.source-notion-desc':
+		'⟪Wóórkspààcéé .zííp ààrchíívéés óór JSÓóN pààgéés cóónvéértééd tóó cóóllààbóórààtíívéé dóócs.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.imports.source-markdown-desc':
+		'⟪Lóócààl .md fííléés íímpóórtééd díírééctlýý ííntóó ýýóóúúr Dóócs hííéérààrchýý.⟫ ~~~~~~~~~~~~~~~~~~~~~',
+	'settings.imports.source-slack-desc':
+		'⟪Chàànnéél híístóórýý, mééssààgéés, àànd thrééààd rééplííéés fróóm Slààck JSÓóN ééxpóórts.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.imports.start': '⟪Íímpóórt fróóm {sóóúúrcéé}⟫ ~~~~~~~',
+	'settings.common.copy': '⟪Cóópýý⟫ ~',
+	'settings.common.copied': '⟪Cóópííééd⟫ ~~',
+	'settings.common.dismiss': '⟪Díísmííss⟫ ~~',
+	'settings.common.active': '⟪Ààctíívéé⟫ ~~',
+	'settings.common.paused': '⟪Pààúúsééd⟫ ~~',
+	'settings.common.unsaved': '⟪Úúnsààvééd chààngéés⟫ ~~~~~',
+	'settings.common.permission-title': '⟪Ààddíítííóónààl péérmííssííóóns rééqúúíírééd⟫ ~~~~~~~~~~~',
+	'settings.notifications.section-delivery': '⟪Ààléérts & díígéésts⟫ ~~~~~~',
+	'settings.notifications.section-quiet': '⟪Qúúííéét hóóúúrs & tííméézóónéé⟫ ~~~~~~~~',
+	'settings.notifications.section-push': '⟪Púúsh chàànnééls⟫ ~~~~~',
+	'settings.notifications.detect-timezone': '⟪Úúséé lóócààl tííméézóónéé⟫ ~~~~~~',
+	'settings.notifications.push-empty':
+		'⟪Nóó bróówséér púúsh déévíícéés réégíístéérééd ýýéét.⟫ ~~~~~~~~~~~~~~',
+	'settings.notifications.vapid-ready': '⟪Wééb Púúsh cóónfíígúúrééd⟫ ~~~~~~~',
+	'settings.webhooks.create-title': '⟪Réégíístéér ééndpóóíínt⟫ ~~~~~~',
+	'settings.webhooks.list-title': '⟪Cóónfíígúúrééd ééndpóóíínts⟫ ~~~~~~~',
+	'settings.webhooks.events-hint':
+		'⟪Clííck ààn éévéént tóó tóóggléé íít óór týýpéé cóómmàà-séépààrààtééd éévéént kééýýs.⟫ ~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.webhooks.deliveries-empty':
+		'⟪Nóó déélíívéérííéés réécóórdééd fóór thíís ééndpóóíínt ýýéét.⟫ ~~~~~~~~~~~~~~~~',
+	'settings.github.connected-title': '⟪Cóónnééctééd réépóósíítóórííéés⟫ ~~~~~~~~',
+	'settings.github.connect-title': '⟪Cóónnééct àà réépóósíítóórýý⟫ ~~~~~~~',
+	'settings.mail.desc':
+		'⟪Róóúútéé tééààm éémààííl ííntóó shààrééd íínbóóxéés àànd vééríífýý óóúútbóóúúnd DNS réécóórds.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.mail.accounts-title': '⟪Cóónnééctééd ààccóóúúnts⟫ ~~~~~~',
+	'settings.mail.add-account-title': '⟪Ààdd mààííl ààccóóúúnt⟫ ~~~~~~',
+	'settings.mail.inboxes-title': '⟪Shààrééd íínbóóxéés⟫ ~~~~~',
+	'settings.mail.inboxes-empty': '⟪Nóó shààrééd íínbóóxéés crééààtééd ýýéét.⟫ ~~~~~~~~~~~',
+	'settings.mail.inbox-name-label': '⟪Nééw íínbóóx nààméé⟫ ~~~~~',
+	'settings.mail.dns-type': '⟪Týýpéé⟫ ~',
+	'settings.mail.dns-host': '⟪Hóóst⟫ ~',
+	'settings.mail.dns-value': '⟪Vààlúúéé⟫ ~~',
+	'settings.approvals.denied':
+		'⟪Ýýóóúú nééééd théé ààppróóvààl.déécíídéé péérmííssííóón tóó réévííééw ààgéént wríítéé ààppróóvààls. Ààsk àà wóórkspààcéé ààdmíín tóó úúpdààtéé ýýóóúúr róóléé.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.ai.denied':
+		'⟪Ýýóóúú nééééd théé ààíí.màànààgéé péérmííssííóón tóó cóónfíígúúréé wóórkspààcéé ÀàÍí próóvíídéérs. Ààsk àà wóórkspààcéé ààdmíín tóó úúpdààtéé ýýóóúúr róóléé.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.ai.controls-title': '⟪Wóórkspààcéé cóóntróóls⟫ ~~~~~~',
+	'settings.ai.status-enabled': '⟪Éénààblééd⟫ ~~',
+	'settings.ai.status-disabled': '⟪Díísààblééd⟫ ~~~',
+	'settings.ai.provider.add-title': '⟪Ààdd óór úúpdààtéé próóvíídéér⟫ ~~~~~~~~',
+	'settings.billing.receipt-email': '⟪Réécééíípt / bííllííng éémààííl (óóptííóónààl)⟫ ~~~~~~~~~~~~',
+	'settings.billing.polar-desc':
+		'⟪Ííntéérnààtííóónààl Víísàà, Mààstéércààrd, àànd Ààppléé Pààýý chééckóóúút próócééssééd séécúúréélýý býý Póólààr ({ààmóóúúnt} / wóórkspààcéé).⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.billing.open-checkout': '⟪Óópéén pààýýméént chééckóóúút⟫ ~~~~~~~',
+	'settings.billing.payment-title': '⟪Plààn úúpgrààdéé & pààýýméént mééthóód⟫ ~~~~~~~~~~',
+	'settings.billing.return-success-title': '⟪Pààýýméént réécééíívééd⟫ ~~~~~~',
+	'settings.billing.return-success-desc':
+		'⟪Ýýóóúúr chééckóóúút cóómpléétééd. Súúbscrííptííóón déétààííls rééfréésh ààúútóómààtíícààllýý óóncéé cóónfíírmééd.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.billing.return-cancel-title': '⟪Chééckóóúút cààncééllééd⟫ ~~~~~~',
+	'settings.billing.return-cancel-desc':
+		'⟪Nóó chààrgéé wààs mààdéé. Ýýóóúú cààn réésúúméé chééckóóúút whéénéévéér ýýóóúú ààréé rééààdýý.⟫ ~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.governance.export-title': '⟪Wóórkspààcéé JSÓóN ééxpóórt⟫ ~~~~~~~',
+	'settings.governance.export-desc':
+		'⟪Géénéérààtéé àà póórtààbléé JSÓóN ààrchíívéé óóf wóórkspààcéé dààtàà fóór cóómplííààncéé óór bààckúúp.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.governance.danger-zone': '⟪Dààngéér zóónéé⟫ ~~~~',
 	'shell.preview-badge': '⟪Préévííééw⟫ ~~',
 	'shell.loading-workspace': '⟪Lóóààdííng wóórkspààcéé…⟫ ~~~~~~',
 	'shell.placeholder-module': '⟪Plàànnééd íín ààn úúpcóómííng míílééstóónéé⟫ ~~~~~~~~~~~',
@@ -783,5 +952,74 @@ export const pseudo = {
 	'mobile.push.register': '⟪Éénààbléé móóbííléé púúsh nóótíífíícààtííóóns⟫ ~~~~~~~~~~~',
 	'mobile.push.enabled': '⟪Púúsh ààléérts éénààblééd⟫ ~~~~~~~',
 	'mobile.chat.reply-placeholder': '⟪Mééssààgéé #{nààméé}…⟫ ~~~~~~',
-	'mobile.docs.title': '⟪Dóócúúméént⟫ ~~~'
+	'mobile.docs.title': '⟪Dóócúúméént⟫ ~~~',
+	'auth.forgot-password.link': '⟪Fóórgóót pààsswóórd?⟫ ~~~~~~',
+	'auth.forgot-password.title': '⟪Rééséét ýýóóúúr pààsswóórd⟫ ~~~~~~~',
+	'auth.forgot-password.subtitle':
+		'⟪Ééntéér théé éémààííl ààddrééss fóór ýýóóúúr Húúrííróó ààccóóúúnt àànd wéé wííll séénd àà réécóóvéérýý líínk.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'auth.forgot-password.submit': '⟪Séénd rééséét líínk⟫ ~~~~~',
+	'auth.forgot-password.sent-title': '⟪Chééck ýýóóúúr íínbóóx⟫ ~~~~~~',
+	'auth.forgot-password.sent-desc':
+		'⟪Ííf ààn ààccóóúúnt mààtchéés {éémààííl}, ýýóóúú wííll réécééíívéé àà pààsswóórd rééséét líínk shóórtlýý.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'auth.forgot-password.back-to-sign-in': '⟪Bààck tóó síígn íín⟫ ~~~~~',
+	'auth.reset-password.title': '⟪Chóóóóséé àà nééw pààsswóórd⟫ ~~~~~~~',
+	'auth.reset-password.subtitle':
+		'⟪Pííck àà stróóng pààsswóórd tóó fííníísh séécúúrííng ýýóóúúr Húúrííróó ààccóóúúnt.⟫ ~~~~~~~~~~~~~~~~~~~~~~',
+	'auth.reset-password.new-password': '⟪Nééw pààsswóórd⟫ ~~~~',
+	'auth.reset-password.submit': '⟪Úúpdààtéé pààsswóórd⟫ ~~~~~',
+	'auth.reset-password.missing-token':
+		'⟪Thíís pààsswóórd rééséét líínk íís ííncóómpléétéé óór mííssííng àà tóókéén. Rééqúúéést àà nééw líínk béélóów.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'auth.reset-password.success-title': '⟪Pààsswóórd úúpdààtééd⟫ ~~~~~~',
+	'auth.reset-password.success-desc':
+		'⟪Ýýóóúúr pààsswóórd hààs béééén chààngééd. Síígn íín wííth ýýóóúúr nééw pààsswóórd tóó cóóntíínúúéé.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'auth.verify-email.title': '⟪Vééríífýý ýýóóúúr éémààííl⟫ ~~~~~~',
+	'auth.verify-email.subtitle':
+		'⟪Cóónfíírmííng ýýóóúúr éémààííl ààddrééss kééééps ýýóóúúr Húúrííróó ààccóóúúnt àànd réécóóvéérýý óóptííóóns séécúúréé.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'auth.verify-email.verifying': '⟪Cóónfíírmííng ýýóóúúr vééríífíícààtííóón líínk…⟫ ~~~~~~~~~~~~',
+	'auth.verify-email.success-title': '⟪Éémààííl vééríífííééd⟫ ~~~~~',
+	'auth.verify-email.success-desc':
+		'⟪Ýýóóúúr éémààííl ààddrééss íís vééríífííééd. Ýýóóúú cààn nóów réétúúrn tóó ýýóóúúr wóórkspààcéé.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~',
+	'auth.verify-email.error-desc':
+		'⟪Thíís vééríífíícààtííóón líínk íís íínvààlííd óór hààs ééxpíírééd. Ééntéér ýýóóúúr éémààííl tóó réécééíívéé àà nééw líínk.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'auth.verify-email.missing-desc':
+		'⟪Ééntéér ýýóóúúr éémààííl ààddrééss béélóów àànd wéé wííll séénd àà fréésh vééríífíícààtííóón líínk.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'auth.verify-email.resend-submit': '⟪Séénd vééríífíícààtííóón líínk⟫ ~~~~~~~~',
+	'auth.verify-email.resent-title': '⟪Vééríífíícààtííóón éémààííl séént⟫ ~~~~~~~~',
+	'auth.verify-email.resent-desc':
+		'⟪Chééck {éémààííl} fóór àà fréésh vééríífíícààtííóón líínk.⟫ ~~~~~~~~~~~~~~~',
+	'auth.verify-email.continue': '⟪Cóóntíínúúéé tóó síígn íín⟫ ~~~~~~~',
+	'settings.notifications.email-instant':
+		'⟪Séénd íínstàànt éémààííl ààléérts fóór @mééntííóóns, DMs, ààssíígnméénts, àànd ààgéént ààppróóvààls⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.notifications.email-instant-hint':
+		'⟪Rééspéécts ýýóóúúr qúúííéét hóóúúrs àànd ààvóóííds dúúplíícààtéé ààléérts fóór búúrst chààt mééssààgéés.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.notifications.email-delivery-title': '⟪Óóúútbóóúúnd éémààííl déélíívéérýý⟫ ~~~~~~~~',
+	'settings.notifications.email-delivery-desc':
+		'⟪Tràànsààctííóónààl ààléérts, íínvíítààtííóóns, àànd schéédúúlééd díígéésts séént fróóm thíís séérvéér.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.notifications.email-provider': '⟪Ààctíívéé próóvíídéér⟫ ~~~~~',
+	'settings.notifications.email-from': '⟪Sééndéér ààddrééss⟫ ~~~~~',
+	'settings.notifications.email-status-configured': '⟪Cóónfíígúúrééd⟫ ~~~~',
+	'settings.notifications.email-status-unconfigured': '⟪Nóót cóónfíígúúrééd⟫ ~~~~~',
+	'settings.notifications.email-unconfigured-hint':
+		'⟪Séét RÉéSÉéND_ÀàPÍí_KÉéÝý, SMTP_HÓóST/SMTP_ÚúRL, óór ÉéMÀàÍíLÍíT_ÀàPÍí_KÉéÝý íín théé séérvéér éénvííróónméént tóó séénd óóúútbóóúúnd mààííl.⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.notifications.email-test-recipient': '⟪Téést réécíípííéént (óóptííóónààl)⟫ ~~~~~~~~~',
+	'settings.notifications.email-test-placeholder':
+		'⟪Dééfààúúlts tóó ýýóóúúr ààccóóúúnt éémààííl⟫ ~~~~~~~~~~~',
+	'settings.notifications.email-test-send': '⟪Séénd téést éémààííl⟫ ~~~~~',
+	'settings.notifications.email-test-sending': '⟪Sééndííng…⟫ ~~~',
+	'settings.notifications.email-test-sent':
+		'⟪Téést éémààííl séént tóó {réécíípííéént} vííàà {próóvíídéér}.⟫ ~~~~~~~~~~~~~~~~',
+	'settings.notifications.email-test-failed': '⟪Cóóúúld nóót séénd téést éémààííl.⟫ ~~~~~~~~~',
+	'settings.members.invite-title': '⟪Íínvíítéé tééààmmààtéé⟫ ~~~~~',
+	'settings.members.invite-desc':
+		'⟪Séénd ààn éémààííl íínvíítààtííóón tóó jóóíín thíís wóórkspààcéé.⟫ ~~~~~~~~~~~~~~~~~',
+	'settings.members.invite-email': '⟪Wóórk éémààííl⟫ ~~~~',
+	'settings.members.invite-email-placeholder': '⟪cóóllééààgúúéé@cóómpàànýý.cóóm⟫ ~~~~~~~',
+	'settings.members.invite-role': '⟪Róóléé⟫ ~',
+	'settings.members.invite-submit': '⟪Séénd íínvíítààtííóón⟫ ~~~~~',
+	'settings.members.invite-submitting': '⟪Sééndííng…⟫ ~~~',
+	'settings.members.invite-sent-email':
+		'⟪Íínvíítààtííóón éémààííl séént tóó {éémààííl} vííàà {próóvíídéér}.⟫ ~~~~~~~~~~~~~~~~~',
+	'settings.members.invite-sent-manual':
+		'⟪Íínvíítààtííóón crééààtééd fóór {éémààííl}. Nóó óóúútbóóúúnd éémààííl próóvíídéér íís cóónfíígúúrééd — shààréé thíís íínvíítéé tóókéén màànúúààllýý: {tóókéén}⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
+	'settings.members.invite-error': '⟪Cóóúúld nóót crééààtéé íínvíítààtííóón.⟫ ~~~~~~~~~~'
 } as const

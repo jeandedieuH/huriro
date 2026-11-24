@@ -16,7 +16,7 @@ import {
 	updateFileUploadChecksum
 } from './repo'
 import { scanBufferForMalware, sniffContentType, stripImageMetadata } from './scanner'
-import type { BlobStorage } from './storage'
+import { type BlobStorage, isMissingBlobError } from './storage'
 
 export const MAX_FILE_UPLOAD_BYTES = 26_214_400 // 25 MiB
 
@@ -202,7 +202,43 @@ export async function scanAndPromoteQuarantinedFile(
 		throw new HttpError(409, 'conflict', 'Quarantine object missing')
 	}
 
-	const rawBytes = await storage.readQuarantine(existing.quarantineKey)
+	let rawBytes: Uint8Array
+	try {
+		rawBytes = await storage.readQuarantine(existing.quarantineKey)
+	} catch (err) {
+		if (!isMissingBlobError(err)) throw err
+		// Terminal failure, not a retryable one: the quarantine bytes are
+		// definitively gone (blob volume lost or wiped, restore without the
+		// volume, bytes written by another instance). Retrying can never
+		// succeed, so the file fails closed — scan_status='failed' blocks
+		// downloads exactly like a scan failure — and the caller's outbox
+		// event is allowed to publish instead of poisoning the drain loop.
+		fileScansTotal.labels('failed').inc()
+		const missing = await updateFileScanResult(tx, {
+			workspaceId,
+			fileId: existing.id,
+			contentType: existing.contentType,
+			byteSize: existing.byteSize,
+			checksum: existing.checksum,
+			scanStatus: 'failed',
+			scanDetail: 'quarantine_object_missing',
+			reencoded: false,
+			promoted: false
+		})
+		await tx`
+			INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, target_type, target_id, metadata)
+			VALUES (
+				${workspaceId},
+				'system',
+				${existing.uploadedBy},
+				'file.quarantine.missing',
+				'file',
+				${existing.id},
+				${tx.json({ detail: 'quarantine_object_missing' } as never)}
+			)
+		`
+		return toPublicFileDto(missing ?? existing)
+	}
 	const sniffedType = sniffContentType(rawBytes, existing.filename)
 	const scan = await scanBufferForMalware(rawBytes, scanOpts)
 
@@ -334,6 +370,15 @@ export async function processFileQuarantineOutboxEvent(
 	if (claimed.length === 0) return false
 	const fileId = typeof event.payload['fileId'] === 'string' ? event.payload['fileId'] : null
 	if (!fileId) return false
-	await scanAndPromoteQuarantinedFile(tx, event.workspaceId, fileId, storage, scanOpts)
+	try {
+		await scanAndPromoteQuarantinedFile(tx, event.workspaceId, fileId, storage, scanOpts)
+	} catch (err) {
+		// Terminal, not retryable: the file row was deleted after the upload
+		// event committed (the row and the event are written in one tx, so the
+		// row always exists when the event first becomes visible — its absence
+		// can only be a later hard delete). Nothing can ever scan it.
+		if (err instanceof HttpError && err.status === 404) return true
+		throw err
+	}
 	return true
 }

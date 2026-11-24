@@ -1,14 +1,23 @@
 import type { AiProviderDto, AiProviderKind } from '@huriro/contracts'
 import { t } from '@huriro/i18n'
-import { Sparkles } from 'lucide-react'
+import { Cpu, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
 import { useWorkspace } from '@/lib/workspace'
+import {
+	SettingsCard,
+	SettingsCardBody,
+	SettingsCardFooter,
+	SettingsCardHeader,
+	SettingsEmptyState,
+	SettingsNotice,
+	SettingsRow,
+	SettingsSkeleton
+} from './settings-primitives'
 
 /**
  * AI settings (§11.3): the workspace off-by-default flag, prompt-tracing
@@ -94,169 +103,193 @@ export function AiSettingsPanel() {
 	}
 
 	if (loading) {
+		return <SettingsSkeleton rows={3} />
+	}
+
+	if (denied) {
 		return (
-			<div className="space-y-3 rounded-lg border border-border bg-card p-4">
-				<Skeleton className="h-5 w-32" />
-				<Skeleton className="h-16 w-full" />
-			</div>
+			<SettingsCard labelledBy="ai-settings-heading">
+				<SettingsCardHeader
+					headingId="ai-settings-heading"
+					icon={<Sparkles className="size-4" />}
+					title={t('settings.ai.title')}
+					description={t('settings.ai.desc')}
+				/>
+				<SettingsCardBody>
+					<SettingsNotice tone="info" title={t('settings.common.permission-title')}>
+						{t('settings.ai.denied')}
+					</SettingsNotice>
+				</SettingsCardBody>
+			</SettingsCard>
 		)
 	}
 
-	// ai.manage not held → the section is invisible, same as other admin panels.
-	if (denied) return null
-
 	return (
-		<section
-			aria-labelledby="ai-settings-heading"
-			className="space-y-4 rounded-lg border border-border bg-card p-4"
-		>
-			<div>
-				<h2 id="ai-settings-heading" className="flex items-center gap-2 text-sm font-semibold">
-					<Sparkles className="size-4 text-muted-foreground" aria-hidden />
-					<span>{t('settings.ai.title')}</span>
-				</h2>
-				<p className="mt-0.5 text-xs text-muted-foreground">{t('settings.ai.desc')}</p>
-			</div>
+		<div className="space-y-5">
+			<SettingsCard labelledBy="ai-settings-heading">
+				<SettingsCardHeader
+					headingId="ai-settings-heading"
+					icon={<Sparkles className="size-4" />}
+					title={t('settings.ai.title')}
+					description={t('settings.ai.desc')}
+					badge={
+						<Badge tone={aiEnabled ? 'success' : 'secondary'}>
+							{aiEnabled ? t('settings.ai.status-enabled') : t('settings.ai.status-disabled')}
+						</Badge>
+					}
+				/>
+				<SettingsCardBody className="divide-y divide-border/70">
+					<SettingsRow label={t('settings.ai.enable')} htmlFor="ai-enabled">
+						<Checkbox
+							id="ai-enabled"
+							checked={aiEnabled}
+							onCheckedChange={(v) => void patchSettings({ aiEnabled: v === true })}
+						/>
+					</SettingsRow>
+					<SettingsRow label={t('settings.ai.trace')} htmlFor="ai-trace">
+						<Checkbox
+							id="ai-trace"
+							checked={tracePrompts}
+							onCheckedChange={(v) => void patchSettings({ aiTracePrompts: v === true })}
+						/>
+					</SettingsRow>
+					{error ? <SettingsNotice tone="danger">{error}</SettingsNotice> : null}
+				</SettingsCardBody>
+			</SettingsCard>
 
-			<div className="space-y-2">
-				<div className="flex items-center gap-2">
-					<Checkbox
-						id="ai-enabled"
-						checked={aiEnabled}
-						onCheckedChange={(v) => void patchSettings({ aiEnabled: v === true })}
-					/>
-					<label htmlFor="ai-enabled" className="text-sm">
-						{t('settings.ai.enable')}
-					</label>
-				</div>
-				<div className="flex items-center gap-2">
-					<Checkbox
-						id="ai-trace"
-						checked={tracePrompts}
-						onCheckedChange={(v) => void patchSettings({ aiTracePrompts: v === true })}
-					/>
-					<label htmlFor="ai-trace" className="text-sm">
-						{t('settings.ai.trace')}
-					</label>
-				</div>
-			</div>
+			<SettingsCard labelledBy="ai-providers-heading">
+				<SettingsCardHeader
+					headingId="ai-providers-heading"
+					icon={<Cpu className="size-4" />}
+					title={t('settings.ai.provider.title')}
+					badge={
+						<Badge tone="secondary" className="tnum">
+							{providers.length}
+						</Badge>
+					}
+				/>
+				<form onSubmit={(ev) => void handleSaveProvider(ev)}>
+					<SettingsCardBody>
+						{providers.length === 0 ? (
+							<SettingsEmptyState
+								icon={<Cpu className="size-4" />}
+								message={t('settings.ai.provider.empty')}
+							/>
+						) : (
+							<div className="space-y-2.5">
+								{providers.map((p) => (
+									<div
+										key={p.id}
+										className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface-2/40 px-4 py-3 text-xs"
+									>
+										<div className="flex flex-wrap items-center gap-2">
+											<span className="text-sm font-semibold text-foreground">{p.name}</span>
+											<Badge tone="secondary">{p.kind}</Badge>
+										</div>
+										<div className="flex flex-wrap items-center gap-2 font-mono text-muted-foreground">
+											<span>
+												{p.chatModel ?? '—'} {p.embeddingModel ? `· ${p.embeddingModel}` : ''}
+											</span>
+											{p.hasApiKey ? (
+												<Badge tone="success">{t('settings.ai.provider.configured')}</Badge>
+											) : null}
+										</div>
+									</div>
+								))}
+							</div>
+						)}
 
-			{error ? (
-				<p role="alert" className="text-xs text-destructive">
-					{error}
-				</p>
-			) : null}
-
-			<div className="space-y-3 border-t border-border pt-4">
-				<h3 className="text-sm font-semibold">{t('settings.ai.provider.title')}</h3>
-
-				{providers.length === 0 ? (
-					<p className="text-xs text-muted-foreground">{t('settings.ai.provider.empty')}</p>
-				) : (
-					<div className="space-y-2">
-						{providers.map((p) => (
-							<div
-								key={p.id}
-								className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted/30 p-3 text-xs"
-							>
-								<div>
-									<span className="font-semibold">{p.name}</span>
-									<Badge tone="secondary" className="ml-2">
-										{p.kind}
-									</Badge>
+						<div className="space-y-3 border-t border-border/70 pt-4">
+							<h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+								{t('settings.ai.provider.add-title')}
+							</h3>
+							<div className="grid gap-3 sm:grid-cols-2">
+								<div className="space-y-1.5">
+									<label htmlFor="ai-provider-kind" className="text-xs font-medium text-foreground">
+										{t('settings.ai.provider.kind')}
+									</label>
+									<Select value={kind} onValueChange={(v) => setKind(v as AiProviderKind)}>
+										<SelectTrigger id="ai-provider-kind">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="openai_compatible">OpenAI-compatible</SelectItem>
+											<SelectItem value="ollama">Ollama (local)</SelectItem>
+										</SelectContent>
+									</Select>
 								</div>
-								<div className="text-muted-foreground">
-									{p.chatModel ?? '—'} {p.embeddingModel ? `· ${p.embeddingModel}` : ''} ·{' '}
-									{p.hasApiKey ? t('settings.ai.provider.configured') : ''}
+								<div className="space-y-1.5">
+									<label htmlFor="ai-provider-name" className="text-xs font-medium text-foreground">
+										{t('settings.ai.provider.name')}
+									</label>
+									<Input
+										id="ai-provider-name"
+										value={name}
+										onChange={(ev) => setName(ev.target.value)}
+										placeholder={kind === 'ollama' ? 'Local Ollama' : 'OpenAI'}
+										required
+									/>
+								</div>
+								<div className="space-y-1.5">
+									<label htmlFor="ai-provider-url" className="text-xs font-medium text-foreground">
+										{t('settings.ai.provider.url')}
+									</label>
+									<Input
+										id="ai-provider-url"
+										value={baseUrl}
+										onChange={(ev) => setBaseUrl(ev.target.value)}
+										placeholder={kind === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com'}
+										required
+									/>
+								</div>
+								{kind === 'openai_compatible' ? (
+									<div className="space-y-1.5">
+										<label htmlFor="ai-provider-key" className="text-xs font-medium text-foreground">
+											{t('settings.ai.provider.key')}
+										</label>
+										<Input
+											id="ai-provider-key"
+											type="password"
+											value={apiKey}
+											onChange={(ev) => setApiKey(ev.target.value)}
+											autoComplete="off"
+										/>
+										<p className="text-[11px] text-muted-foreground">{t('settings.ai.provider.key-hint')}</p>
+									</div>
+								) : null}
+								<div className="space-y-1.5">
+									<label htmlFor="ai-provider-chat" className="text-xs font-medium text-foreground">
+										{t('settings.ai.provider.chat-model')}
+									</label>
+									<Input
+										id="ai-provider-chat"
+										value={chatModel}
+										onChange={(ev) => setChatModel(ev.target.value)}
+										placeholder="gpt-4o-mini / llama3.1"
+									/>
+								</div>
+								<div className="space-y-1.5">
+									<label htmlFor="ai-provider-embed" className="text-xs font-medium text-foreground">
+										{t('settings.ai.provider.embedding-model')}
+									</label>
+									<Input
+										id="ai-provider-embed"
+										value={embeddingModel}
+										onChange={(ev) => setEmbeddingModel(ev.target.value)}
+										placeholder="nomic-embed-text"
+									/>
 								</div>
 							</div>
-						))}
-					</div>
-				)}
+						</div>
+					</SettingsCardBody>
 
-				<form onSubmit={(ev) => void handleSaveProvider(ev)} className="space-y-3">
-					<div className="grid gap-2 sm:grid-cols-2">
-						<div className="space-y-1">
-							<label htmlFor="ai-provider-kind" className="text-xs font-medium">
-								{t('settings.ai.provider.kind')}
-							</label>
-							<Select value={kind} onValueChange={(v) => setKind(v as AiProviderKind)}>
-								<SelectTrigger id="ai-provider-kind">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="openai_compatible">OpenAI-compatible</SelectItem>
-									<SelectItem value="ollama">Ollama (local)</SelectItem>
-								</SelectContent>
-							</Select>
-						</div>
-						<div className="space-y-1">
-							<label htmlFor="ai-provider-name" className="text-xs font-medium">
-								{t('settings.ai.provider.name')}
-							</label>
-							<Input
-								id="ai-provider-name"
-								value={name}
-								onChange={(ev) => setName(ev.target.value)}
-								placeholder={kind === 'ollama' ? 'Local Ollama' : 'OpenAI'}
-								required
-							/>
-						</div>
-						<div className="space-y-1">
-							<label htmlFor="ai-provider-url" className="text-xs font-medium">
-								{t('settings.ai.provider.url')}
-							</label>
-							<Input
-								id="ai-provider-url"
-								value={baseUrl}
-								onChange={(ev) => setBaseUrl(ev.target.value)}
-								placeholder={kind === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com'}
-								required
-							/>
-						</div>
-						{kind === 'openai_compatible' ? (
-							<div className="space-y-1">
-								<label htmlFor="ai-provider-key" className="text-xs font-medium">
-									{t('settings.ai.provider.key')}
-								</label>
-								<Input
-									id="ai-provider-key"
-									type="password"
-									value={apiKey}
-									onChange={(ev) => setApiKey(ev.target.value)}
-									autoComplete="off"
-								/>
-								<p className="text-[11px] text-muted-foreground">{t('settings.ai.provider.key-hint')}</p>
-							</div>
-						) : null}
-						<div className="space-y-1">
-							<label htmlFor="ai-provider-chat" className="text-xs font-medium">
-								{t('settings.ai.provider.chat-model')}
-							</label>
-							<Input
-								id="ai-provider-chat"
-								value={chatModel}
-								onChange={(ev) => setChatModel(ev.target.value)}
-								placeholder="gpt-4o-mini / llama3.1"
-							/>
-						</div>
-						<div className="space-y-1">
-							<label htmlFor="ai-provider-embed" className="text-xs font-medium">
-								{t('settings.ai.provider.embedding-model')}
-							</label>
-							<Input
-								id="ai-provider-embed"
-								value={embeddingModel}
-								onChange={(ev) => setEmbeddingModel(ev.target.value)}
-								placeholder="nomic-embed-text"
-							/>
-						</div>
-					</div>
-					<Button size="sm" type="submit" loading={busy}>
-						{t('settings.ai.provider.save')}
-					</Button>
+					<SettingsCardFooter className="justify-end">
+						<Button size="sm" type="submit" loading={busy}>
+							{t('settings.ai.provider.save')}
+						</Button>
+					</SettingsCardFooter>
 				</form>
-			</div>
-		</section>
+			</SettingsCard>
+		</div>
 	)
 }

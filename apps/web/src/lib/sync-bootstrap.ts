@@ -26,6 +26,7 @@ import type {
 	DocPageDto,
 	DocVersionDetailDto,
 	DocVersionDto,
+	EmailPipelineStatusDto,
 	EraseAccountResponse,
 	FileDto,
 	GithubInstallationDto,
@@ -44,6 +45,7 @@ import type {
 	MailTimelineDto,
 	NotificationPreferencesDto,
 	SearchResponse,
+	SendTestEmailResponse,
 	WebhookDeliveryDto,
 	WebhookEndpointDto,
 	WebPushSubscriptionDto,
@@ -56,6 +58,7 @@ import type {
 	BootResult,
 	BootstrappedWorkspace,
 	CreatedApiKeyDto,
+	CreateInvitationResponse,
 	ListApprovalsResult,
 	ResourceAclItemDto,
 	TaskApiBridge
@@ -438,6 +441,21 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 			return apiFetch<NotificationPreferencesDto>('/api/v1/notifications/preferences', {
 				method: 'PATCH',
 				body: JSON.stringify(body)
+			})
+		},
+		async getEmailStatus() {
+			return apiFetch<EmailPipelineStatusDto>('/api/v1/notifications/email/status')
+		},
+		async sendTestEmail(to) {
+			return apiFetch<SendTestEmailResponse>('/api/v1/notifications/email/test', {
+				method: 'POST',
+				body: JSON.stringify(to ? { to } : {})
+			})
+		},
+		async createInvitation(body) {
+			return apiFetch<CreateInvitationResponse>('/api/v1/invitations', {
+				method: 'POST',
+				body: JSON.stringify({ workspaceId, email: body.email, role: body.role })
 			})
 		},
 		async getVapidPublicKey() {

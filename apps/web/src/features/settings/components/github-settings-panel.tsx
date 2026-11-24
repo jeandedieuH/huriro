@@ -7,8 +7,16 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
 import { useWorkspace } from '@/lib/workspace'
+import {
+	SettingsCard,
+	SettingsCardBody,
+	SettingsCardFooter,
+	SettingsCardHeader,
+	SettingsEmptyState,
+	SettingsNotice,
+	SettingsSkeleton
+} from './settings-primitives'
 
 export function GithubSettingsPanel() {
 	const { api } = useWorkspace()
@@ -107,142 +115,164 @@ export function GithubSettingsPanel() {
 	}
 
 	if (loading) {
-		return (
-			<div className="space-y-3 rounded-lg border border-border bg-card p-4">
-				<Skeleton className="h-5 w-48" />
-				<Skeleton className="h-24 w-full" />
-			</div>
-		)
+		return <SettingsSkeleton rows={3} />
 	}
 
 	return (
-		<section
-			aria-labelledby="github-settings-heading"
-			className="space-y-4 rounded-lg border border-border bg-card p-4"
-		>
-			<div>
-				<h2 id="github-settings-heading" className="flex items-center gap-2 text-sm font-semibold">
-					<GitBranch className="size-4 text-muted-foreground" aria-hidden />
-					<span>{t('settings.github.title')}</span>
-				</h2>
-				<p className="mt-0.5 text-xs text-muted-foreground">{t('settings.github.desc')}</p>
-			</div>
+		<div className="space-y-5">
+			<SettingsCard labelledBy="github-settings-heading">
+				<SettingsCardHeader
+					headingId="github-settings-heading"
+					icon={<GitBranch className="size-4" />}
+					title={t('settings.github.title')}
+					description={t('settings.github.desc')}
+				/>
+				<form onSubmit={(ev) => void handleConnect(ev)}>
+					<SettingsCardBody>
+						<div className="grid gap-3 sm:grid-cols-2">
+							<div className="space-y-1.5">
+								<label htmlFor="gh-repo" className="text-xs font-medium text-foreground">
+									{t('settings.github.repo')}
+								</label>
+								<Input
+									id="gh-repo"
+									placeholder="acme/huriro"
+									value={repoFullName}
+									onChange={(ev) => setRepoFullName(ev.target.value)}
+									required
+								/>
+							</div>
+							<div className="space-y-1.5">
+								<label htmlFor="gh-account" className="text-xs font-medium text-foreground">
+									{t('settings.github.account')}
+								</label>
+								<Input
+									id="gh-account"
+									placeholder="acme"
+									value={accountLogin}
+									onChange={(ev) => setAccountLogin(ev.target.value)}
+									required
+								/>
+							</div>
+							<div className="space-y-1.5">
+								<label htmlFor="gh-install-id" className="text-xs font-medium text-foreground">
+									{t('settings.github.installation-id')}
+								</label>
+								<Input
+									id="gh-install-id"
+									type="number"
+									min={1}
+									className="font-mono tnum"
+									value={installationId}
+									onChange={(ev) => setInstallationId(ev.target.value)}
+									required
+								/>
+							</div>
+							<div className="space-y-1.5">
+								<label htmlFor="gh-project" className="text-xs font-medium text-foreground">
+									{t('settings.github.project')}
+								</label>
+								<Select value={projectId} onValueChange={setProjectId}>
+									<SelectTrigger id="gh-project" aria-label={t('settings.github.project')}>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{projects.map((p) => (
+											<SelectItem key={p.id} value={p.id}>
+												{p.key} · {p.name}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+							<div className="space-y-1.5 sm:col-span-2">
+								<label htmlFor="gh-secret" className="text-xs font-medium text-foreground">
+									{t('settings.github.secret')}
+								</label>
+								<Input
+									id="gh-secret"
+									type="password"
+									value={webhookSecret}
+									onChange={(ev) => setWebhookSecret(ev.target.value)}
+									minLength={8}
+									required
+								/>
+							</div>
+						</div>
 
-			<form onSubmit={(ev) => void handleConnect(ev)} className="grid gap-2 sm:grid-cols-2">
-				<div className="space-y-1">
-					<label htmlFor="gh-repo" className="text-xs font-medium">
-						{t('settings.github.repo')}
-					</label>
-					<Input
-						id="gh-repo"
-						placeholder="acme/huriro"
-						value={repoFullName}
-						onChange={(ev) => setRepoFullName(ev.target.value)}
-						required
-					/>
-				</div>
-				<div className="space-y-1">
-					<label htmlFor="gh-account" className="text-xs font-medium">
-						{t('settings.github.account')}
-					</label>
-					<Input
-						id="gh-account"
-						placeholder="acme"
-						value={accountLogin}
-						onChange={(ev) => setAccountLogin(ev.target.value)}
-						required
-					/>
-				</div>
-				<div className="space-y-1">
-					<label htmlFor="gh-install-id" className="text-xs font-medium">
-						{t('settings.github.installation-id')}
-					</label>
-					<Input
-						id="gh-install-id"
-						type="number"
-						min={1}
-						value={installationId}
-						onChange={(ev) => setInstallationId(ev.target.value)}
-						required
-					/>
-				</div>
-				<div className="space-y-1">
-					<label htmlFor="gh-project" className="text-xs font-medium">
-						{t('settings.github.project')}
-					</label>
-					<Select value={projectId} onValueChange={setProjectId}>
-						<SelectTrigger id="gh-project" aria-label={t('settings.github.project')}>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{projects.map((p) => (
-								<SelectItem key={p.id} value={p.id}>
-									{p.key} · {p.name}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</div>
-				<div className="space-y-1 sm:col-span-2">
-					<label htmlFor="gh-secret" className="text-xs font-medium">
-						{t('settings.github.secret')}
-					</label>
-					<div className="flex gap-2">
-						<Input
-							id="gh-secret"
-							type="password"
-							value={webhookSecret}
-							onChange={(ev) => setWebhookSecret(ev.target.value)}
-							minLength={8}
-							required
-						/>
+						{error ? <SettingsNotice tone="danger">{error}</SettingsNotice> : null}
+					</SettingsCardBody>
+					<SettingsCardFooter className="justify-end">
 						<Button size="sm" type="submit" loading={busy}>
 							{t('settings.github.connect')}
 						</Button>
-					</div>
-				</div>
-			</form>
+					</SettingsCardFooter>
+				</form>
+			</SettingsCard>
 
-			{error ? (
-				<p role="alert" className="text-xs text-destructive">
-					{error}
-				</p>
-			) : null}
-
-			{installations.length === 0 ? (
-				<p className="text-xs text-muted-foreground">{t('settings.github.empty')}</p>
-			) : (
-				<div className="space-y-2">
-					{installations.map((inst) => (
-						<div
-							key={inst.id}
-							className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs"
-						>
-							<div>
-								<div className="flex items-center gap-2">
-									<span className="font-mono font-semibold">{inst.repoFullName}</span>
-									<Badge tone={inst.syncEnabled ? 'default' : 'secondary'}>#{inst.installationId}</Badge>
-								</div>
-								<p className="text-muted-foreground">{inst.accountLogin}</p>
-							</div>
-							<div className="flex items-center gap-1.5">
-								<Button size="sm" tone="outline" type="button" onClick={() => void handleToggle(inst)}>
-									{inst.syncEnabled ? t('settings.github.pause') : t('settings.github.enable')}
-								</Button>
-								<Button
-									size="icon"
-									tone="ghost"
-									type="button"
-									aria-label={t('settings.github.delete')}
-									onClick={() => void handleDelete(inst.id)}
-								>
-									<Trash2 className="size-3.5 text-destructive" aria-hidden />
-								</Button>
-							</div>
+			<SettingsCard labelledBy="github-connected-heading">
+				<SettingsCardHeader
+					headingId="github-connected-heading"
+					title={t('settings.github.connected-title')}
+					badge={
+						<Badge tone="secondary" className="tnum">
+							{installations.length}
+						</Badge>
+					}
+				/>
+				<SettingsCardBody>
+					{installations.length === 0 ? (
+						<SettingsEmptyState
+							icon={<GitBranch className="size-4" />}
+							message={t('settings.github.empty')}
+						/>
+					) : (
+						<div className="space-y-2.5">
+							{installations.map((inst) => {
+								const linkedProject = projects.find((p) => p.id === inst.projectId)
+								return (
+									<div
+										key={inst.id}
+										className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-2/40 px-4 py-3 text-xs"
+									>
+										<div className="min-w-0 space-y-1">
+											<div className="flex flex-wrap items-center gap-2">
+												<span className="font-mono text-sm font-semibold text-foreground">
+													{inst.repoFullName}
+												</span>
+												<Badge tone={inst.syncEnabled ? 'success' : 'secondary'}>
+													{inst.syncEnabled ? t('settings.common.active') : t('settings.common.paused')}
+												</Badge>
+												<Badge tone="outline" className="font-mono tnum">
+													#{inst.installationId}
+												</Badge>
+											</div>
+											<p className="text-muted-foreground">
+												{inst.accountLogin}
+												{linkedProject ? ` · ${linkedProject.key} · ${linkedProject.name}` : ''}
+											</p>
+										</div>
+										<div className="flex items-center gap-1.5">
+											<Button size="sm" tone="outline" type="button" onClick={() => void handleToggle(inst)}>
+												{inst.syncEnabled ? t('settings.github.pause') : t('settings.github.enable')}
+											</Button>
+											<Button
+												size="icon"
+												tone="ghost"
+												type="button"
+												aria-label={t('settings.github.delete')}
+												onClick={() => void handleDelete(inst.id)}
+											>
+												<Trash2 className="size-3.5 text-destructive" aria-hidden />
+											</Button>
+										</div>
+									</div>
+								)
+							})}
 						</div>
-					))}
-				</div>
-			)}
-		</section>
+					)}
+				</SettingsCardBody>
+			</SettingsCard>
+		</div>
 	)
 }

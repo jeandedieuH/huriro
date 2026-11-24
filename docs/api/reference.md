@@ -131,6 +131,8 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/mutations`
 - `/api/v1/notifications`
 - `/api/v1/notifications/deliveries`
+- `/api/v1/notifications/email/status`
+- `/api/v1/notifications/email/test`
 - `/api/v1/notifications/preferences`
 - `/api/v1/notifications/push/mobile-tokens`
 - `/api/v1/notifications/push/mobile-tokens/{id}`

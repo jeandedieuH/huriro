@@ -55,6 +55,20 @@ export interface PendingWebPushDispatch {
 	readonly notification: NotificationDto
 }
 
+const INSTANT_EMAIL_KINDS = new Set<NotificationKind>([
+	'issue.assigned',
+	'issue.mentioned',
+	'doc.mentioned',
+	'chat.mentioned',
+	'chat.dm',
+	'approval.requested',
+	'mail.assigned',
+	'mail.mentioned',
+	'project.access_granted',
+	'doc.access_granted',
+	'channel.access_granted'
+])
+
 function asActorType(raw: unknown): 'user' | 'agent' | 'system' {
 	return raw === 'agent' ? 'agent' : raw === 'user' ? 'user' : 'system'
 }
@@ -66,10 +80,13 @@ export async function processNotificationOutboxEvent(
 	readonly cursor: number | null
 	readonly pendingWebPush: PendingWebPushDispatch[]
 	readonly pendingMobilePush: PendingWebPushDispatch[]
+	readonly pendingEmail: PendingWebPushDispatch[]
 }> {
-	if (!event.workspaceId) return { cursor: null, pendingWebPush: [], pendingMobilePush: [] }
+	if (!event.workspaceId) {
+		return { cursor: null, pendingWebPush: [], pendingMobilePush: [], pendingEmail: [] }
+	}
 	const claimed = await claimNotificationOutboxEvent(tx, NOTIFICATIONS_CONSUMER, event.id)
-	if (!claimed) return { cursor: null, pendingWebPush: [], pendingMobilePush: [] }
+	if (!claimed) return { cursor: null, pendingWebPush: [], pendingMobilePush: [], pendingEmail: [] }
 
 	const p = event.payload
 	const actorId = typeof p['actorId'] === 'string' ? p['actorId'] : null
@@ -77,6 +94,7 @@ export async function processNotificationOutboxEvent(
 	const createdNotifications: NotificationDto[] = []
 	const pendingWebPush: PendingWebPushDispatch[] = []
 	const pendingMobilePush: PendingWebPushDispatch[] = []
+	const pendingEmail: PendingWebPushDispatch[] = []
 	const chatMobileHandled = new Set<string>()
 
 	if (event.eventType === 'tasks.issue.assigned.v1') {
@@ -454,6 +472,21 @@ export async function processNotificationOutboxEvent(
 					) {
 						pendingMobilePush.push({ userId: uid, notification: notif })
 					}
+					if (!existing && pref.emailInstantEnabled && INSTANT_EMAIL_KINDS.has(kind)) {
+						if (isWithinQuietHours(nowIso, pref.quietHoursStart, pref.quietHoursEnd, pref.timezone)) {
+							await insertNotificationDeliveryLog(tx, {
+								workspaceId: event.workspaceId,
+								notificationId: notif.id,
+								userId: uid,
+								channel: 'email_instant',
+								status: 'skipped_quiet_hours',
+								dedupeKey: `email_instant:${notif.id}`,
+								detail: `Quiet hours (${pref.quietHoursStart}-${pref.quietHoursEnd} ${pref.timezone})`
+							})
+						} else {
+							pendingEmail.push({ userId: uid, notification: notif })
+						}
+					}
 					chatMobileHandled.add(notif.id)
 				}
 			}
@@ -543,7 +576,7 @@ export async function processNotificationOutboxEvent(
 	}
 
 	if (createdNotifications.length === 0) {
-		return { cursor: null, pendingWebPush, pendingMobilePush }
+		return { cursor: null, pendingWebPush, pendingMobilePush, pendingEmail }
 	}
 
 	const extraRecipientIds = [
@@ -561,6 +594,21 @@ export async function processNotificationOutboxEvent(
 			) {
 				pendingMobilePush.push({ userId: notif.recipientUserId, notification: notif })
 			}
+			if (pref?.emailInstantEnabled && INSTANT_EMAIL_KINDS.has(notif.kind)) {
+				if (isWithinQuietHours(nowIso, pref.quietHoursStart, pref.quietHoursEnd, pref.timezone)) {
+					await insertNotificationDeliveryLog(tx, {
+						workspaceId: event.workspaceId,
+						notificationId: notif.id,
+						userId: notif.recipientUserId,
+						channel: 'email_instant',
+						status: 'skipped_quiet_hours',
+						dedupeKey: `email_instant:${notif.id}`,
+						detail: `Quiet hours (${pref.quietHoursStart}-${pref.quietHoursEnd} ${pref.timezone})`
+					})
+				} else {
+					pendingEmail.push({ userId: notif.recipientUserId, notification: notif })
+				}
+			}
 		}
 	}
 
@@ -573,7 +621,7 @@ export async function processNotificationOutboxEvent(
 		actorId
 	}))
 	const cursor = await appendChanges(tx, event.workspaceId, changes)
-	return { cursor, pendingWebPush, pendingMobilePush }
+	return { cursor, pendingWebPush, pendingMobilePush, pendingEmail }
 }
 
 export async function listMyNotifications(

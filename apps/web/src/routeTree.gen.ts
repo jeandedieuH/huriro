@@ -13,14 +13,17 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as DeviceRouteImport } from './routes/device'
 import { Route as DocsRouteImport } from './routes/docs'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as MailRouteImport } from './routes/mail'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as TasksRouteImport } from './routes/tasks'
+import { Route as VerifyEmailRouteImport } from './routes/verify-email'
 import { Route as DocsIndexRouteImport } from './routes/docs.index'
 import { Route as DocsSlugRouteImport } from './routes/docs.$slug'
 import { Route as OauthConsentRouteImport } from './routes/oauth/consent'
@@ -45,6 +48,11 @@ const DocsRoute = DocsRouteImport.update({
   path: '/docs',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InboxRoute = InboxRouteImport.update({
   id: '/inbox',
   path: '/inbox',
@@ -58,6 +66,11 @@ const MailRoute = MailRouteImport.update({
 const OnboardingRoute = OnboardingRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -85,6 +98,11 @@ const TasksRoute = TasksRouteImport.update({
   path: '/tasks',
   getParentRoute: () => rootRouteImport,
 } as any)
+const VerifyEmailRoute = VerifyEmailRouteImport.update({
+  id: '/verify-email',
+  path: '/verify-email',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DocsIndexRoute = DocsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -106,14 +124,17 @@ export interface FileRoutesByFullPath {
   '/chat': typeof ChatRoute
   '/device': typeof DeviceRoute
   '/docs': typeof DocsRouteWithChildren
+  '/forgot-password': typeof ForgotPasswordRoute
   '/inbox': typeof InboxRoute
   '/mail': typeof MailRoute
   '/onboarding': typeof OnboardingRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/tasks': typeof TasksRoute
+  '/verify-email': typeof VerifyEmailRoute
   '/docs/$slug': typeof DocsSlugRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/docs/': typeof DocsIndexRoute
@@ -122,14 +143,17 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/chat': typeof ChatRoute
   '/device': typeof DeviceRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/inbox': typeof InboxRoute
   '/mail': typeof MailRoute
   '/onboarding': typeof OnboardingRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/tasks': typeof TasksRoute
+  '/verify-email': typeof VerifyEmailRoute
   '/docs/$slug': typeof DocsSlugRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/docs': typeof DocsIndexRoute
@@ -140,14 +164,17 @@ export interface FileRoutesById {
   '/chat': typeof ChatRoute
   '/device': typeof DeviceRoute
   '/docs': typeof DocsRouteWithChildren
+  '/forgot-password': typeof ForgotPasswordRoute
   '/inbox': typeof InboxRoute
   '/mail': typeof MailRoute
   '/onboarding': typeof OnboardingRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/tasks': typeof TasksRoute
+  '/verify-email': typeof VerifyEmailRoute
   '/docs/$slug': typeof DocsSlugRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/docs/': typeof DocsIndexRoute
@@ -159,14 +186,17 @@ export interface FileRouteTypes {
     | '/chat'
     | '/device'
     | '/docs'
+    | '/forgot-password'
     | '/inbox'
     | '/mail'
     | '/onboarding'
+    | '/reset-password'
     | '/settings'
     | '/setup'
     | '/sign-in'
     | '/sign-up'
     | '/tasks'
+    | '/verify-email'
     | '/docs/$slug'
     | '/oauth/consent'
     | '/docs/'
@@ -175,14 +205,17 @@ export interface FileRouteTypes {
     | '/'
     | '/chat'
     | '/device'
+    | '/forgot-password'
     | '/inbox'
     | '/mail'
     | '/onboarding'
+    | '/reset-password'
     | '/settings'
     | '/setup'
     | '/sign-in'
     | '/sign-up'
     | '/tasks'
+    | '/verify-email'
     | '/docs/$slug'
     | '/oauth/consent'
     | '/docs'
@@ -192,14 +225,17 @@ export interface FileRouteTypes {
     | '/chat'
     | '/device'
     | '/docs'
+    | '/forgot-password'
     | '/inbox'
     | '/mail'
     | '/onboarding'
+    | '/reset-password'
     | '/settings'
     | '/setup'
     | '/sign-in'
     | '/sign-up'
     | '/tasks'
+    | '/verify-email'
     | '/docs/$slug'
     | '/oauth/consent'
     | '/docs/'
@@ -210,14 +246,17 @@ export interface RootRouteChildren {
   ChatRoute: typeof ChatRoute
   DeviceRoute: typeof DeviceRoute
   DocsRoute: typeof DocsRouteWithChildren
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
   InboxRoute: typeof InboxRoute
   MailRoute: typeof MailRoute
   OnboardingRoute: typeof OnboardingRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
   SettingsRoute: typeof SettingsRoute
   SetupRoute: typeof SetupRoute
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
   TasksRoute: typeof TasksRoute
+  VerifyEmailRoute: typeof VerifyEmailRoute
   OauthConsentRoute: typeof OauthConsentRoute
 }
 
@@ -251,6 +290,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/inbox': {
       id: '/inbox'
       path: '/inbox'
@@ -270,6 +316,13 @@ declare module '@tanstack/react-router' {
       path: '/onboarding'
       fullPath: '/onboarding'
       preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -305,6 +358,13 @@ declare module '@tanstack/react-router' {
       path: '/tasks'
       fullPath: '/tasks'
       preLoaderRoute: typeof TasksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/verify-email': {
+      id: '/verify-email'
+      path: '/verify-email'
+      fullPath: '/verify-email'
+      preLoaderRoute: typeof VerifyEmailRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs/': {
@@ -348,14 +408,17 @@ const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRoute,
   DeviceRoute: DeviceRoute,
   DocsRoute: DocsRouteWithChildren,
+  ForgotPasswordRoute: ForgotPasswordRoute,
   InboxRoute: InboxRoute,
   MailRoute: MailRoute,
   OnboardingRoute: OnboardingRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
   SettingsRoute: SettingsRoute,
   SetupRoute: SetupRoute,
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
   TasksRoute: TasksRoute,
+  VerifyEmailRoute: VerifyEmailRoute,
   OauthConsentRoute: OauthConsentRoute,
 }
 export const routeTree = rootRouteImport

@@ -2,6 +2,8 @@ import type { EraseAccountBody, EraseAccountResponse, WorkspaceExportDto } from 
 import { type Queryable, type Sql, uuid7 } from '@huriro/db'
 import type { ActorContext } from '@huriro/domain'
 import { HttpError } from '../../api/error'
+import { log } from '../../api/observability'
+import type { EmailPipeline } from '../../email'
 import type { RealtimePubSub } from '../../realtime/pubsub'
 import type { BlobStorage } from '../files'
 import type { AuthSession } from '../identity'
@@ -141,12 +143,14 @@ export async function eraseMyAccount(
 	sql: Sql,
 	session: AuthSession,
 	body: EraseAccountBody,
-	pubsub?: RealtimePubSub
+	pubsub?: RealtimePubSub,
+	email?: EmailPipeline
 ): Promise<EraseAccountResponse> {
 	if (body.confirmEmail.trim().toLowerCase() !== session.email.toLowerCase()) {
 		throw new HttpError(422, 'validation_failed', 'Confirmation email does not match your account email')
 	}
 
+	const recipientEmail = session.email
 	const revokedWorkspaceIds = await sql.begin(async (tx) => {
 		await tx`SELECT set_config('app.user_id', ${session.userId}, true)`
 		const workspaceIds = await runEraseUserIdentity(tx, session.userId)
@@ -165,6 +169,15 @@ export async function eraseMyAccount(
 		for (const wsId of revokedWorkspaceIds) {
 			await pubsub.publishRevoke(wsId, session.userId, 'account_erased').catch(() => {})
 		}
+	}
+
+	if (email?.configured) {
+		await email
+			.sendAccountErased({
+				to: recipientEmail,
+				revokedWorkspaceCount: revokedWorkspaceIds.length
+			})
+			.catch((err) => log.warn({ err }, 'failed to deliver account erasure receipt email'))
 	}
 
 	return {

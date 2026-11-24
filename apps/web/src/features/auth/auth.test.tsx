@@ -5,10 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '@/lib/http'
 import { isAllowedOnboardingPath } from '@/lib/navigation'
 import { expectNoViolations } from '@/lib/test-setup'
+import { ForgotPasswordForm } from './components/forgot-password-form'
 import { OnboardingForm } from './components/onboarding-form'
+import { ResetPasswordForm } from './components/reset-password-form'
 import { SetupForm } from './components/setup-form'
 import { SignInForm } from './components/sign-in-form'
 import { SignUpForm } from './components/sign-up-form'
+import { VerifyEmailPanel } from './components/verify-email-panel'
 import { AuthFlowProvider } from './context'
 
 activateI18n('en')
@@ -336,5 +339,138 @@ describe('auth forms', () => {
 		)
 
 		await expectNoViolations(container)
+	})
+
+	it('renders the forgot-password link from SignInForm and navigates in-app', async () => {
+		const onNavigate = vi.fn()
+		const { container } = render(
+			<AuthFlowProvider
+				value={{
+					needsSetup: false,
+					socialProviders: [],
+					onboardingUser: null,
+					onAuthenticated: vi.fn(),
+					onUsePreview: vi.fn(),
+					onSignOut: async () => {},
+					onNavigate
+				}}
+			>
+				<SignInForm socialProviders={[]} needsSetup={false} redirectTo="/tasks" onComplete={vi.fn()} />
+			</AuthFlowProvider>
+		)
+
+		const forgotLink = screen.getByRole('link', { name: t('auth.forgot-password.link') })
+		expect(forgotLink).toHaveAttribute('href', '/forgot-password?redirect=%2Ftasks')
+		fireEvent.click(forgotLink)
+		expect(onNavigate).toHaveBeenCalledWith('/forgot-password', { redirect: '/tasks' })
+		await expectNoViolations(container)
+	})
+
+	it('submits ForgotPasswordForm via Better Auth request-password-reset and passes axe', async () => {
+		const postSpy = vi.spyOn(api, 'post').mockResolvedValue({
+			status: 200,
+			statusText: 'OK',
+			headers: {},
+			config: {} as InternalAxiosRequestConfig,
+			data: { status: true }
+		} as AxiosResponse)
+		try {
+			const { container } = render(<ForgotPasswordForm redirectTo="/tasks" />)
+			fireEvent.change(screen.getByLabelText(t('auth.email')), {
+				target: { value: 'ada@example.com' }
+			})
+			fireEvent.click(screen.getByRole('button', { name: t('auth.forgot-password.submit') }))
+
+			expect(await screen.findByText(t('auth.forgot-password.sent-title'))).toBeInTheDocument()
+			expect(postSpy).toHaveBeenCalledWith('/api/auth/request-password-reset', {
+				email: 'ada@example.com',
+				redirectTo: `${window.location.origin}/reset-password`
+			})
+			await expectNoViolations(container)
+		} finally {
+			postSpy.mockRestore()
+		}
+	})
+
+	it('handles missing token, mismatch validation, and submission on ResetPasswordForm cleanly', async () => {
+		const missingRender = render(<ResetPasswordForm />)
+		expect(screen.getByRole('alert')).toHaveTextContent(t('auth.reset-password.missing-token'))
+		await expectNoViolations(missingRender.container)
+		missingRender.unmount()
+
+		const postSpy = vi.spyOn(api, 'post').mockResolvedValue({
+			status: 200,
+			statusText: 'OK',
+			headers: {},
+			config: {} as InternalAxiosRequestConfig,
+			data: { status: true }
+		} as AxiosResponse)
+		try {
+			const { container } = render(<ResetPasswordForm token="reset_tok_123" />)
+			fireEvent.change(screen.getByLabelText(t('auth.reset-password.new-password')), {
+				target: { value: 'CorrectHorse99!' }
+			})
+			fireEvent.change(screen.getByLabelText(t('auth.confirm-password')), {
+				target: { value: 'DifferentPass99!' }
+			})
+			fireEvent.click(screen.getByRole('button', { name: t('auth.reset-password.submit') }))
+
+			expect(await screen.findByText(t('auth.validation.passwords-mismatch'))).toBeInTheDocument()
+
+			fireEvent.change(screen.getByLabelText(t('auth.confirm-password')), {
+				target: { value: 'CorrectHorse99!' }
+			})
+			fireEvent.click(screen.getByRole('button', { name: t('auth.reset-password.submit') }))
+
+			expect(await screen.findByText(t('auth.reset-password.success-title'))).toBeInTheDocument()
+			expect(postSpy).toHaveBeenCalledWith('/api/auth/reset-password', {
+				newPassword: 'CorrectHorse99!',
+				token: 'reset_tok_123'
+			})
+			await expectNoViolations(container)
+		} finally {
+			postSpy.mockRestore()
+		}
+	})
+
+	it('verifies email tokens, supports resending confirmation, and keeps /verify-email reachable during onboarding', async () => {
+		expect(isAllowedOnboardingPath('/verify-email', false)).toBe(true)
+
+		const getSpy = vi.spyOn(api, 'get').mockResolvedValue({
+			status: 200,
+			statusText: 'OK',
+			headers: {},
+			config: {} as InternalAxiosRequestConfig,
+			data: { status: true }
+		} as AxiosResponse)
+		try {
+			const { container } = render(<VerifyEmailPanel token="ver_tok_abc" />)
+			expect(await screen.findByText(t('auth.verify-email.success-title'))).toBeInTheDocument()
+			expect(getSpy).toHaveBeenCalledWith('/api/auth/verify-email?token=ver_tok_abc')
+			await expectNoViolations(container)
+		} finally {
+			getSpy.mockRestore()
+		}
+
+		const postSpy = vi.spyOn(api, 'post').mockResolvedValue({
+			status: 200,
+			statusText: 'OK',
+			headers: {},
+			config: {} as InternalAxiosRequestConfig,
+			data: { status: true }
+		} as AxiosResponse)
+		try {
+			const { container } = render(<VerifyEmailPanel defaultEmail="ada@example.com" />)
+			fireEvent.click(screen.getByRole('button', { name: t('auth.verify-email.resend-submit') }))
+
+			expect(await screen.findByText(t('auth.verify-email.resent-title'))).toBeInTheDocument()
+			expect(postSpy).toHaveBeenCalledWith('/api/auth/send-verification-email', {
+				email: 'ada@example.com',
+				callbackURL: `${window.location.origin}/verify-email`
+			})
+			await expectNoViolations(container)
+		} finally {
+			postSpy.mockRestore()
+		}
 	})
 })

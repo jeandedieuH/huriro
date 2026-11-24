@@ -9,6 +9,24 @@ export interface BlobStorage {
 	deleteObject(key: string): Promise<void>
 }
 
+/**
+ * Missing-object contract: every implementation rejects reads of absent keys
+ * with an error carrying a `code` — 'ENOENT' (fs/memory, mirroring Node) or
+ * 'NoSuchKey' (future S3 backend). This is the single detection point so the
+ * scan pipeline can treat a definitively-absent object as terminal instead of
+ * retrying it forever (unlike transient I/O errors, which must still retry).
+ */
+export function isMissingBlobError(err: unknown): boolean {
+	const code = (err as { readonly code?: unknown } | null | undefined)?.code
+	return code === 'ENOENT' || code === 'NoSuchKey'
+}
+
+function blobNotFoundError(kind: string, key: string): Error {
+	const err = new Error(`${kind} object "${key}" not found`) as Error & { code: string }
+	err.code = 'ENOENT'
+	return err
+}
+
 function assertSafeKey(key: string): string {
 	const cleaned = key.replace(/\\/g, '/')
 	if (!cleaned || cleaned.startsWith('/') || cleaned.includes('..')) {
@@ -72,7 +90,7 @@ export class MemoryBlobStorage implements BlobStorage {
 
 	async readQuarantine(key: string): Promise<Uint8Array> {
 		const buf = this.objects.get(assertSafeKey(key))
-		if (!buf) throw new Error(`Quarantine object "${key}" not found`)
+		if (!buf) throw blobNotFoundError('Quarantine', key)
 		return new Uint8Array(buf)
 	}
 
@@ -83,7 +101,7 @@ export class MemoryBlobStorage implements BlobStorage {
 
 	async readFile(storageKey: string): Promise<Uint8Array> {
 		const buf = this.objects.get(assertSafeKey(storageKey))
-		if (!buf) throw new Error(`File object "${storageKey}" not found`)
+		if (!buf) throw blobNotFoundError('File', storageKey)
 		return new Uint8Array(buf)
 	}
 

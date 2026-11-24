@@ -38,6 +38,11 @@ export interface Config extends Env {
 	readonly polarWebhookSecret: string | undefined
 	readonly iremboPaySecretKey: string | undefined
 	readonly iremboPayWebhookSecret: string | undefined
+	readonly resendApiKey: string | undefined
+	readonly emailitApiKey: string | undefined
+	readonly smtpUrl: string | undefined
+	readonly smtpPass: string | undefined
+	readonly emailFrom: string
 }
 
 let cached: Config | null = null
@@ -79,6 +84,11 @@ export async function loadEnv(source: Record<string, string | undefined> = proce
 	const iremboPaySecretKey = env.IREMBOPAY_SECRET_KEY ?? (await readSecretFile(env.IREMBOPAY_SECRET_KEY_FILE))
 	const iremboPayWebhookSecret =
 		env.IREMBOPAY_WEBHOOK_SECRET ?? (await readSecretFile(env.IREMBOPAY_WEBHOOK_SECRET_FILE))
+	const resendApiKey = env.RESEND_API_KEY ?? (await readSecretFile(env.RESEND_API_KEY_FILE))
+	const emailitApiKey = env.EMAILIT_API_KEY ?? (await readSecretFile(env.EMAILIT_API_KEY_FILE))
+	const smtpUrl = env.SMTP_URL ?? (await readSecretFile(env.SMTP_URL_FILE))
+	const smtpPass = env.SMTP_PASS ?? (await readSecretFile(env.SMTP_PASS_FILE))
+	const emailFrom = env.EMAIL_FROM ?? env.SMTP_FROM
 
 	if (!databaseUrl) problems.push('DATABASE_URL or DATABASE_URL_FILE is required')
 	if (env.HURIRO_ENV === 'production' && !secretKey) {
@@ -100,6 +110,25 @@ export async function loadEnv(source: Record<string, string | undefined> = proce
 	if (Boolean(env.APPLE_CLIENT_ID) !== Boolean(appleClientSecret)) {
 		problems.push(
 			'APPLE_CLIENT_ID and APPLE_CLIENT_SECRET (or APPLE_CLIENT_SECRET_FILE) must be set together'
+		)
+	}
+	if (env.EMAIL_PROVIDER === 'resend' && !resendApiKey) {
+		problems.push('RESEND_API_KEY or RESEND_API_KEY_FILE is required when EMAIL_PROVIDER=resend')
+	}
+	if (env.EMAIL_PROVIDER === 'smtp' && !smtpUrl && !env.SMTP_HOST) {
+		problems.push('SMTP_URL (or SMTP_URL_FILE) or SMTP_HOST is required when EMAIL_PROVIDER=smtp')
+	}
+	if (env.EMAIL_PROVIDER === 'emailit' && !emailitApiKey) {
+		problems.push('EMAILIT_API_KEY or EMAILIT_API_KEY_FILE is required when EMAIL_PROVIDER=emailit')
+	}
+	if (
+		env.HURIRO_MODE === 'cloud' &&
+		env.HURIRO_ENV === 'production' &&
+		env.EMAIL_PROVIDER !== 'noop' &&
+		!emailitApiKey
+	) {
+		problems.push(
+			'EMAILIT_API_KEY or EMAILIT_API_KEY_FILE is required in production when HURIRO_MODE=cloud (set EMAIL_PROVIDER=noop to disable)'
 		)
 	}
 
@@ -128,7 +157,12 @@ export async function loadEnv(source: Record<string, string | undefined> = proce
 		polarAccessToken,
 		polarWebhookSecret,
 		iremboPaySecretKey,
-		iremboPayWebhookSecret
+		iremboPayWebhookSecret,
+		resendApiKey,
+		emailitApiKey,
+		smtpUrl,
+		smtpPass,
+		emailFrom
 	}
 	return cached
 }

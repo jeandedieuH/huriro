@@ -14,6 +14,7 @@ import type {
 	DocPageDetailDto,
 	DocPageDto,
 	DocVersionDto,
+	EmailPipelineStatusDto,
 	FileDto,
 	GithubInstallationDto,
 	IssueCommentDto,
@@ -32,6 +33,7 @@ import type {
 	ProjectDto,
 	ProjectStatusDto,
 	SearchHitDto,
+	SendTestEmailResponse,
 	WebhookDeliveryDto,
 	WebhookEndpointDto,
 	WebPushSubscriptionDto,
@@ -471,7 +473,10 @@ const PREVIEW_DOC_MARKDOWN: Record<string, string> = {
 	].join('\n')
 }
 
-export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge {
+export function createPreviewApiBridge(
+	engine: HuriroSyncEngine,
+	opts?: { readonly mode?: 'selfhost' | 'cloud' | undefined }
+): TaskApiBridge {
 	const commentsByIssue = new Map<string, IssueCommentDto[]>()
 	const relationsByIssue = new Map<string, IssueRelationDto[]>()
 	const docStatesByPage = new Map<
@@ -700,6 +705,7 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 		timezone: 'UTC',
 		webPushEnabled: false,
 		mobilePushEnabled: false,
+		emailInstantEnabled: true,
 		lastDigestSentAt: null,
 		updatedAt: previewNow
 	}
@@ -2128,6 +2134,7 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 				...(body.emailDigestFrequency !== undefined
 					? { emailDigestFrequency: body.emailDigestFrequency }
 					: {}),
+				...(body.emailInstantEnabled !== undefined ? { emailInstantEnabled: body.emailInstantEnabled } : {}),
 				...(body.quietHoursStart !== undefined ? { quietHoursStart: body.quietHoursStart } : {}),
 				...(body.quietHoursEnd !== undefined ? { quietHoursEnd: body.quietHoursEnd } : {}),
 				...(body.timezone !== undefined ? { timezone: body.timezone } : {}),
@@ -2136,6 +2143,34 @@ export function createPreviewApiBridge(engine: HuriroSyncEngine): TaskApiBridge 
 				updatedAt: new Date().toISOString()
 			}
 			return previewNotifPrefs
+		},
+		async getEmailStatus(): Promise<EmailPipelineStatusDto> {
+			const mode = opts?.mode ?? 'selfhost'
+			return {
+				configured: true,
+				mode,
+				provider: mode === 'cloud' ? 'emailit' : 'resend',
+				from: 'noreply@huriro.local',
+				emailVerificationRequired: false
+			}
+		},
+		async sendTestEmail(to): Promise<SendTestEmailResponse> {
+			const mode = opts?.mode ?? 'selfhost'
+			return {
+				sent: true,
+				provider: mode === 'cloud' ? 'emailit' : 'resend',
+				messageId: `preview_msg_${generateUuidV7().slice(0, 8)}`,
+				to: to?.trim() || 'hagen@huriro.local'
+			}
+		},
+		async createInvitation(body) {
+			const mode = opts?.mode ?? 'selfhost'
+			return {
+				id: generateUuidV7(),
+				token: `preview_invite_${body.role}_${generateUuidV7().slice(0, 8)}`,
+				emailSent: true,
+				emailProvider: mode === 'cloud' ? 'emailit' : 'resend'
+			}
 		},
 		async getVapidPublicKey() {
 			return null
@@ -2731,7 +2766,7 @@ export async function createPreviewWorkspace(
 	await engine.bootstrap({ skipNetwork: true })
 	return {
 		engine,
-		api: createPreviewApiBridge(engine),
+		api: createPreviewApiBridge(engine, opts),
 		workspaceName: 'Huriro Preview',
 		currentUserId: PREVIEW_USER_ID,
 		userDisplayName: 'Hagen (Owner)',

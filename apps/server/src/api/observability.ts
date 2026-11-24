@@ -8,7 +8,11 @@ import type { Elysia } from 'elysia'
 import pino from 'pino'
 import client from 'prom-client'
 
-const SECRET_PATTERNS = [/hrk_[A-Za-z0-9_-]{8}_[A-Za-z0-9_-]{10,}/g]
+const SECRET_PATTERNS = [
+	/hrk_[A-Za-z0-9_-]{8}_[A-Za-z0-9_-]{10,}/g,
+	/re_[A-Za-z0-9_-]{20,}/g,
+	/em_[A-Za-z0-9_-]{20,}/g
+]
 
 /** Scrub credential-shaped strings (e.g. `hrk_…` API keys) from arbitrary log text. */
 export function scrubSecrets(text: string): string {
@@ -42,7 +46,11 @@ export const log = pino({
 			'*.privateKey',
 			'*.apiToken',
 			'*.authSecret',
-			'*.apiKey'
+			'*.apiKey',
+			'*.resendApiKey',
+			'*.emailitApiKey',
+			'*.smtpPass',
+			'*.smtpUrl'
 		],
 		remove: true
 	},
@@ -63,6 +71,15 @@ export const httpDuration = new client.Histogram({
 export const outboxLag = new client.Gauge({
 	name: 'huriro_outbox_pending',
 	help: 'Pending outbox events (worker lag signal, §4.3)'
+})
+export const outboxDeadLetters = new client.Gauge({
+	name: 'huriro_outbox_dead_letters',
+	help: 'Outbox events parked in dead-letter state awaiting operator replay (§5.5)'
+})
+export const outboxDeadLettersTotal = new client.Counter({
+	name: 'huriro_outbox_dead_letters_total',
+	help: 'Outbox events transitioned to dead-letter state, by event type (§5.5)',
+	labelNames: ['event_type']
 })
 export const changeLogWriteMs = new client.Histogram({
 	name: 'huriro_change_log_write_ms',
@@ -120,8 +137,21 @@ export const wsConnectionsGauge = new client.Gauge({
 	name: 'huriro_ws_active_connections',
 	help: 'Currently active signal-plane WebSocket connections (§20.1)'
 })
+export const emailsTotal = new client.Counter({
+	name: 'huriro_emails_total',
+	help: 'Transactional and notification emails processed by template, provider, and status',
+	labelNames: ['template', 'provider', 'status']
+})
+export const emailRenderDurationSeconds = new client.Histogram({
+	name: 'huriro_email_render_duration_seconds',
+	help: 'Duration of React Email template rendering into HTML and plain text',
+	labelNames: ['template'],
+	buckets: [0.001, 0.005, 0.02, 0.05, 0.1, 0.25, 0.5, 1]
+})
 metrics.registerMetric(httpDuration)
 metrics.registerMetric(outboxLag)
+metrics.registerMetric(outboxDeadLetters)
+metrics.registerMetric(outboxDeadLettersTotal)
 metrics.registerMetric(changeLogWriteMs)
 metrics.registerMetric(collabRoomsGauge)
 metrics.registerMetric(collabConnectionsGauge)
@@ -134,6 +164,8 @@ metrics.registerMetric(webhookDeliveriesTotal)
 metrics.registerMetric(fileScansTotal)
 metrics.registerMetric(githubSyncTotal)
 metrics.registerMetric(wsConnectionsGauge)
+metrics.registerMetric(emailsTotal)
+metrics.registerMetric(emailRenderDurationSeconds)
 
 export function hashForLog(id: string | undefined): string | undefined {
 	if (!id) return undefined

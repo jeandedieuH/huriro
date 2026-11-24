@@ -7,7 +7,10 @@ test (§21.3, §4.2).
 
 - `db.ts` — `getTestDb()`: owner pool (fixture setup, bypasses RLS) + app pool
   (`huriro_app`, the role under test). `DATABASE_URL` wins; else Testcontainers
-  when `HURIRO_TESTCONTAINERS=1`; else null → callers `skip()`.
+  when `HURIRO_TESTCONTAINERS=1`; else null → callers `skip()`. Env URLs must
+  point at a database named `*_test` — anything else is refused (Bun auto-loads
+  `apps/server/.env`, so tests would otherwise fill the DEV database with
+  fixtures); `HURIRO_TEST_ALLOW_NON_TEST_DB=1` is the explicit escape hatch.
 - `factories.ts` — typed builders (`aUser`, `aWorkspace` seeds system roles,
   `anAclEntry`, `seedTwoTenants`). Extend, don't hand-SQL fixtures.
 - `rls.ts` + `rls.test.ts` — the table classification allowlist and the

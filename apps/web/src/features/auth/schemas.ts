@@ -34,6 +34,15 @@ export interface AcceptInviteValues {
 	token: string
 }
 
+export interface ForgotPasswordValues {
+	email: string
+}
+
+export interface ResetPasswordValues {
+	password: string
+	confirmPassword: string
+}
+
 export function createSignInSchema(): z.ZodType<SignInValues> {
 	return z.object({
 		email: z
@@ -121,6 +130,31 @@ export function createAcceptInviteSchema(): z.ZodType<AcceptInviteValues> {
 	return z.object({
 		token: z.string().trim().min(20, t('auth.validation.invite-token-min'))
 	})
+}
+
+export function createForgotPasswordSchema(): z.ZodType<ForgotPasswordValues> {
+	return z.object({
+		email: z
+			.string()
+			.trim()
+			.min(1, t('auth.validation.email-required'))
+			.pipe(z.email(t('auth.validation.email-invalid')))
+	})
+}
+
+export function createResetPasswordSchema(): z.ZodType<ResetPasswordValues> {
+	return z
+		.object({
+			password: z
+				.string()
+				.min(8, t('auth.validation.password-min'))
+				.max(128, t('auth.validation.password-max')),
+			confirmPassword: z.string().min(1, t('auth.validation.confirm-password-required'))
+		})
+		.refine((data) => data.password === data.confirmPassword, {
+			path: ['confirmPassword'],
+			message: t('auth.validation.passwords-mismatch')
+		})
 }
 
 export interface PasswordStrengthResult {

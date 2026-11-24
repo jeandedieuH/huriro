@@ -420,4 +420,51 @@ describe('api contract', () => {
 		expect(res.status).toBe(200)
 		expect(handlerCalls).toBe(1)
 	})
+
+	test('email status & test routes enforce auth and schema validation cleanly', async () => {
+		const resNoAuth = await app.handle(
+			new Request('http://t/api/v1/notifications/email/status', {
+				headers: { 'x-workspace-id': crypto.randomUUID() }
+			})
+		)
+		expect(resNoAuth.status).toBe(501)
+		expect(resNoAuth.headers.get('content-type')).toContain('application/problem+json')
+
+		const resInvalidEmail = await app.handle(
+			new Request('http://t/api/v1/notifications/email/test', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					'x-workspace-id': crypto.randomUUID(),
+					'x-huriro-client': 'huriro-web'
+				},
+				body: JSON.stringify({ to: 'not-an-email' })
+			})
+		)
+		expect(resInvalidEmail.status).toBe(422)
+		const bodyInvalid = (await resInvalidEmail.json()) as { code?: string }
+		expect(bodyInvalid.code).toBe('validation_failed')
+
+		const resTestNoSession = await createApp({
+			sql: stubSql as never,
+			migrationsDir: '.',
+			mode: 'selfhost',
+			auth: {
+				options: { baseURL: 'http://localhost', socialProviders: {} },
+				api: { getSession: async () => null }
+			} as unknown as Auth
+		}).handle(
+			new Request('http://t/api/v1/notifications/email/test', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					'x-workspace-id': crypto.randomUUID(),
+					'x-huriro-client': 'huriro-web'
+				},
+				body: JSON.stringify({ to: 'ops@example.com' })
+			})
+		)
+		expect(resTestNoSession.status).toBe(401)
+		expect(resTestNoSession.headers.get('content-type')).toContain('application/problem+json')
+	})
 })

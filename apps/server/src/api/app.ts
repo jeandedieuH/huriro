@@ -8,6 +8,7 @@ import { openapi } from '@elysia/openapi'
 import { problem } from '@huriro/contracts'
 import { pendingMigrations, type Sql, withSystem } from '@huriro/db'
 import { Elysia } from 'elysia'
+import type { EmailPipeline } from '../email'
 import { agentsModule } from '../modules/agents'
 import { mcpEndpoint } from '../modules/agents/mcp'
 import { aiModule } from '../modules/ai'
@@ -56,6 +57,7 @@ export interface AppDeps {
 	readonly egressResolver?: DnsResolver | undefined
 	readonly mail?: Partial<MailModuleConfig> | undefined
 	readonly billing?: Partial<BillingModuleConfig> | undefined
+	readonly email?: EmailPipeline | undefined
 	readonly readOnly?: boolean | undefined
 	readonly isReadOnly?: (() => boolean) | undefined
 	readonly rateLimitPerMinute?: number | undefined
@@ -287,7 +289,7 @@ export function createApp(deps: AppDeps) {
 					assertCookieCsrf(request, deps.allowedOrigins)
 				})
 				.use(identityModule(auth))
-				.use(tenancyModule(sql, mode, auth, pubsub))
+				.use(tenancyModule(sql, mode, auth, pubsub, { email: deps.email }))
 				.use(tasksModule(sql, auth, pubsub))
 				.use(docsModule(sql, auth, pubsub, collabBridge, collabTicketSecret))
 				.use(syncModule(sql, auth, pubsub))
@@ -297,7 +299,8 @@ export function createApp(deps: AppDeps) {
 				.use(
 					notificationsModule(sql, auth, pubsub, {
 						...(deps.vapid ? { vapid: deps.vapid } : {}),
-						...(deps.egressResolver ? { resolver: deps.egressResolver } : {})
+						...(deps.egressResolver ? { resolver: deps.egressResolver } : {}),
+						...(deps.email ? { email: deps.email } : {})
 					})
 				)
 				.use(importsModule(sql, auth, pubsub))
@@ -318,7 +321,7 @@ export function createApp(deps: AppDeps) {
 					})
 				)
 				.use(mailModule(sql, auth, blobStorage, mailCfg, pubsub))
-				.use(governanceModule(sql, auth, blobStorage, pubsub))
+				.use(governanceModule(sql, auth, blobStorage, pubsub, { email: deps.email }))
 				.use(billingModule(sql, auth, billingCfg))
 		)
 
