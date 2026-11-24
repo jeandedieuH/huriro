@@ -5,7 +5,7 @@ import { Card, Chip } from 'heroui-native'
 import { useEffect, useState } from 'react'
 import { View } from 'react-native'
 import { Container } from '../../src/components/app/container'
-import { DocDomEditor } from '../../src/components/docs/doc-dom-editor'
+import DocDomEditor from '../../src/components/docs/doc-dom-editor'
 import { useMobileRuntime } from '../../src/lib/runtime-context'
 
 export default function DocDetailScreen() {
@@ -35,7 +35,7 @@ export default function DocDetailScreen() {
 		<>
 			<Stack.Screen options={{ headerShown: true, title: summary?.title ?? t('mobile.docs.title') }} />
 			<Container gap={12}>
-				<Card className="p-4 rounded-2xl border border-border/60 gap-2">
+				<Card className="p-4 rounded-2xl border border-default-soft-hover gap-2">
 					<View className="flex-row items-center justify-between">
 						<Card.Title className="text-lg font-bold flex-1">{summary?.title ?? slug}</Card.Title>
 						<Chip size="sm" variant="soft" color="accent">
@@ -45,7 +45,7 @@ export default function DocDetailScreen() {
 					<Card.Description className="text-xs font-mono">/{slug}</Card.Description>
 				</Card>
 
-				<Card className="rounded-2xl border border-border/60 overflow-hidden p-1">
+				<Card className="rounded-2xl border border-default-soft-hover overflow-hidden p-1">
 					<DocDomEditor
 						dom={{ matchContents: true }}
 						docId={summary?.id ?? slug}

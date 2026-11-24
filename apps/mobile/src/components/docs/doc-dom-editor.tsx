@@ -21,7 +21,8 @@ export interface DocDomEditorProps {
  * Light mobile rich-text editor using Expo DOM component (`'use dom'`) +
  * shared `@huriro/editor` schema & sanitizer (§6.3, §18.2).
  */
-export function DocDomEditor({
+// 'use dom' modules must have a single default export — Expo DOM components contract
+export default function DocDomEditor({
 	initialMarkdown,
 	docId,
 	readOnly = false,
