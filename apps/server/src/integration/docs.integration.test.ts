@@ -653,4 +653,110 @@ describe('M2 docs integration (PostgreSQL 18 + FORCE RLS)', () => {
 			await pubsub.close()
 		}
 	})
+
+	test('delivers doc_page delete tombstones to authorized members and filters out unauthorized peers', async () => {
+		if (!db) return
+		const fixture = await seedM1Fixture(db.owner)
+		const { app, pubsub } = createIntegrationServer(db)
+		try {
+			const wsDoc = await apiRequest(app, {
+				method: 'POST',
+				path: '/api/v1/docs',
+				workspaceId: fixture.workspaceId,
+				userId: fixture.memberAId,
+				body: { title: 'Workspace Archive Target', visibility: 'workspace' }
+			})
+			const privGrantedDoc = await apiRequest(app, {
+				method: 'POST',
+				path: '/api/v1/docs',
+				workspaceId: fixture.workspaceId,
+				userId: fixture.memberAId,
+				body: { title: 'Private Granted Target', visibility: 'private' }
+			})
+			const privSecretDoc = await apiRequest(app, {
+				method: 'POST',
+				path: '/api/v1/docs',
+				workspaceId: fixture.workspaceId,
+				userId: fixture.memberAId,
+				body: { title: 'Private Secret Target', visibility: 'private' }
+			})
+			expect(wsDoc.status).toBe(201)
+			expect(privGrantedDoc.status).toBe(201)
+			expect(privSecretDoc.status).toBe(201)
+
+			const wsDocId = String(wsDoc.json['id'])
+			const privGrantedDocId = String(privGrantedDoc.json['id'])
+			const privSecretDocId = String(privSecretDoc.json['id'])
+
+			const grantRes = await apiRequest(app, {
+				method: 'POST',
+				path: '/api/v1/acl',
+				workspaceId: fixture.workspaceId,
+				userId: fixture.memberAId,
+				body: {
+					resourceType: 'doc_page',
+					resourceId: privGrantedDocId,
+					principalType: 'user',
+					principalId: fixture.memberBId,
+					permission: 'read'
+				}
+			})
+			expect(grantRes.status).toBe(200)
+
+			const beforeDelete = await apiRequest(app, {
+				path: '/api/v1/sync/changes?since=0&limit=500',
+				workspaceId: fixture.workspaceId,
+				userId: fixture.memberBId
+			})
+			const since = Number(beforeDelete.json['nextCursor'])
+
+			for (const id of [wsDocId, privGrantedDocId, privSecretDocId]) {
+				const delRes = await apiRequest(app, {
+					method: 'DELETE',
+					path: `/api/v1/docs/${id}`,
+					workspaceId: fixture.workspaceId,
+					userId: fixture.memberAId
+				})
+				expect(delRes.status).toBe(200)
+			}
+
+			const memberChangesRes = await apiRequest(app, {
+				path: `/api/v1/sync/changes?since=${since}&limit=500`,
+				workspaceId: fixture.workspaceId,
+				userId: fixture.memberBId
+			})
+			expect(memberChangesRes.status).toBe(200)
+			const memberChanges = memberChangesRes.json['changes'] as {
+				entity: string
+				id: string
+				action: string
+				data: unknown
+			}[]
+			expect(
+				memberChanges.some(
+					(c) => c.entity === 'doc_page' && c.id === wsDocId && c.action === 'delete' && c.data === null
+				)
+			).toBe(true)
+			expect(
+				memberChanges.some(
+					(c) =>
+						c.entity === 'doc_page' && c.id === privGrantedDocId && c.action === 'delete' && c.data === null
+				)
+			).toBe(true)
+			expect(memberChanges.some((c) => c.id === privSecretDocId)).toBe(false)
+
+			const guestChangesRes = await apiRequest(app, {
+				path: `/api/v1/sync/changes?since=${since}&limit=500`,
+				workspaceId: fixture.workspaceId,
+				userId: fixture.guestId
+			})
+			expect(guestChangesRes.status).toBe(200)
+			const guestChanges = guestChangesRes.json['changes'] as { id: string }[]
+			expect(guestChanges.some((c) => c.id === wsDocId)).toBe(false)
+			expect(guestChanges.some((c) => c.id === privGrantedDocId)).toBe(false)
+			expect(guestChanges.some((c) => c.id === privSecretDocId)).toBe(false)
+		} finally {
+			await pubsub.close()
+		}
+	})
 })

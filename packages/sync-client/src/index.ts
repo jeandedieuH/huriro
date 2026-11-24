@@ -7,6 +7,8 @@ export {
 	type SyncTransport
 } from './engine'
 export {
+	type FlushOptions,
+	type FlushResult,
 	generateUuidV7,
 	HuriroMutationOutbox,
 	MAX_OUTBOX_BYTES,

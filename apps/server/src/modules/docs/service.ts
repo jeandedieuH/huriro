@@ -339,7 +339,7 @@ export async function listAccessibleDocPages(
 }
 
 export async function listAccessibleDocPageIds(tx: Queryable, actor: ActorContext): Promise<Set<string>> {
-	const pages = await listAccessibleDocPages(tx, actor)
+	const pages = await listAccessibleDocPages(tx, actor, { includeTemplates: true })
 	return new Set(pages.map((p) => p.id))
 }
 
@@ -690,6 +690,7 @@ export async function updateDocPage(
 		metadata: { slug: updated.slug, visibility: updated.visibility }
 	})
 
+	const isNewlyArchived = page.archivedAt === null && updated.archivedAt !== null
 	const changePayload: Record<string, unknown> = {
 		...(updated as unknown as Record<string, unknown>),
 		...(nextVisibility !== page.visibility ? { previousVisibility: page.visibility } : {})
@@ -697,9 +698,9 @@ export async function updateDocPage(
 	const cursor = await appendChange(tx, actor.workspaceId, {
 		entityType: 'doc_page',
 		entityId: updated.id,
-		action: 'upsert',
+		action: isNewlyArchived ? 'delete' : 'upsert',
 		scope: [`doc_page:${updated.id}`, `visibility:${updated.visibility}`],
-		payload: changePayload,
+		payload: isNewlyArchived ? null : changePayload,
 		actorId: actor.principalId
 	})
 
@@ -895,7 +896,7 @@ export async function deleteDocPage(
 		entityType: 'doc_page',
 		entityId: row.id,
 		action: 'delete',
-		scope: [`doc_page:${row.id}`, `visibility:${page.visibility}`],
+		scope: [`doc_page:${row.id}`, `visibility:${row.visibility}`],
 		payload: null,
 		actorId: actor.principalId
 	}))

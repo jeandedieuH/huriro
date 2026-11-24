@@ -65,12 +65,26 @@ export interface MutationTransport {
 	sendBatch(mutations: readonly MutationEnvelope[]): Promise<MutationsBatchResponse>
 }
 
+export interface FlushOptions {
+	/** Bypass exponential backoff delays and flush all queued mutations immediately. */
+	readonly force?: boolean | undefined
+}
+
+export interface FlushResult {
+	readonly cursor: number | null
+	readonly outcomes: OutboxOutcome[]
+	readonly error: string | null
+	readonly nextRetryAt: number | null
+}
+
 export class HuriroMutationOutbox {
 	private readonly storage: ReplicaStorage
 	private readonly retryPolicy = new DefaultRetryPolicy()
 	private queue: QueuedMutation[] = []
 	private conflicts: SyncConflict[] = []
-	private flushing = false
+	private activeFlush: Promise<FlushResult> | null = null
+	private flushRequested = false
+	private forceRequested = false
 
 	constructor(storage: ReplicaStorage) {
 		this.storage = storage
@@ -103,6 +117,15 @@ export class HuriroMutationOutbox {
 
 	getPendingMutations(): readonly QueuedMutation[] {
 		return this.queue
+	}
+
+	getNextAttemptAt(): number | null {
+		if (this.queue.length === 0) return null
+		let earliest = Number.POSITIVE_INFINITY
+		for (const q of this.queue) {
+			if (q.nextAttemptAt < earliest) earliest = q.nextAttemptAt
+		}
+		return earliest
 	}
 
 	getConflicts(): readonly SyncConflict[] {
@@ -151,114 +174,164 @@ export class HuriroMutationOutbox {
 			readonly onApplied: (item: QueuedMutation, result: MutationResultDto) => void
 			readonly onConflict: (conflict: SyncConflict) => void
 			readonly onRejected: (item: QueuedMutation, status: number, error: string) => void
+		},
+		opts?: FlushOptions
+	): Promise<FlushResult> {
+		if (this.activeFlush) {
+			// Signal the active pass so concurrently enqueued mutations aren't orphaned.
+			this.flushRequested = true
+			if (opts?.force) this.forceRequested = true
+			return this.activeFlush
 		}
-	): Promise<{ readonly cursor: number | null; readonly outcomes: OutboxOutcome[] }> {
-		if (this.flushing || this.queue.length === 0) {
-			return { cursor: null, outcomes: [] }
+		if (this.queue.length === 0) {
+			return { cursor: null, outcomes: [], error: null, nextRetryAt: null }
 		}
-		this.flushing = true
+
+		this.flushRequested = false
+		this.forceRequested = false
+		const promise = this.runFlush(transport, callbacks, opts?.force ?? false).finally(() => {
+			this.activeFlush = null
+		})
+		this.activeFlush = promise
+		return promise
+	}
+
+	private async runFlush(
+		transport: MutationTransport,
+		callbacks: {
+			readonly onApplied: (item: QueuedMutation, result: MutationResultDto) => void
+			readonly onConflict: (conflict: SyncConflict) => void
+			readonly onRejected: (item: QueuedMutation, status: number, error: string) => void
+		},
+		initialForce: boolean
+	): Promise<FlushResult> {
 		const outcomes: OutboxOutcome[] = []
 		let maxCursor: number | null = null
+		let forceNext = initialForce
+		let autoMergePasses = 0
 
 		try {
-			const now = Date.now()
-			const due = this.queue.filter((q) => q.nextAttemptAt <= now)
-			if (due.length === 0) return { cursor: null, outcomes: [] }
+			while (this.queue.length > 0) {
+				const effectiveForce = forceNext || this.forceRequested
+				forceNext = false
+				this.forceRequested = false
+				this.flushRequested = false
 
-			const batch = due.slice(0, 50)
-			const response = await transport.sendBatch(batch.map((b) => b.envelope))
-			maxCursor = response.cursor
+				const now = Date.now()
+				const due = effectiveForce ? [...this.queue] : this.queue.filter((q) => q.nextAttemptAt <= now)
+				if (due.length === 0) break
 
-			const resultById = new Map(response.results.map((r) => [r.mutationId, r]))
-			const nextQueue: QueuedMutation[] = []
-			const replayedAutoMerges: QueuedMutation[] = []
-
-			for (const q of this.queue) {
-				const res = resultById.get(q.envelope.mutationId)
-				if (!res) {
-					nextQueue.push(q)
-					continue
+				const batch = due.slice(0, 50)
+				const response = await transport.sendBatch(batch.map((b) => b.envelope))
+				if (response.cursor > 0) {
+					maxCursor = maxCursor === null ? response.cursor : Math.max(maxCursor, response.cursor)
 				}
 
-				if (res.outcome === 'applied') {
-					callbacks.onApplied(q, res)
-					outcomes.push({ kind: 'applied', result: res, item: q })
-					continue
-				}
+				const resultById = new Map(response.results.map((r) => [r.mutationId, r]))
+				const nextQueue: QueuedMutation[] = []
+				const replayedAutoMerges: QueuedMutation[] = []
+				let madeProgress = false
 
-				if (res.outcome === 'stale_version' && res.currentEntity) {
-					const merge = resolveFieldMerge({
-						base: q.base,
-						localPatch: q.envelope.patch,
-						server: res.currentEntity,
-						serverChangedFields: res.changedFields
-					})
-
-					if (merge.kind === 'auto_merged') {
-						// Rebase disjoint changes onto the server's latest version and replay!
-						const rebased: QueuedMutation = {
-							...q,
-							base: res.currentEntity,
-							envelope: {
-								...q.envelope,
-								patch: merge.mergedPatch,
-								baseVersion: res.currentVersion ?? Number(res.currentEntity['version'] ?? 1)
-							}
-						}
-						replayedAutoMerges.push(rebased)
-						nextQueue.push(rebased)
+				for (const q of this.queue) {
+					const res = resultById.get(q.envelope.mutationId)
+					if (!res) {
+						nextQueue.push(q)
 						continue
 					}
 
-					const conflict: SyncConflict = {
-						id: q.envelope.mutationId,
-						mutationId: q.envelope.mutationId,
-						entity: q.envelope.entity,
-						entityId: q.envelope.entityId,
-						title: q.title ?? String(res.currentEntity['title'] ?? q.envelope.entityId),
-						overlappingFields: merge.overlappingFields,
-						nonConflictingPatch: merge.nonConflictingPatch,
-						baseValues: q.base ?? {},
-						localValues: q.envelope.patch,
-						serverValues: res.currentEntity,
-						serverVersion: res.currentVersion ?? Number(res.currentEntity['version'] ?? 1)
+					// Deleting a record already missing or archived on the server is idempotently satisfied;
+					// do not roll back and resurrect stale local rows.
+					if (res.outcome === 'applied' || (res.outcome === 'not_found' && q.envelope.op === 'delete')) {
+						madeProgress = true
+						callbacks.onApplied(q, res)
+						outcomes.push({ kind: 'applied', result: res, item: q })
+						continue
 					}
-					this.conflicts = [...this.conflicts.filter((c) => c.id !== conflict.id), conflict]
-					await this.persistConflicts()
-					callbacks.onConflict(conflict)
-					outcomes.push({ kind: 'conflict', conflict })
+
+					if (res.outcome === 'stale_version' && res.currentEntity) {
+						const merge = resolveFieldMerge({
+							base: q.base,
+							localPatch: q.envelope.patch,
+							server: res.currentEntity,
+							serverChangedFields: res.changedFields
+						})
+
+						if (merge.kind === 'auto_merged') {
+							// Rebase disjoint changes onto the server's latest version and replay!
+							const rebased: QueuedMutation = {
+								...q,
+								base: res.currentEntity,
+								retryCount: 0,
+								nextAttemptAt: 0,
+								envelope: {
+									...q.envelope,
+									patch: merge.mergedPatch,
+									baseVersion: res.currentVersion ?? Number(res.currentEntity['version'] ?? 1)
+								}
+							}
+							replayedAutoMerges.push(rebased)
+							nextQueue.push(rebased)
+							continue
+						}
+
+						madeProgress = true
+						const conflict: SyncConflict = {
+							id: q.envelope.mutationId,
+							mutationId: q.envelope.mutationId,
+							entity: q.envelope.entity,
+							entityId: q.envelope.entityId,
+							title: q.title ?? String(res.currentEntity['title'] ?? q.envelope.entityId),
+							overlappingFields: merge.overlappingFields,
+							nonConflictingPatch: merge.nonConflictingPatch,
+							baseValues: q.base ?? {},
+							localValues: q.envelope.patch,
+							serverValues: res.currentEntity,
+							serverVersion: res.currentVersion ?? Number(res.currentEntity['version'] ?? 1)
+						}
+						this.conflicts = [...this.conflicts.filter((c) => c.id !== conflict.id), conflict]
+						await this.persistConflicts()
+						callbacks.onConflict(conflict)
+						outcomes.push({ kind: 'conflict', conflict })
+						continue
+					}
+
+					// 403 / 404 / 422 — terminal rejection, roll back optimistic state.
+					madeProgress = true
+					const errorMsg = res.error ?? `Mutation rejected (${res.status})`
+					callbacks.onRejected(q, res.status, errorMsg)
+					outcomes.push({ kind: 'rejected', item: q, status: res.status, error: errorMsg })
+				}
+
+				this.queue = nextQueue
+				await this.persistQueue()
+
+				if (replayedAutoMerges.length > 0) {
+					autoMergePasses += 1
+					if (autoMergePasses >= 5 && !this.flushRequested) break
 					continue
 				}
-
-				// 403 / 404 / 422 — terminal rejection, roll back optimistic state.
-				const errorMsg = res.error ?? `Mutation rejected (${res.status})`
-				callbacks.onRejected(q, res.status, errorMsg)
-				outcomes.push({ kind: 'rejected', item: q, status: res.status, error: errorMsg })
+				if (this.flushRequested) continue
+				if (!madeProgress) break
 			}
 
-			this.queue = nextQueue
-			await this.persistQueue()
-
-			if (replayedAutoMerges.length > 0) {
-				this.flushing = false
-				const followUp = await this.flush(transport, callbacks)
-				if (followUp.cursor !== null) {
-					maxCursor = maxCursor === null ? followUp.cursor : Math.max(maxCursor, followUp.cursor)
-				}
-				outcomes.push(...followUp.outcomes)
+			return {
+				cursor: maxCursor,
+				outcomes,
+				error: null,
+				nextRetryAt: this.getNextAttemptAt()
 			}
-
-			return { cursor: maxCursor, outcomes }
 		} catch (err) {
+			this.flushRequested = false
+			this.forceRequested = false
+			const errorObj = err instanceof Error ? err : new Error(String(err))
+			const errStatus = (err as { status?: number }).status ?? 500
 			// Network or 5xx transient failure: increment retry count with exponential backoff + jitter.
 			const updatedQueue: QueuedMutation[] = []
 			for (const q of this.queue) {
-				const retryable = this.retryPolicy.shouldRetry(
-					err instanceof Error ? err : new Error(String(err)),
-					q.retryCount
-				)
+				const retryable = this.retryPolicy.shouldRetry(errorObj, q.retryCount)
 				if (!retryable) {
-					callbacks.onRejected(q, 500, 'Retry limit exceeded')
+					callbacks.onRejected(q, errStatus, errorObj.message)
+					outcomes.push({ kind: 'rejected', item: q, status: errStatus, error: errorObj.message })
 					continue
 				}
 				const delay = this.retryPolicy.calculateDelay(q.retryCount)
@@ -270,9 +343,12 @@ export class HuriroMutationOutbox {
 			}
 			this.queue = updatedQueue
 			await this.persistQueue()
-			return { cursor: null, outcomes }
-		} finally {
-			this.flushing = false
+			return {
+				cursor: maxCursor,
+				outcomes,
+				error: errorObj.message,
+				nextRetryAt: this.getNextAttemptAt()
+			}
 		}
 	}
 

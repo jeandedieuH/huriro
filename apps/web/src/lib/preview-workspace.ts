@@ -1498,7 +1498,11 @@ export function createPreviewApiBridge(
 		},
 		async getDocBySlug(slug) {
 			const page = engine.collections.docPages.toArray.find((p) => p.slug === slug && p.archivedAt === null)
-			if (!page) throw new Error(`Document "${slug}" not found`)
+			if (!page) {
+				const err = new Error(`Document "${slug}" not found`) as Error & { status?: number }
+				err.status = 404
+				throw err
+			}
 			const st = ensurePreviewDocState(page)
 			return {
 				page,
@@ -1514,7 +1518,11 @@ export function createPreviewApiBridge(
 		},
 		async getDocDetail(pageId) {
 			const page = engine.collections.docPages.get(pageId)
-			if (!page || page.archivedAt !== null) throw new Error('Document not found')
+			if (!page || page.archivedAt !== null) {
+				const err = new Error('Document not found') as Error & { status?: number }
+				err.status = 404
+				throw err
+			}
 			const st = ensurePreviewDocState(page)
 			return {
 				page,

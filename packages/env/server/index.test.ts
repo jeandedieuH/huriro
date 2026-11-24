@@ -76,6 +76,46 @@ describe('createServerEnv', () => {
 		expect(() => createServerEnv({ ...REQUIRED_SOURCE, EMAIL_PROVIDER: 'sendgrid' })).toThrow()
 		expect(() => createServerEnv({ ...REQUIRED_SOURCE, EMAILIT_API_BASE: 'not-a-url' })).toThrow()
 	})
+
+	test('boolean flags parse "false"/"0" as false, "true"/"1" as true, empty as default, and reject invalid strings', () => {
+		for (const falseVal of ['false', 'FALSE', '0']) {
+			const env = createServerEnv({
+				...REQUIRED_SOURCE,
+				HURIRO_READ_ONLY: falseVal,
+				EMAIL_REQUIRE_VERIFICATION: falseVal,
+				SMTP_SECURE: falseVal
+			})
+			expect(env.HURIRO_READ_ONLY).toBe(false)
+			expect(env.EMAIL_REQUIRE_VERIFICATION).toBe(false)
+			expect(env.SMTP_SECURE).toBe(false)
+		}
+
+		for (const trueVal of ['true', 'TRUE', '1']) {
+			const env = createServerEnv({
+				...REQUIRED_SOURCE,
+				HURIRO_READ_ONLY: trueVal,
+				EMAIL_REQUIRE_VERIFICATION: trueVal,
+				SMTP_SECURE: trueVal
+			})
+			expect(env.HURIRO_READ_ONLY).toBe(true)
+			expect(env.EMAIL_REQUIRE_VERIFICATION).toBe(true)
+			expect(env.SMTP_SECURE).toBe(true)
+		}
+
+		const emptyEnv = createServerEnv({
+			...REQUIRED_SOURCE,
+			HURIRO_READ_ONLY: '',
+			EMAIL_REQUIRE_VERIFICATION: '',
+			SMTP_SECURE: ''
+		})
+		expect(emptyEnv.HURIRO_READ_ONLY).toBe(false)
+		expect(emptyEnv.EMAIL_REQUIRE_VERIFICATION).toBe(false)
+		expect(emptyEnv.SMTP_SECURE).toBeUndefined()
+
+		expect(() => createServerEnv({ ...REQUIRED_SOURCE, HURIRO_READ_ONLY: 'maybe' })).toThrow()
+		expect(() => createServerEnv({ ...REQUIRED_SOURCE, EMAIL_REQUIRE_VERIFICATION: 'maybe' })).toThrow()
+		expect(() => createServerEnv({ ...REQUIRED_SOURCE, SMTP_SECURE: 'maybe' })).toThrow()
+	})
 })
 
 describe('describeEnvSchemas', () => {
@@ -88,6 +128,18 @@ describe('describeEnvSchemas', () => {
 
 		const port = docs.find((d) => d.key === 'PORT')
 		expect(port?.defaultValue).toBe('3001')
+
+		const readOnly = docs.find((d) => d.key === 'HURIRO_READ_ONLY')
+		expect(readOnly?.defaultValue).toBe('false')
+		expect(readOnly?.required).toBe(false)
+
+		const emailVerify = docs.find((d) => d.key === 'EMAIL_REQUIRE_VERIFICATION')
+		expect(emailVerify?.defaultValue).toBe('false')
+		expect(emailVerify?.required).toBe(false)
+
+		const smtpSecure = docs.find((d) => d.key === 'SMTP_SECURE')
+		expect(smtpSecure?.defaultValue).toBeUndefined()
+		expect(smtpSecure?.required).toBe(false)
 	})
 
 	test('optional vars render no default', () => {

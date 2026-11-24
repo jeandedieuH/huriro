@@ -3,13 +3,13 @@ import type { EncodedAnchor } from '@huriro/editor'
 import { t } from '@huriro/i18n'
 import { useCollectionItems, useSyncEngine } from '@huriro/sync-client'
 import { FilePlus2 } from 'lucide-react'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { ErrorState } from '@/components/ui/error-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { navigateToDoc } from '@/lib/navigation'
+import { navigateToDestination, navigateToDoc } from '@/lib/navigation'
 import type { TaskApiBridge, WorkspaceMemberSummary } from '@/lib/sync-bootstrap'
 import { type DocSidePanel, useUiStore } from '@/stores/ui-store'
 import { CommentThreadPanel } from './comment-thread-panel'
@@ -76,29 +76,116 @@ export function DocsWorkspace({
 		return docPages.find((p) => p.slug === activeSlug && p.archivedAt === null) ?? null
 	}, [activeSlug, docPages])
 
+	const selectSlug = useCallback(
+		(slug: string) => {
+			if (onSelectSlug) onSelectSlug(slug)
+			else navigateToDoc(slug)
+		},
+		[onSelectSlug]
+	)
+
+	const loadSeqRef = useRef(0)
+	const createdSlugToIdRef = useRef<Map<string, string>>(new Map())
+	const seenLoadedPageIdRef = useRef<string | null>(null)
 	const loadPageDetail = useCallback(
 		async (slug: string) => {
+			const seq = ++loadSeqRef.current
 			setLoadingDetail(true)
 			setLoadError(null)
 			try {
-				const loaded = await api.getDocBySlug(slug)
+				let targetSlug = slug
+				// Wait for an optimistic create outbox flush before querying /by-slug so newly created pages don't 404.
+				const pendingIds = engine.getPendingMutationIds()
+				const pendingMatch = engine.collections.docPages.toArray.find(
+					(p) => p.slug === slug && p.archivedAt === null && pendingIds.has(p.id)
+				)
+				const mappedCreatedId = createdSlugToIdRef.current.get(slug)
+				if (pendingMatch && !isPreview && engine.getStatus().online) {
+					await engine.flushOutbox({ force: true })
+					if (seq !== loadSeqRef.current) return
+				}
+				const resolvedId = mappedCreatedId ?? pendingMatch?.id
+				if (resolvedId) {
+					const updated = engine.collections.docPages.get(resolvedId)
+					if (updated && updated.archivedAt === null && updated.slug !== slug) {
+						createdSlugToIdRef.current.delete(slug)
+						targetSlug = updated.slug
+						selectSlug(updated.slug)
+					}
+				}
+
+				let loaded: DocPageDetailDto
+				try {
+					loaded = await api.getDocBySlug(targetSlug)
+				} catch (err) {
+					const status = (err as { status?: number } | null)?.status
+					const localMatch = engine.collections.docPages.toArray.find(
+						(p) => p.slug === targetSlug && p.archivedAt === null
+					)
+					const isPendingCreate = localMatch ? engine.getPendingMutationIds().has(localMatch.id) : false
+					if (status === 404 && !isPreview && engine.getStatus().online && localMatch && !isPendingCreate) {
+						const synced = await engine.resyncSnapshot()
+						if (seq !== loadSeqRef.current) return
+						if (!synced) throw err
+						const refreshedById = engine.collections.docPages.get(localMatch.id)
+						if (refreshedById && refreshedById.archivedAt === null) {
+							if (refreshedById.slug !== targetSlug) {
+								selectSlug(refreshedById.slug)
+							}
+							loaded = await api.getDocBySlug(refreshedById.slug)
+						} else {
+							navigateToDestination('docs')
+							throw err
+						}
+					} else {
+						throw err
+					}
+				}
+
+				if (seq !== loadSeqRef.current) return
+				createdSlugToIdRef.current.delete(slug)
+				createdSlugToIdRef.current.delete(targetSlug)
 				setDetail(loaded)
 				setHeadings(loaded.headings)
 				setComments(loaded.comments)
 				const verList = await api.listDocVersions(loaded.page.id).catch(() => [])
+				if (seq !== loadSeqRef.current) return
 				setVersions(verList)
 			} catch (err) {
+				if (seq !== loadSeqRef.current) return
 				setDetail(null)
 				setLoadError(err instanceof Error ? err.message : 'Failed to load document')
 			} finally {
-				setLoadingDetail(false)
+				if (seq === loadSeqRef.current) {
+					setLoadingDetail(false)
+				}
 			}
 		},
-		[api]
+		[api, engine, isPreview, selectSlug]
 	)
 
 	useEffect(() => {
+		if (!detail) {
+			seenLoadedPageIdRef.current = null
+			return
+		}
+		const stillPresent = docPages.some((p) => p.id === detail.page.id && p.archivedAt === null)
+		if (stillPresent) {
+			seenLoadedPageIdRef.current = detail.page.id
+			return
+		}
+		if (seenLoadedPageIdRef.current === detail.page.id) {
+			seenLoadedPageIdRef.current = null
+			setDetail(null)
+			navigateToDestination('docs')
+		} else {
+			seenLoadedPageIdRef.current = null
+		}
+	}, [detail, docPages])
+
+	useEffect(() => {
 		if (!activeSlug) {
+			loadSeqRef.current += 1
 			setDetail(null)
 			setHeadings([])
 			setComments([])
@@ -108,14 +195,6 @@ export function DocsWorkspace({
 		}
 		void loadPageDetail(activeSlug)
 	}, [activeSlug, loadPageDetail])
-
-	const selectSlug = useCallback(
-		(slug: string) => {
-			if (onSelectSlug) onSelectSlug(slug)
-			else navigateToDoc(slug)
-		},
-		[onSelectSlug]
-	)
 
 	async function handleExportMarkdown() {
 		if (!detail) return
@@ -161,7 +240,10 @@ export function DocsWorkspace({
 								type="button"
 								size="sm"
 								tone="outline"
-								onClick={() => activeSlug && void loadPageDetail(activeSlug)}
+								onClick={() =>
+									activeSlug &&
+									void engine.flushOutbox({ force: true }).then(() => loadPageDetail(activeSlug))
+								}
 							>
 								{t('error.retry')}
 							</Button>
@@ -304,7 +386,10 @@ export function DocsWorkspace({
 			<CreateDocDialog
 				pages={docPages}
 				defaultParentId={detail?.page.id ?? null}
-				onCreated={(page) => selectSlug(page.slug)}
+				onCreated={(page) => {
+					createdSlugToIdRef.current.set(page.slug, page.id)
+					selectSlug(page.slug)
+				}}
 			/>
 			<DocShareDialog api={api} page={activePageSummary ?? detail?.page ?? null} members={members} />
 			<DocImportDialog api={api} onImported={() => void engine.syncNow()} />

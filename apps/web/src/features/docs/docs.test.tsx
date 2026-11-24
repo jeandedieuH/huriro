@@ -1,7 +1,14 @@
+import type { DocPageDto } from '@huriro/contracts'
 import { activateI18n } from '@huriro/i18n'
-import { SyncProvider } from '@huriro/sync-client'
+import {
+	generateUuidV7,
+	HuriroSyncEngine,
+	MemoryReplicaStorage,
+	SyncProvider,
+	type SyncTransport
+} from '@huriro/sync-client'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { createPreviewWorkspace } from '@/lib/sync-bootstrap'
 import { expectNoViolations } from '@/lib/test-setup'
@@ -208,6 +215,311 @@ describe('DocsWorkspace', () => {
 			})
 		} finally {
 			boot.engine.dispose()
+		}
+	})
+
+	it('resyncs snapshot and removes ghost page from sidebar on 404 when opening stale replica doc', async () => {
+		const previewBoot = await createPreviewWorkspace()
+		const wsId = generateUuidV7()
+		const userId = generateUuidV7()
+		const ghostId = generateUuidV7()
+		const nowIso = '2026-11-24T00:00:00Z'
+		const ghostDoc: DocPageDto = {
+			id: ghostId,
+			workspaceId: wsId,
+			parentId: null,
+			path: ghostId,
+			depth: 0,
+			slug: 'repro-doc',
+			title: 'Repro Doc',
+			icon: null,
+			visibility: 'workspace',
+			isTemplate: false,
+			isFavorite: false,
+			position: 'V',
+			createdBy: userId,
+			archivedAt: null,
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1,
+			byteSize: 0
+		}
+		let serverDocs: DocPageDto[] = [ghostDoc]
+		let snapshotCalls = 0
+
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				snapshotCalls += 1
+				return {
+					cursor: snapshotCalls,
+					serverTime: nowIso,
+					projects: [],
+					projectStatuses: [],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: serverDocs
+				}
+			},
+			async fetchChanges(since) {
+				return { changes: [], nextCursor: since, hasMore: false, serverTime: nowIso }
+			},
+			async sendBatch() {
+				return { cursor: snapshotCalls, results: [] }
+			}
+		}
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: wsId,
+			currentUserId: userId,
+			storage: new MemoryReplicaStorage(),
+			transport
+		})
+		await engine.bootstrap()
+		// Server no longer has ghostDoc, simulating stale local OPFS cache.
+		serverDocs = []
+
+		const liveApi = {
+			...previewBoot.api,
+			async listMembers() {
+				return []
+			},
+			async getDocBySlug(_slug: string) {
+				const err = new Error('Document page not found') as Error & { status?: number }
+				err.status = 404
+				throw err
+			}
+		}
+
+		const { unmount } = render(
+			<TooltipProvider>
+				<SyncProvider engine={engine}>
+					<div className="flex h-full">
+						<DocsSidebarNav activeSlug="repro-doc" />
+						<DocsWorkspace api={liveApi} currentUserId={userId} isPreview={false} activeSlug="repro-doc" />
+					</div>
+				</SyncProvider>
+			</TooltipProvider>
+		)
+
+		try {
+			expect(screen.getByText('Repro Doc')).toBeInTheDocument()
+			await waitFor(() => {
+				expect(snapshotCalls).toBe(2)
+				expect(screen.queryByText('Repro Doc')).not.toBeInTheDocument()
+			})
+		} finally {
+			unmount()
+			engine.dispose()
+			previewBoot.engine.dispose()
+		}
+	})
+
+	it('refreshes slug via resyncSnapshot and loads document when slug changed remotely', async () => {
+		const previewBoot = await createPreviewWorkspace()
+		const wsId = generateUuidV7()
+		const userId = generateUuidV7()
+		const docId = generateUuidV7()
+		const nowIso = '2026-11-24T00:00:00Z'
+		const initialDoc: DocPageDto = {
+			id: docId,
+			workspaceId: wsId,
+			parentId: null,
+			path: docId,
+			depth: 0,
+			slug: 'old-slug',
+			title: 'Renamed Doc',
+			icon: null,
+			visibility: 'workspace',
+			isTemplate: false,
+			isFavorite: false,
+			position: 'V',
+			createdBy: userId,
+			archivedAt: null,
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1,
+			byteSize: 0
+		}
+		const updatedDoc: DocPageDto = { ...initialDoc, slug: 'new-slug', version: 2 }
+		let serverDocs: DocPageDto[] = [initialDoc]
+
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				return {
+					cursor: 1,
+					serverTime: nowIso,
+					projects: [],
+					projectStatuses: [],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: serverDocs
+				}
+			},
+			async fetchChanges(since) {
+				return { changes: [], nextCursor: since, hasMore: false, serverTime: nowIso }
+			},
+			async sendBatch() {
+				return { cursor: 1, results: [] }
+			}
+		}
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: wsId,
+			currentUserId: userId,
+			storage: new MemoryReplicaStorage(),
+			transport
+		})
+		await engine.bootstrap()
+		serverDocs = [updatedDoc]
+
+		const onSelectSlug = vi.fn()
+		const liveApi = {
+			...previewBoot.api,
+			async listMembers() {
+				return []
+			},
+			async listDocVersions() {
+				return []
+			},
+			async getDocBySlug(slug: string) {
+				if (slug === 'new-slug') {
+					return {
+						page: updatedDoc,
+						stateBase64: '',
+						stateVectorBase64: '',
+						byteSize: 0,
+						plainText: '',
+						headings: [],
+						comments: [],
+						canWrite: true,
+						canShare: true
+					}
+				}
+				const err = new Error('Document page not found') as Error & { status?: number }
+				err.status = 404
+				throw err
+			}
+		}
+
+		const { unmount } = render(
+			<TooltipProvider>
+				<SyncProvider engine={engine}>
+					<DocsWorkspace
+						api={liveApi}
+						currentUserId={userId}
+						isPreview={false}
+						activeSlug="old-slug"
+						onSelectSlug={onSelectSlug}
+					/>
+				</SyncProvider>
+			</TooltipProvider>
+		)
+
+		try {
+			await waitFor(() => {
+				expect(onSelectSlug).toHaveBeenCalledWith('new-slug')
+				expect(screen.getByDisplayValue('Renamed Doc')).toBeInTheDocument()
+			})
+		} finally {
+			unmount()
+			engine.dispose()
+			previewBoot.engine.dispose()
+		}
+	})
+
+	it('archives ghost page via sidebar menu without resurrecting it on 404 not_found', async () => {
+		const wsId = generateUuidV7()
+		const userId = generateUuidV7()
+		const ghostId = generateUuidV7()
+		const nowIso = '2026-11-24T00:00:00Z'
+		const ghostDoc: DocPageDto = {
+			id: ghostId,
+			workspaceId: wsId,
+			parentId: null,
+			path: ghostId,
+			depth: 0,
+			slug: 'repro-doc',
+			title: 'Repro Doc',
+			icon: null,
+			visibility: 'workspace',
+			isTemplate: false,
+			isFavorite: false,
+			position: 'V',
+			createdBy: userId,
+			archivedAt: null,
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1,
+			byteSize: 0
+		}
+
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				return {
+					cursor: 1,
+					serverTime: nowIso,
+					projects: [],
+					projectStatuses: [],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: [ghostDoc]
+				}
+			},
+			async fetchChanges(since) {
+				return { changes: [], nextCursor: since, hasMore: false, serverTime: nowIso }
+			},
+			async sendBatch(mutations) {
+				return {
+					cursor: 2,
+					results: mutations.map((m) => ({
+						mutationId: m.mutationId,
+						status: 404,
+						outcome: 'not_found',
+						error: 'Document page not found'
+					}))
+				}
+			}
+		}
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: wsId,
+			currentUserId: userId,
+			storage: new MemoryReplicaStorage(),
+			transport
+		})
+		await engine.bootstrap()
+
+		const { unmount } = render(
+			<TooltipProvider>
+				<SyncProvider engine={engine}>
+					<DocsSidebarNav activeSlug={null} />
+				</SyncProvider>
+			</TooltipProvider>
+		)
+
+		try {
+			const actionsTrigger = screen.getByRole('button', { name: 'Repro Doc actions' })
+			fireEvent.keyDown(actionsTrigger, { key: 'Enter' })
+			const archiveItem = await screen.findByRole('menuitem', { name: 'Archive page' })
+			fireEvent.click(archiveItem)
+
+			await waitFor(() => {
+				expect(engine.getStatus().pendingCount).toBe(0)
+				expect(screen.queryByText('Repro Doc')).not.toBeInTheDocument()
+			})
+			expect(engine.collections.docPages.get(ghostId)).toBeUndefined()
+		} finally {
+			unmount()
+			engine.dispose()
 		}
 	})
 })

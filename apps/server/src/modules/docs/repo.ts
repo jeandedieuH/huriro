@@ -557,15 +557,22 @@ export async function archiveDocSubtreeRows(
 	tx: Queryable,
 	workspaceId: string,
 	rootPath: string
-): Promise<Array<{ readonly id: string; readonly title: string; readonly slug: string }>> {
-	return tx<Array<{ id: string; title: string; slug: string }>>`
+): Promise<
+	Array<{
+		readonly id: string
+		readonly title: string
+		readonly slug: string
+		readonly visibility: DocVisibility
+	}>
+> {
+	return tx<Array<{ id: string; title: string; slug: string; visibility: DocVisibility }>>`
 		UPDATE doc_pages
 		SET archived_at = now(),
 			version = version + 1
 		WHERE workspace_id = ${workspaceId}
 			AND (path = ${rootPath} OR path LIKE ${`${rootPath}/%`})
 			AND archived_at IS NULL
-		RETURNING id, title, slug
+		RETURNING id, title, slug, visibility
 	`
 }
 

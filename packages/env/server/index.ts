@@ -144,8 +144,9 @@ export const serverSchemas = {
 			'Transactional & notification sender address, e.g. "Huriro <noreply@example.com>" (falls back to SMTP_FROM)'
 		),
 	EMAIL_REPLY_TO: z.string().optional().describe('Optional default Reply-To address for outgoing emails'),
-	EMAIL_REQUIRE_VERIFICATION: z.coerce
-		.boolean()
+	// z.stringbool() parses 'false'/'0' as false (z.coerce.boolean uses Boolean('false') === true).
+	EMAIL_REQUIRE_VERIFICATION: z
+		.stringbool()
 		.default(false)
 		.describe('Require verified email before credential sign-in when an email provider is configured'),
 	RESEND_API_KEY: z
@@ -164,10 +165,7 @@ export const serverSchemas = {
 		.max(65535)
 		.optional()
 		.describe('SMTP server port (defaults to 465 when SMTP_SECURE=true, else 587)'),
-	SMTP_SECURE: z.coerce
-		.boolean()
-		.optional()
-		.describe('Use implicit TLS (SMTPS) for SMTP connections when true'),
+	SMTP_SECURE: z.stringbool().optional().describe('Use implicit TLS (SMTPS) for SMTP connections when true'),
 	SMTP_USER: z
 		.string()
 		.optional()
@@ -277,8 +275,9 @@ export const serverSchemas = {
 		.describe('Per-credential read result bytes per rolling hour'),
 
 	// ---- M6: mobile push, Valkey HA, hardening & cloud billing (§18–§22) ----
-	HURIRO_READ_ONLY: z.coerce
-		.boolean()
+	// z.stringbool() parses 'false'/'0' as false (z.coerce.boolean uses Boolean('false') === true).
+	HURIRO_READ_ONLY: z
+		.stringbool()
 		.default(false)
 		.describe('Global read-only maintenance mode (writes return 503, reads keep serving, §20.3)'),
 	VALKEY_URL: z

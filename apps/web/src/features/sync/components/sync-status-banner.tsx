@@ -55,6 +55,17 @@ export function SyncStatusBanner() {
 				</span>
 			) : null}
 
+			{status.lastError ? (
+				<span
+					role="status"
+					title={status.lastError}
+					className="inline-flex max-w-md items-center gap-1.5 truncate text-destructive"
+				>
+					<AlertTriangle className="size-3.5 shrink-0" aria-hidden />
+					<span className="truncate">{status.lastError}</span>
+				</span>
+			) : null}
+
 			{status.storageMode === 'memory' ? (
 				<span className="text-muted-foreground">{t('sync.memory-fallback')}</span>
 			) : null}
@@ -79,7 +90,7 @@ export function SyncStatusBanner() {
 					size="sm"
 					tone="ghost"
 					className="ml-auto h-6 px-2 text-xs"
-					onClick={() => void engine.flushOutbox().then(() => engine.syncNow())}
+					onClick={() => void engine.flushOutbox({ force: true }).then(() => engine.syncNow())}
 				>
 					{t('sync.sync-now')}
 				</Button>

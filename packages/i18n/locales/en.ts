@@ -140,6 +140,7 @@ export const en = {
 	'tasks.project.visibility': 'Visibility',
 	'tasks.project.visibility-workspace': 'Workspace',
 	'tasks.project.visibility-private': 'Private',
+	'tasks.project.key-hint': '2–10 uppercase letters or numbers, starting with a letter.',
 	'tasks.project.submit': 'Create project',
 	// sync & offline
 	'sync.online': 'Synced',
@@ -149,6 +150,7 @@ export const en = {
 	'sync.memory-fallback': 'Persistent storage unavailable — using memory cache',
 	'sync.sync-now': 'Sync now',
 	'sync.resolve': 'Resolve',
+	'sync.mutation-rejected': 'Change could not be saved',
 	'sync.revoked': 'Access to this workspace was revoked. Local data has been cleared.',
 	'sync.conflict.title': 'Resolve sync conflict',
 	'sync.conflict.subtitle': 'This record changed on the server while you were offline.',

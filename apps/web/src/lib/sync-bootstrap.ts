@@ -51,6 +51,7 @@ import type {
 	WebPushSubscriptionDto,
 	WorkspaceExportDto
 } from '@huriro/contracts'
+import { t } from '@huriro/i18n'
 import { generateUuidV7, HttpSyncTransport, HuriroSyncEngine, type ReplicaStorage } from '@huriro/sync-client'
 import { useUiStore } from '@/stores/ui-store'
 import type {
@@ -122,9 +123,12 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 			) {
 				useUiStore.getState().setServerReadOnly(true)
 			}
-			throw new Error(
+			const err = new Error(
 				problemBody?.detail ?? problemBody?.title ?? `Request to ${path} failed (${res.status})`
-			)
+			) as Error & { status?: number; code?: string }
+			err.status = res.status
+			if (problemBody?.code) err.code = problemBody.code
+			throw err
 		}
 		return res.data as T
 	}
@@ -891,13 +895,20 @@ export async function bootstrapWorkspace(opts?: {
 
 			const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
 			const wsUrl = env.VITE_WS_URL ?? `${proto}//${window.location.host}/ws`
-			const transport = new HttpSyncTransport({ workspaceId: workspace.id })
+			const transport = new HttpSyncTransport({ baseUrl: API_BASE, workspaceId: workspace.id })
 			const engine = new HuriroSyncEngine({
 				workspaceId: workspace.id,
 				currentUserId: userId,
 				transport,
 				wsUrl,
 				useRealtimeTicket: true,
+				onMutationRejected: (error) => {
+					useUiStore.getState().pushToast({
+						tone: 'danger',
+						title: t('sync.mutation-rejected'),
+						description: error
+					})
+				},
 				onChatSignal: opts?.onChatSignal,
 				onPresence: opts?.onPresence,
 				onTyping: opts?.onTyping

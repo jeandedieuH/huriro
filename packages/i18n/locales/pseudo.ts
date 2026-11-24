@@ -132,6 +132,8 @@ export const pseudo = {
 	'tasks.project.visibility': '⟪Víísííbíílíítýý⟫ ~~~~',
 	'tasks.project.visibility-workspace': '⟪Wóórkspààcéé⟫ ~~~',
 	'tasks.project.visibility-private': '⟪Príívààtéé⟫ ~~',
+	'tasks.project.key-hint':
+		'⟪2–10 úúppéércààséé lééttéérs óór núúmbéérs, stààrtííng wííth àà lééttéér.⟫ ~~~~~~~~~~~~~~~~~~~~',
 	'tasks.project.submit': '⟪Crééààtéé próójééct⟫ ~~~~~',
 	'sync.online': '⟪Sýýncééd⟫ ~~',
 	'sync.syncing': '⟪Sýýncííng…⟫ ~~~',
@@ -141,6 +143,7 @@ export const pseudo = {
 		'⟪Péérsíístéént stóórààgéé úúnààvààíílààbléé — úúsííng méémóórýý cààchéé⟫ ~~~~~~~~~~~~~~~~~~',
 	'sync.sync-now': '⟪Sýýnc nóów⟫ ~~~',
 	'sync.resolve': '⟪Réésóólvéé⟫ ~~',
+	'sync.mutation-rejected': '⟪Chààngéé cóóúúld nóót béé sààvééd⟫ ~~~~~~~~~',
 	'sync.revoked':
 		'⟪Ààccééss tóó thíís wóórkspààcéé wààs réévóókééd. Lóócààl dààtàà hààs béééén clééààrééd.⟫ ~~~~~~~~~~~~~~~~~~~~~~~',
 	'sync.conflict.title': '⟪Réésóólvéé sýýnc cóónflííct⟫ ~~~~~~~',

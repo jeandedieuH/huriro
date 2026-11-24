@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import type {
+import {
 	CreateDocPageBody,
 	CreateIssueBody,
 	CreateIssueCommentBody,
@@ -7,30 +7,32 @@ import type {
 	CreateSavedViewBody,
 	MoveDocPageBody,
 	MoveIssueBody,
-	MutationEnvelope,
-	MutationResultDto,
-	MutationsBatchResponse,
-	RealtimeTicketResponse,
-	SyncChangeDto,
-	SyncChangesQuery,
-	SyncChangesResponse,
-	SyncSnapshotQuery,
-	SyncSnapshotResponse,
+	type MutationEnvelope,
+	type MutationResultDto,
+	type MutationsBatchResponse,
+	type RealtimeTicketResponse,
+	type SyncChangeDto,
+	type SyncChangesQuery,
+	type SyncChangesResponse,
+	type SyncSnapshotQuery,
+	type SyncSnapshotResponse,
 	UpdateDocPageBody,
 	UpdateIssueBody,
 	UpdateIssueCommentBody,
 	UpdateProjectBody,
 	UpdateSavedViewBody
 } from '@huriro/contracts'
-import type { Queryable } from '@huriro/db'
+import { isUuid, type Queryable } from '@huriro/db'
 import type { ActorContext } from '@huriro/domain'
+import type { TSchema } from 'typebox'
+import { Value } from 'typebox/value'
 import { withIdempotency } from '../../api/context'
 import { HttpError } from '../../api/error'
 import {
 	createDocPage,
 	deleteDocPage,
 	getDocsSnapshotData,
-	listAccessibleDocPageIds,
+	listAccessibleDocPages,
 	moveDocPage,
 	updateDocPage
 } from '../docs'
@@ -77,7 +79,8 @@ function filterRowForActor(
 	row: RawChangeLogRow,
 	actor: ActorContext,
 	accessibleProjects: ReadonlySet<string>,
-	accessibleDocPages: ReadonlySet<string>
+	accessibleDocPages: ReadonlySet<string>,
+	accessibleArchivedDocPages: ReadonlySet<string>
 ): SyncChangeDto | null {
 	if (row.entityType === 'notification') {
 		if (!row.scope.includes(`user:${actor.principalId}`)) return null
@@ -154,6 +157,24 @@ function filterRowForActor(
 			}
 		}
 
+		if (row.action === 'delete') {
+			const canSeeArchived =
+				pageId !== null && (accessibleDocPages.has(pageId) || accessibleArchivedDocPages.has(pageId))
+			const isWorkspaceVisibleDelete = actor.roleKey !== 'guest' && row.scope.includes('visibility:workspace')
+			if (!canSeeArchived && !isWorkspaceVisibleDelete) {
+				return null
+			}
+			return {
+				cursor: row.cursor,
+				entity: row.entityType,
+				id: row.entityId,
+				action: 'delete',
+				scope: row.scope,
+				data: null,
+				changedAt: row.changedAt
+			}
+		}
+
 		if (pageId && accessibleDocPages.has(pageId)) {
 			return {
 				cursor: row.cursor,
@@ -161,13 +182,13 @@ function filterRowForActor(
 				id: row.entityId,
 				action: row.action,
 				scope: row.scope,
-				data: row.action === 'delete' ? null : row.payload,
+				data: row.payload,
 				changedAt: row.changedAt
 			}
 		}
 
 		// Visibility tightened from workspace -> private: emit delete tombstone so unauthorized peers purge (§9.3).
-		if (row.action !== 'delete' && row.payload && row.payload['previousVisibility'] === 'workspace') {
+		if (row.payload && row.payload['previousVisibility'] === 'workspace') {
 			return {
 				cursor: row.cursor,
 				entity: row.entityType,
@@ -297,13 +318,25 @@ export async function getSyncChanges(
 	const { rows, hasMore } = await readChangeLogAfter(tx, actor.workspaceId, since, limit)
 	const nextCursor = rows.length > 0 ? rows[rows.length - 1]!.cursor : Math.max(since, lastCursor)
 
-	const [accessibleProjects, accessibleDocPages] = await Promise.all([
+	const [accessibleProjects, accessibleDocs] = await Promise.all([
 		listAccessibleProjectIds(tx, actor),
-		listAccessibleDocPageIds(tx, actor)
+		listAccessibleDocPages(tx, actor, { includeArchived: true, includeTemplates: true })
 	])
+	const accessibleDocPages = new Set<string>()
+	const accessibleArchivedDocPages = new Set<string>()
+	for (const doc of accessibleDocs) {
+		if (doc.archivedAt === null) accessibleDocPages.add(doc.id)
+		else accessibleArchivedDocPages.add(doc.id)
+	}
 	const filtered: SyncChangeDto[] = []
 	for (const row of rows) {
-		const mapped = filterRowForActor(row, actor, accessibleProjects, accessibleDocPages)
+		const mapped = filterRowForActor(
+			row,
+			actor,
+			accessibleProjects,
+			accessibleDocPages,
+			accessibleArchivedDocPages
+		)
 		if (mapped) filtered.push(mapped)
 	}
 
@@ -365,6 +398,21 @@ export async function getSyncSnapshot(
 	}
 }
 
+const PG_UNIQUE_VIOLATION = '23505'
+const PG_VALIDATION_CODES = new Set(['23514', '23502', '22P02'])
+const PG_FK_VIOLATION = '23503'
+
+function validateMutationPayload<T>(schema: TSchema, payload: unknown, label: string): T {
+	if (Value.Check(schema, payload)) {
+		return payload as T
+	}
+	// TypeBox 1.x yields { instancePath, message } — format without leaking internals.
+	const [firstError] = Value.Errors(schema, payload)
+	const field = firstError?.instancePath || '/'
+	const detail = firstError ? `${field} ${firstError.message}` : 'invalid payload'
+	throw new HttpError(422, 'validation_failed', `Invalid ${label}: ${detail}`)
+}
+
 async function runSingleMutation(
 	tx: Queryable,
 	actor: ActorContext,
@@ -374,26 +422,28 @@ async function runSingleMutation(
 
 	if (m.entity === 'issue') {
 		if (m.op === 'create') {
-			const res = await createIssue(tx, actor, {
-				...(patch as Omit<CreateIssueBody, 'id'>),
-				id: m.entityId
-			})
+			const input = validateMutationPayload<CreateIssueBody>(
+				CreateIssueBody,
+				{ ...patch, id: m.entityId },
+				'issue.create'
+			)
+			const res = await createIssue(tx, actor, input)
 			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
 		}
 		if (m.op === 'update') {
 			const version = m.baseVersion ?? Number(patch['version'] ?? 1)
-			const res = await updateIssue(tx, actor, m.entityId, {
-				...(patch as Omit<UpdateIssueBody, 'version'>),
-				version
-			})
+			const input = validateMutationPayload<UpdateIssueBody>(
+				UpdateIssueBody,
+				{ ...patch, version },
+				'issue.update'
+			)
+			const res = await updateIssue(tx, actor, m.entityId, input)
 			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
 		}
 		if (m.op === 'move') {
 			const version = m.baseVersion ?? Number(patch['version'] ?? 1)
-			const res = await moveIssue(tx, actor, m.entityId, {
-				...(patch as Omit<MoveIssueBody, 'version'>),
-				version
-			})
+			const input = validateMutationPayload<MoveIssueBody>(MoveIssueBody, { ...patch, version }, 'issue.move')
+			const res = await moveIssue(tx, actor, m.entityId, input)
 			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
 		}
 		if (m.op === 'delete') {
@@ -404,56 +454,71 @@ async function runSingleMutation(
 
 	if (m.entity === 'project') {
 		if (m.op === 'create') {
-			const res = await createProject(tx, actor, {
-				...(patch as Omit<CreateProjectBody, 'id'>),
-				id: m.entityId
-			})
+			const input = validateMutationPayload<CreateProjectBody>(
+				CreateProjectBody,
+				{ ...patch, id: m.entityId },
+				'project.create'
+			)
+			const res = await createProject(tx, actor, input)
 			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
 		}
 		if (m.op === 'update') {
 			const version = m.baseVersion ?? Number(patch['version'] ?? 1)
-			const res = await updateProject(tx, actor, m.entityId, {
-				...(patch as Omit<UpdateProjectBody, 'version'>),
-				version
-			})
+			const input = validateMutationPayload<UpdateProjectBody>(
+				UpdateProjectBody,
+				{ ...patch, version },
+				'project.update'
+			)
+			const res = await updateProject(tx, actor, m.entityId, input)
 			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
 		}
 	}
 
 	if (m.entity === 'issue_comment') {
+		const rawIssueId = typeof patch['issueId'] === 'string' ? patch['issueId'] : ''
+		if (!isUuid(rawIssueId)) {
+			throw new HttpError(422, 'validation_failed', 'Invalid issue_comment: missing or invalid issueId')
+		}
+		const { issueId: _ignoredIssueId, ...commentPatch } = patch
 		if (m.op === 'create') {
-			const issueId = String(patch['issueId'] ?? '')
-			const res = await createIssueComment(tx, actor, issueId, {
-				...(patch as Omit<CreateIssueCommentBody, 'id'>),
-				id: m.entityId
-			})
+			const input = validateMutationPayload<CreateIssueCommentBody>(
+				CreateIssueCommentBody,
+				{ ...commentPatch, id: m.entityId },
+				'issue_comment.create'
+			)
+			const res = await createIssueComment(tx, actor, rawIssueId, input)
 			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
 		}
 		if (m.op === 'update') {
-			const issueId = String(patch['issueId'] ?? '')
 			const version = m.baseVersion ?? Number(patch['version'] ?? 1)
-			const res = await updateIssueComment(tx, actor, issueId, m.entityId, {
-				...(patch as Omit<UpdateIssueCommentBody, 'version'>),
-				version
-			})
+			const input = validateMutationPayload<UpdateIssueCommentBody>(
+				UpdateIssueCommentBody,
+				{ ...commentPatch, version },
+				'issue_comment.update'
+			)
+			const res = await updateIssueComment(tx, actor, rawIssueId, m.entityId, input)
 			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
 		}
 	}
 
 	if (m.entity === 'saved_view') {
 		if (m.op === 'create') {
-			const res = await createSavedView(tx, actor, {
-				...(patch as Omit<CreateSavedViewBody, 'id'>),
-				id: m.entityId
-			})
+			const input = validateMutationPayload<CreateSavedViewBody>(
+				CreateSavedViewBody,
+				{ ...patch, id: m.entityId },
+				'saved_view.create'
+			)
+			const res = await createSavedView(tx, actor, input)
 			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
 		}
 		if (m.op === 'update') {
 			const version = m.baseVersion ?? Number(patch['version'] ?? 1)
-			const res = await updateSavedView(tx, actor, m.entityId, {
-				...(patch as Omit<UpdateSavedViewBody, 'version'>),
-				version
-			})
+			const input = validateMutationPayload<UpdateSavedViewBody>(
+				UpdateSavedViewBody,
+				{ ...patch, version },
+				'saved_view.update'
+			)
+			const res = await updateSavedView(tx, actor, m.entityId, input)
 			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
 		}
 	}
@@ -465,26 +530,32 @@ async function runSingleMutation(
 
 	if (m.entity === 'doc_page') {
 		if (m.op === 'create') {
-			const res = await createDocPage(tx, actor, {
-				...(patch as Omit<CreateDocPageBody, 'id'>),
-				id: m.entityId
-			})
+			const input = validateMutationPayload<CreateDocPageBody>(
+				CreateDocPageBody,
+				{ ...patch, id: m.entityId },
+				'doc_page.create'
+			)
+			const res = await createDocPage(tx, actor, input)
 			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
 		}
 		if (m.op === 'update') {
 			const version = m.baseVersion ?? Number(patch['version'] ?? 1)
-			const res = await updateDocPage(tx, actor, m.entityId, {
-				...(patch as Omit<UpdateDocPageBody, 'version'>),
-				version
-			})
+			const input = validateMutationPayload<UpdateDocPageBody>(
+				UpdateDocPageBody,
+				{ ...patch, version },
+				'doc_page.update'
+			)
+			const res = await updateDocPage(tx, actor, m.entityId, input)
 			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
 		}
 		if (m.op === 'move') {
 			const version = m.baseVersion ?? Number(patch['version'] ?? 1)
-			const res = await moveDocPage(tx, actor, m.entityId, {
-				...(patch as Omit<MoveDocPageBody, 'version'>),
-				version
-			})
+			const input = validateMutationPayload<MoveDocPageBody>(
+				MoveDocPageBody,
+				{ ...patch, version },
+				'doc_page.move'
+			)
+			const res = await moveDocPage(tx, actor, m.entityId, input)
 			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
 		}
 		if (m.op === 'delete') {
@@ -523,6 +594,35 @@ function mapMutationError(mutationId: string, err: unknown): MutationResultDto {
 		}
 		return { mutationId, status: err.status, outcome: 'validation_failed', error: err.message }
 	}
+	// Map constraint / input PostgresErrors to per-item rejections instead of poisoning the whole batch with 500.
+	const pgCode =
+		typeof err === 'object' && err !== null && 'code' in err ? (err as { code?: unknown }).code : undefined
+	if (typeof pgCode === 'string') {
+		if (pgCode === PG_UNIQUE_VIOLATION) {
+			return {
+				mutationId,
+				status: 409,
+				outcome: 'validation_failed',
+				error: 'A record with this unique value already exists'
+			}
+		}
+		if (PG_VALIDATION_CODES.has(pgCode)) {
+			return {
+				mutationId,
+				status: 422,
+				outcome: 'validation_failed',
+				error: 'Mutation payload failed validation'
+			}
+		}
+		if (pgCode === PG_FK_VIOLATION) {
+			return {
+				mutationId,
+				status: 404,
+				outcome: 'not_found',
+				error: 'Referenced record was not found'
+			}
+		}
+	}
 	throw err
 }
 
@@ -548,19 +648,19 @@ export async function applyMutationsBatch(
 			continue
 		}
 
-		// Isolate each mutation inside a savepoint so a 409/422 doesn't abort earlier writes in the batch.
-		const spName = `sp_mut_${i}`
-		await tx.unsafe(`SAVEPOINT ${spName}`)
+		// Use postgres.js nested tx.begin() (SAVEPOINT) so an error inside one mutation
+		// stays in the savepoint's uncaught scope instead of aborting the outer batch transaction.
 		try {
-			const res = await withIdempotency(tx, {
-				workspaceId: actor.workspaceId,
-				key: `mut:${m.mutationId}`,
-				endpoint: 'POST /api/v1/mutations',
-				requestBody: { entity: m.entity, entityId: m.entityId, op: m.op, patch: m.patch },
-				successStatus: 200,
-				execute: async () => runSingleMutation(tx, actor, m)
-			})
-			await tx.unsafe(`RELEASE SAVEPOINT ${spName}`)
+			const res = await tx.begin((sp) =>
+				withIdempotency(sp, {
+					workspaceId: actor.workspaceId,
+					key: `mut:${m.mutationId}`,
+					endpoint: 'POST /api/v1/mutations',
+					requestBody: { entity: m.entity, entityId: m.entityId, op: m.op, patch: m.patch },
+					successStatus: 200,
+					execute: async () => runSingleMutation(sp, actor, m)
+				})
+			)
 			if (!res.replayed && res.body.cursor > 0) {
 				maxCursor = maxCursor === null ? res.body.cursor : Math.max(maxCursor, res.body.cursor)
 			}
@@ -571,7 +671,6 @@ export async function applyMutationsBatch(
 				data: res.body.data
 			})
 		} catch (err) {
-			await tx.unsafe(`ROLLBACK TO SAVEPOINT ${spName}`).catch(() => {})
 			results.push(mapMutationError(m.mutationId, err))
 		}
 	}

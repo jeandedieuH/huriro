@@ -14,6 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { useUiStore } from '@/stores/ui-store'
 
+const PROJECT_KEY_RE = /^[A-Z][A-Z0-9]{1,9}$/
+
 export interface CreateProjectDialogProps {
 	readonly onSubmit: (input: {
 		key: string
@@ -26,17 +28,23 @@ export interface CreateProjectDialogProps {
 export function CreateProjectDialog({ onSubmit }: CreateProjectDialogProps) {
 	const open = useUiStore((s) => s.createProjectOpen)
 	const setOpen = useUiStore((s) => s.setCreateProjectOpen)
+	const pushToast = useUiStore((s) => s.pushToast)
 
 	const [key, setKey] = useState('')
 	const [name, setName] = useState('')
 	const [visibility, setVisibility] = useState<'workspace' | 'private'>('workspace')
 	const [description, setDescription] = useState('')
 	const [submitting, setSubmitting] = useState(false)
+	const [keyTouched, setKeyTouched] = useState(false)
+
+	const cleanKey = key.trim().toUpperCase()
+	const isKeyValid = PROJECT_KEY_RE.test(cleanKey)
+	const showKeyError = (keyTouched || cleanKey.length > 0) && cleanKey.length > 0 && !isKeyValid
 
 	async function handleSubmit(ev: React.FormEvent) {
 		ev.preventDefault()
-		const cleanKey = key.trim().toUpperCase()
-		if (!cleanKey || !name.trim() || submitting) return
+		setKeyTouched(true)
+		if (!isKeyValid || !name.trim() || submitting) return
 		setSubmitting(true)
 		try {
 			await onSubmit({
@@ -46,10 +54,16 @@ export function CreateProjectDialog({ onSubmit }: CreateProjectDialogProps) {
 				description: description.trim()
 			})
 			setKey('')
+			setKeyTouched(false)
 			setName('')
 			setDescription('')
 			setVisibility('workspace')
 			setOpen(false)
+		} catch (err) {
+			pushToast({
+				tone: 'danger',
+				title: err instanceof Error ? err.message : t('error.title')
+			})
 		} finally {
 			setSubmitting(false)
 		}
@@ -75,8 +89,12 @@ export function CreateProjectDialog({ onSubmit }: CreateProjectDialogProps) {
 								id="create-proj-key"
 								value={key}
 								onChange={(ev) => setKey(ev.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+								onBlur={() => setKeyTouched(true)}
 								placeholder={t('tasks.project.key-placeholder')}
-								maxLength={12}
+								minLength={2}
+								maxLength={10}
+								pattern="^[A-Z][A-Z0-9]{1,9}$"
+								aria-invalid={showKeyError}
 								required
 							/>
 						</div>
@@ -93,6 +111,9 @@ export function CreateProjectDialog({ onSubmit }: CreateProjectDialogProps) {
 							/>
 						</div>
 					</div>
+					<p className={showKeyError ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
+						{t('tasks.project.key-hint')}
+					</p>
 
 					<div className="space-y-1">
 						<span className="text-xs font-medium">{t('tasks.project.visibility')}</span>
@@ -123,7 +144,7 @@ export function CreateProjectDialog({ onSubmit }: CreateProjectDialogProps) {
 						<Button type="button" tone="outline" onClick={() => setOpen(false)}>
 							{t('common.cancel')}
 						</Button>
-						<Button type="submit" disabled={!key.trim() || !name.trim()} loading={submitting}>
+						<Button type="submit" disabled={!isKeyValid || !name.trim()} loading={submitting}>
 							{t('tasks.project.submit')}
 						</Button>
 					</DialogFooter>

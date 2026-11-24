@@ -361,4 +361,118 @@ describe('M1 sync & realtime integration (PostgreSQL 18 + FORCE RLS)', () => {
 			await pubsub.close()
 		}
 	})
+
+	test('isolates invalid mutation payload without 500 or poisoning valid mutations in the same batch', async () => {
+		if (!db) return
+		const fixture = await seedM1Fixture(db.owner)
+		const { app, pubsub } = createIntegrationServer(db)
+		try {
+			const invalidProjId = uuid7()
+			const validProjId = uuid7()
+			const validDocId = uuid7()
+
+			// Batch starts with an invalid 1-char project key ('A') followed by valid project + doc creates.
+			const batchRes = await apiRequest(app, {
+				method: 'POST',
+				path: '/api/v1/mutations',
+				workspaceId: fixture.workspaceId,
+				userId: fixture.ownerId,
+				body: {
+					mutations: [
+						{
+							mutationId: randomUUID(),
+							workspaceId: fixture.workspaceId,
+							entity: 'project',
+							entityId: invalidProjId,
+							op: 'create',
+							patch: { key: 'A', name: 'Bad Key Proj', visibility: 'workspace', position: 'V' }
+						},
+						{
+							mutationId: randomUUID(),
+							workspaceId: fixture.workspaceId,
+							entity: 'project',
+							entityId: validProjId,
+							op: 'create',
+							patch: { key: 'GOOD', name: 'Good Key Proj', visibility: 'workspace', position: 'V' }
+						},
+						{
+							mutationId: randomUUID(),
+							workspaceId: fixture.workspaceId,
+							entity: 'doc_page',
+							entityId: validDocId,
+							op: 'create',
+							patch: { parentId: null, title: 'Batch Valid Doc', visibility: 'workspace', position: 'V' }
+						}
+					]
+				}
+			})
+
+			expect(batchRes.status).toBe(200)
+			const results = batchRes.json['results'] as {
+				mutationId: string
+				status: number
+				outcome: string
+				error?: string
+			}[]
+			expect(results).toHaveLength(3)
+			expect(results[0]?.outcome).toBe('validation_failed')
+			expect(results[0]?.status).toBe(422)
+			expect(results[1]?.outcome).toBe('applied')
+			expect(results[1]?.status).toBe(200)
+			expect(results[2]?.outcome).toBe('applied')
+			expect(results[2]?.status).toBe(200)
+
+			// Verify a duplicate project key in a later batch also isolates via savepoint without failing the doc.
+			const dupProjId = uuid7()
+			const secondDocId = uuid7()
+			const dupBatchRes = await apiRequest(app, {
+				method: 'POST',
+				path: '/api/v1/mutations',
+				workspaceId: fixture.workspaceId,
+				userId: fixture.ownerId,
+				body: {
+					mutations: [
+						{
+							mutationId: randomUUID(),
+							workspaceId: fixture.workspaceId,
+							entity: 'project',
+							entityId: dupProjId,
+							op: 'create',
+							patch: { key: 'GOOD', name: 'Duplicate Key Proj', visibility: 'workspace', position: 'V0' }
+						},
+						{
+							mutationId: randomUUID(),
+							workspaceId: fixture.workspaceId,
+							entity: 'doc_page',
+							entityId: secondDocId,
+							op: 'create',
+							patch: { parentId: null, title: 'Batch Valid Doc', visibility: 'workspace', position: 'W' }
+						}
+					]
+				}
+			})
+			expect(dupBatchRes.status).toBe(200)
+			const dupResults = dupBatchRes.json['results'] as { status: number; outcome: string }[]
+			expect(dupResults[0]?.outcome).toBe('validation_failed')
+			expect(dupResults[0]?.status).toBe(409)
+			expect(dupResults[1]?.outcome).toBe('applied')
+			expect(dupResults[1]?.status).toBe(200)
+
+			// Snapshot confirms valid project + both deduplicated docs committed atomically.
+			const snapRes = await apiRequest(app, {
+				path: '/api/v1/sync/snapshot',
+				workspaceId: fixture.workspaceId,
+				userId: fixture.ownerId
+			})
+			expect(snapRes.status).toBe(200)
+			const projects = snapRes.json['projects'] as { id: string; key: string }[]
+			const docPages = snapRes.json['docPages'] as { id: string; slug: string }[]
+			expect(projects.some((p) => p.id === invalidProjId)).toBe(false)
+			expect(projects.some((p) => p.id === validProjId && p.key === 'GOOD')).toBe(true)
+			expect(docPages.some((d) => d.id === validDocId && d.slug === 'batch-valid-doc')).toBe(true)
+			expect(docPages.some((d) => d.id === secondDocId && d.slug === 'batch-valid-doc-2')).toBe(true)
+		} finally {
+			await pubsub.close()
+		}
+	})
 })

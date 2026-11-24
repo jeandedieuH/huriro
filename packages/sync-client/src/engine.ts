@@ -13,6 +13,7 @@ import type {
 	MutationEnvelope,
 	MutationResultDto,
 	MutationsBatchResponse,
+	NotificationDto,
 	ProjectDto,
 	SavedViewDto,
 	SyncChangesResponse,
@@ -24,6 +25,7 @@ import { generateKeyBetween } from '@huriro/domain'
 import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
 import { HuriroSyncCollections, type PersistedReplicaState } from './collections'
 import {
+	type FlushOptions,
 	generateUuidV7,
 	HuriroMutationOutbox,
 	type MutationTransport,
@@ -45,6 +47,21 @@ export interface SyncTransport extends MutationTransport {
 	fetchChanges(since: number, limit: number, clientId: string): Promise<SyncChangesResponse>
 	fetchSnapshot(scope?: string): Promise<SyncSnapshotResponse>
 	fetchRealtimeTicket?(deviceId: string): Promise<{ ticket: string }>
+}
+
+function formatHttpError(label: string, status: number, data: unknown): Error & { status?: number } {
+	const body = data && typeof data === 'object' ? (data as { detail?: unknown; title?: unknown }) : null
+	const detail =
+		typeof body?.detail === 'string' && body.detail.trim().length > 0
+			? body.detail.trim()
+			: typeof body?.title === 'string' && body.title.trim().length > 0
+				? body.title.trim()
+				: null
+	const err = new Error(detail ? `${detail} (${status})` : `${label} (${status})`) as Error & {
+		status?: number
+	}
+	err.status = status
+	return err
 }
 
 export class HttpSyncTransport implements SyncTransport {
@@ -98,9 +115,7 @@ export class HttpSyncTransport implements SyncTransport {
 			throw err
 		}
 		if (res.status >= 300) {
-			const err = new Error(`sync/changes failed (${res.status})`) as Error & { status?: number }
-			err.status = res.status
-			throw err
+			throw formatHttpError('sync/changes failed', res.status, res.data)
 		}
 		return res.data as SyncChangesResponse
 	}
@@ -111,9 +126,7 @@ export class HttpSyncTransport implements SyncTransport {
 			headers: this.buildHeaders()
 		})
 		if (res.status >= 300) {
-			const err = new Error(`sync/snapshot failed (${res.status})`) as Error & { status?: number }
-			err.status = res.status
-			throw err
+			throw formatHttpError('sync/snapshot failed', res.status, res.data)
 		}
 		return res.data as SyncSnapshotResponse
 	}
@@ -128,9 +141,7 @@ export class HttpSyncTransport implements SyncTransport {
 			}
 		)
 		if (res.status >= 300) {
-			const err = new Error(`mutations failed (${res.status})`) as Error & { status?: number }
-			err.status = res.status
-			throw err
+			throw formatHttpError('mutations failed', res.status, res.data)
 		}
 		return res.data as MutationsBatchResponse
 	}
@@ -141,7 +152,7 @@ export class HttpSyncTransport implements SyncTransport {
 			{ deviceId },
 			{ headers: this.buildHeaders() }
 		)
-		if (res.status >= 300) throw new Error(`ticket failed (${res.status})`)
+		if (res.status >= 300) throw formatHttpError('ticket failed', res.status, res.data)
 		return res.data as { ticket: string }
 	}
 }
@@ -204,9 +215,13 @@ export class HuriroSyncEngine {
 	private wsConnected = false
 	private syncing = false
 	private lastError: string | null = null
+	private lastFlushError: string | null = null
+	private lastSyncError: string | null = null
 	private revokedReason: string | null = null
 	private disposed = false
 	private syncPromise: Promise<void> | null = null
+	private snapshotResyncPromise: Promise<boolean> | null = null
+	private retryTimer: ReturnType<typeof setTimeout> | null = null
 	private listeners = new Set<() => void>()
 	private cachedStatus: SyncEngineStatus | null = null
 	private onlineHandler: (() => void) | null = null
@@ -327,15 +342,17 @@ export class HuriroSyncEngine {
 
 		if (opts?.skipNetwork || !this.transport) return
 
-		const fetchTicket = this.transport.fetchRealtimeTicket
+		const transport = this.transport
+		const fetchTicket = transport.fetchRealtimeTicket?.bind(transport)
+		const getTicket =
+			this.useRealtimeTicket && fetchTicket
+				? async () => (await fetchTicket(this.clientId)).ticket
+				: undefined
 		this.wsClient = new WsSignalClient({
 			workspaceId: this.workspaceId,
 			wsUrl: this.wsUrl,
 			getCursor: () => this.cursor,
-			getTicket:
-				this.useRealtimeTicket && fetchTicket
-					? async () => (await fetchTicket(this.clientId)).ticket
-					: undefined,
+			getTicket,
 			onCursorSignal: (remoteCursor) => {
 				if (remoteCursor > this.cursor) {
 					void this.syncNow()
@@ -354,7 +371,12 @@ export class HuriroSyncEngine {
 				void this.handleRevocation(reason)
 			},
 			onPollFallback: () => {
-				if (this.online) void this.syncNow()
+				if (!this.online) return
+				if (this.outbox.getPendingCount() > 0) {
+					void this.flushOutbox().then(() => this.syncNow())
+				} else {
+					void this.syncNow()
+				}
 			},
 			onConnectionChange: (connected) => {
 				this.wsConnected = connected
@@ -370,10 +392,91 @@ export class HuriroSyncEngine {
 		}
 	}
 
+	private clearRetryTimer(): void {
+		if (this.retryTimer !== null) {
+			clearTimeout(this.retryTimer)
+			this.retryTimer = null
+		}
+	}
+
+	private scheduleOutboxRetry(): void {
+		this.clearRetryTimer()
+		if (this.disposed || !this.online || !this.transport) return
+		const nextAt = this.outbox.getNextAttemptAt()
+		if (nextAt === null) return
+		const delayMs = Math.max(50, nextAt - Date.now())
+		this.retryTimer = setTimeout(() => {
+			this.retryTimer = null
+			if (!this.disposed && this.online && this.transport) {
+				void this.flushOutbox()
+			}
+		}, delayMs)
+	}
+
 	private reapplyPendingOptimisticState(): void {
 		for (const item of this.outbox.getPendingMutations()) {
 			const { envelope } = item
-			if (envelope.entity === 'issue') {
+			if (envelope.entity === 'project') {
+				if (envelope.op === 'create') {
+					const nowIso = envelope.queuedAt ?? new Date().toISOString()
+					const synthetic: ProjectDto = {
+						id: envelope.entityId,
+						workspaceId: this.workspaceId,
+						key: String(envelope.patch['key'] ?? 'TMP'),
+						name: String(envelope.patch['name'] ?? 'Untitled Project'),
+						description: String(envelope.patch['description'] ?? ''),
+						visibility: (envelope.patch['visibility'] as 'workspace' | 'private') ?? 'workspace',
+						position: String(envelope.patch['position'] ?? 'V'),
+						archivedAt: null,
+						createdBy: this.currentUserId,
+						createdAt: nowIso,
+						updatedAt: nowIso,
+						version: 1
+					}
+					this.collections.projectsManaged.upsertMany([synthetic])
+				} else if (envelope.op === 'update') {
+					const existing = this.collections.projects.get(envelope.entityId)
+					if (existing) {
+						this.collections.projectsManaged.upsertMany([
+							{ ...existing, ...envelope.patch, updatedAt: new Date().toISOString() }
+						])
+					}
+				}
+			} else if (envelope.entity === 'saved_view') {
+				if (envelope.op === 'create') {
+					const nowIso = envelope.queuedAt ?? new Date().toISOString()
+					const synthetic: SavedViewDto = {
+						id: envelope.entityId,
+						workspaceId: this.workspaceId,
+						projectId: (envelope.patch['projectId'] as string | null) ?? null,
+						ownerUserId: this.currentUserId,
+						name: String(envelope.patch['name'] ?? 'Saved view'),
+						layout: (envelope.patch['layout'] as 'list' | 'board') ?? 'list',
+						filters: (envelope.patch['filters'] as SavedViewDto['filters']) ?? {},
+						sort: (envelope.patch['sort'] as Record<string, unknown>) ?? {},
+						isShared: Boolean(envelope.patch['isShared'] ?? false),
+						position: String(envelope.patch['position'] ?? 'V'),
+						createdAt: nowIso,
+						updatedAt: nowIso,
+						version: 1
+					}
+					this.collections.viewsManaged.upsertMany([synthetic])
+				} else if (envelope.op === 'update') {
+					const existing = this.collections.savedViews.get(envelope.entityId)
+					if (existing) {
+						this.collections.viewsManaged.upsertMany([
+							{ ...existing, ...envelope.patch, updatedAt: new Date().toISOString() }
+						])
+					}
+				}
+			} else if (envelope.entity === 'notification' && envelope.op === 'mark_read') {
+				const existing: NotificationDto | undefined = this.collections.notifications.get(envelope.entityId)
+				if (existing && existing.readAt === null) {
+					this.collections.notificationsManaged.upsertMany([
+						{ ...existing, readAt: envelope.queuedAt ?? new Date().toISOString() }
+					])
+				}
+			} else if (envelope.entity === 'issue') {
 				if (envelope.op === 'delete') {
 					this.collections.issuesManaged.deleteMany([envelope.entityId])
 				} else if (envelope.op === 'create') {
@@ -460,7 +563,9 @@ export class HuriroSyncEngine {
 		this.online = online
 		this.emit()
 		if (online && this.transport) {
-			void this.flushOutbox().then(() => this.syncNow())
+			void this.flushOutbox({ force: true }).then(() => this.syncNow())
+		} else if (!online) {
+			this.clearRetryTimer()
 		}
 	}
 
@@ -468,16 +573,82 @@ export class HuriroSyncEngine {
 		if (!this.transport || !this.online || this.disposed) return
 		if (this.syncPromise) return this.syncPromise
 
-		this.syncPromise = this.runSync().finally(() => {
-			this.syncPromise = null
+		const run = this.runSync().finally(() => {
+			if (this.syncPromise === run) {
+				this.syncPromise = null
+			}
 		})
-		return this.syncPromise
+		this.syncPromise = run
+		return run
+	}
+
+	/**
+	 * Fetch an authoritative full snapshot to reconcile stale or purged records
+	 * (for example, a doc archived remotely or missing after local replica drift).
+	 */
+	async resyncSnapshot(): Promise<boolean> {
+		if (!this.transport || !this.online || this.disposed) return false
+		if (this.snapshotResyncPromise) return this.snapshotResyncPromise
+
+		// Capture any in-flight sync before assigning `syncPromise` so we never await ourselves.
+		const inFlight = this.syncPromise
+		let runVoid: Promise<void> | null = null
+		const run = (async () => {
+			if (inFlight) {
+				await inFlight.catch(() => {})
+			}
+			if (!this.transport || !this.online || this.disposed) return false
+			return this.runSnapshotResync()
+		})().finally(() => {
+			if (this.snapshotResyncPromise === run) {
+				this.snapshotResyncPromise = null
+			}
+			if (runVoid && this.syncPromise === runVoid) {
+				this.syncPromise = null
+			}
+		})
+		runVoid = run.then(() => undefined)
+		this.snapshotResyncPromise = run
+		this.syncPromise = runVoid
+		return run
+	}
+
+	private async runSnapshotResync(): Promise<boolean> {
+		if (!this.transport) return false
+		this.syncing = true
+		this.lastSyncError = null
+		this.lastError = this.lastFlushError
+		this.emit()
+
+		try {
+			const snap = await this.transport.fetchSnapshot()
+			this.collections.applyFullSnapshot(snap)
+			this.cursor = snap.cursor
+			// Keep pending local creates/edits visible when a full snapshot replaces collections.
+			this.reapplyPendingOptimisticState()
+			await this.persistReplica()
+			return true
+		} catch (err) {
+			const status = (err as { status?: number }).status
+			if (status === 401) {
+				await this.signOutAndWipe()
+				this.onSessionInvalid?.()
+				return false
+			}
+			this.lastSyncError = err instanceof Error ? err.message : 'Sync failed'
+			this.lastError = this.lastFlushError ?? this.lastSyncError
+			return false
+		} finally {
+			this.syncing = false
+			this.emit()
+		}
 	}
 
 	private async runSync(): Promise<void> {
 		if (!this.transport) return
 		this.syncing = true
-		this.lastError = null
+		this.lastSyncError = null
+		this.lastError = this.lastFlushError
 		this.emit()
 
 		try {
@@ -485,6 +656,8 @@ export class HuriroSyncEngine {
 				const snap = await this.transport.fetchSnapshot()
 				this.collections.applyFullSnapshot(snap)
 				this.cursor = snap.cursor
+				// Keep pending local creates/edits visible when a full snapshot replaces collections.
+				this.reapplyPendingOptimisticState()
 				await this.persistReplica()
 				return
 			}
@@ -515,32 +688,51 @@ export class HuriroSyncEngine {
 				const snap = await this.transport.fetchSnapshot()
 				this.collections.applyFullSnapshot(snap)
 				this.cursor = snap.cursor
+				this.reapplyPendingOptimisticState()
 				await this.persistReplica()
 				return
 			}
-			this.lastError = err instanceof Error ? err.message : 'Sync failed'
+			this.lastSyncError = err instanceof Error ? err.message : 'Sync failed'
+			this.lastError = this.lastFlushError ?? this.lastSyncError
 		} finally {
 			this.syncing = false
 			this.emit()
 		}
 	}
 
-	async flushOutbox(): Promise<void> {
+	async flushOutbox(opts?: FlushOptions): Promise<void> {
 		if (!this.transport || !this.online || this.disposed) return
-		const { cursor } = await this.outbox.flush(this.transport, {
-			onApplied: (item, result) => {
-				this.applyAuthoritativeResult(item, result)
+		const result = await this.outbox.flush(
+			this.transport,
+			{
+				onApplied: (item, mutationResult) => {
+					this.applyAuthoritativeResult(item, mutationResult)
+				},
+				onConflict: () => {
+					this.emit()
+				},
+				onRejected: (item, _status, error) => {
+					this.rollbackOptimistic(item)
+					this.onMutationRejected?.(error)
+				}
 			},
-			onConflict: () => {
-				this.emit()
-			},
-			onRejected: (item, _status, error) => {
-				this.rollbackOptimistic(item)
-				this.onMutationRejected?.(error)
-			}
-		})
-		if (cursor !== null && cursor > this.cursor) {
-			this.wsClient?.broadcastCursor(cursor)
+			opts
+		)
+		if (result.error !== null) {
+			this.lastFlushError = result.error
+		} else if (this.outbox.getPendingCount() === 0) {
+			this.lastFlushError = null
+		}
+		this.lastError = this.lastFlushError ?? this.lastSyncError
+
+		if (this.outbox.getPendingCount() > 0) {
+			this.scheduleOutboxRetry()
+		} else {
+			this.clearRetryTimer()
+		}
+
+		if (result.cursor !== null && result.cursor > this.cursor) {
+			this.wsClient?.broadcastCursor(result.cursor)
 			await this.syncNow()
 		}
 		await this.persistReplica()
@@ -548,24 +740,24 @@ export class HuriroSyncEngine {
 	}
 
 	private applyAuthoritativeResult(item: QueuedMutation, result: MutationResultDto): void {
-		if (!result.data) return
 		const { entity, entityId, op } = item.envelope
-		if (entity === 'issue') {
-			if (op === 'delete') {
+		if (op === 'delete') {
+			if (entity === 'issue') {
 				this.collections.issuesManaged.deleteMany([entityId])
-			} else {
-				this.collections.issuesManaged.upsertMany([result.data as unknown as IssueDto])
+			} else if (entity === 'doc_page') {
+				this.collections.purgeDocPageScope(entityId)
 			}
+			return
+		}
+		if (!result.data) return
+		if (entity === 'issue') {
+			this.collections.issuesManaged.upsertMany([result.data as unknown as IssueDto])
 		} else if (entity === 'project') {
 			this.collections.projectsManaged.upsertMany([result.data as unknown as ProjectDto])
 		} else if (entity === 'saved_view') {
 			this.collections.viewsManaged.upsertMany([result.data as unknown as SavedViewDto])
 		} else if (entity === 'doc_page') {
-			if (op === 'delete') {
-				this.collections.purgeDocPageScope(entityId)
-			} else {
-				this.collections.docPagesManaged.upsertMany([result.data as unknown as DocPageDto])
-			}
+			this.collections.docPagesManaged.upsertMany([result.data as unknown as DocPageDto])
 		}
 	}
 
@@ -582,6 +774,12 @@ export class HuriroSyncEngine {
 				this.collections.projectsManaged.deleteMany([entityId])
 			} else if (item.base) {
 				this.collections.projectsManaged.upsertMany([item.base as unknown as ProjectDto])
+			}
+		} else if (entity === 'saved_view') {
+			if (op === 'create') {
+				this.collections.viewsManaged.deleteMany([entityId])
+			} else if (item.base) {
+				this.collections.viewsManaged.upsertMany([item.base as unknown as SavedViewDto])
 			}
 		} else if (entity === 'doc_page') {
 			if (op === 'create') {
@@ -676,7 +874,7 @@ export class HuriroSyncEngine {
 					projectId: input.projectId,
 					title: input.title,
 					descriptionText: input.descriptionText ?? '',
-					statusId,
+					...(statusId ? { statusId } : {}),
 					priority: input.priority ?? 0,
 					position,
 					...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
@@ -959,6 +1157,8 @@ export class HuriroSyncEngine {
 			.toLowerCase()
 			.replace(/[^a-z0-9]+/g, '-')
 			.replace(/^-+|-+$/g, '')
+			.slice(0, 100)
+			.replace(/-+$/g, '')
 		const slug = input.slug ?? (slugBase || `doc-${id.slice(0, 6)}`)
 		const nowIso = new Date().toISOString()
 
@@ -995,7 +1195,7 @@ export class HuriroSyncEngine {
 					title: input.title,
 					visibility: optimistic.visibility,
 					position,
-					...(input.slug !== undefined ? { slug: input.slug } : { slug }),
+					...(input.slug !== undefined ? { slug: input.slug } : {}),
 					...(input.icon !== undefined ? { icon: input.icon } : {}),
 					...(input.isTemplate !== undefined ? { isTemplate: input.isTemplate } : {}),
 					...(input.templateId !== undefined ? { templateId: input.templateId } : {}),
@@ -1135,6 +1335,10 @@ export class HuriroSyncEngine {
 	}
 
 	private async handleRevocation(reason: string): Promise<void> {
+		this.clearRetryTimer()
+		this.lastFlushError = null
+		this.lastSyncError = null
+		this.lastError = null
 		this.revokedReason = reason
 		await this.outbox.clearAll()
 		this.collections.clearAll()
@@ -1157,6 +1361,9 @@ export class HuriroSyncEngine {
 
 	async signOutAndWipe(): Promise<void> {
 		this.dispose()
+		this.lastFlushError = null
+		this.lastSyncError = null
+		this.lastError = null
 		await this.outbox.clearAll()
 		this.collections.clearAll()
 		await this.storage.clear()
@@ -1166,6 +1373,7 @@ export class HuriroSyncEngine {
 
 	dispose(): void {
 		this.disposed = true
+		this.clearRetryTimer()
 		this.wsClient?.stop()
 		this.wsClient = null
 		if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {

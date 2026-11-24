@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { navigateToDoc } from '@/lib/navigation'
+import { navigateToDestination, navigateToDoc } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 import { useUiStore } from '@/stores/ui-store'
 
@@ -85,8 +85,16 @@ export function DocsSidebarNav({ activeSlug, collapsed, onSelectSlug }: DocsSide
 		await engine.moveDocPage(pageId, { parentId })
 	}
 
-	async function handleArchivePage(pageId: string) {
-		await engine.deleteDocPage(pageId)
+	async function handleArchivePage(page: DocPageDto) {
+		const isArchivingActive =
+			activeSlug !== null &&
+			activePages.some(
+				(p) => p.slug === activeSlug && (p.id === page.id || p.path.startsWith(`${page.path}/`))
+			)
+		await engine.deleteDocPage(page.id)
+		if (isArchivingActive) {
+			navigateToDestination('docs')
+		}
 	}
 
 	const eligibleMoveParents = useMemo(() => {
@@ -205,7 +213,7 @@ export function DocsSidebarNav({ activeSlug, collapsed, onSelectSlug }: DocsSide
 								<DropdownMenuItem
 									className="text-destructive"
 									onSelect={() => {
-										void handleArchivePage(page.id)
+										void handleArchivePage(page)
 									}}
 								>
 									<Trash2 className="size-3.5" aria-hidden />

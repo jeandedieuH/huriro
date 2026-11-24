@@ -50,9 +50,14 @@ export function useCollectionItems<T extends { readonly id: string }>(
 
 	useEffect(() => {
 		setItems(collection.toArray)
-		const sub = collection.subscribeChanges(() => {
-			setItems(collection.toArray)
-		})
+		// Explicit `includeInitialState: false` calls `markAllStateAsSeen()` in @tanstack/db so
+		// delete events for rows already present at mount time are not filtered out.
+		const sub = collection.subscribeChanges(
+			() => {
+				setItems(collection.toArray)
+			},
+			{ includeInitialState: false }
+		)
 		return () => {
 			sub.unsubscribe()
 		}

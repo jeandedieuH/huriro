@@ -775,4 +775,542 @@ describe('HuriroSyncEngine', () => {
 		expect(calls[0]?.headers.get('x-huriro-client')).toBe('huriro-mobile')
 		expect(calls[0]?.headers.get('authorization')).toBe('Bearer test-mobile-token')
 	})
+
+	test('drains concurrent project and doc_page creates without a manual flush', async () => {
+		const storage = new MemoryReplicaStorage()
+		const sentIds: string[] = []
+		const nowIso = '2026-11-24T00:00:00Z'
+
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				return {
+					cursor: 1,
+					serverTime: nowIso,
+					projects: [],
+					projectStatuses: [],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: []
+				}
+			},
+			async fetchChanges(since) {
+				return { changes: [], nextCursor: since, hasMore: false, serverTime: nowIso }
+			},
+			async sendBatch(mutations) {
+				// Delay first batch so createDocPage enqueues while flush #1 is still in flight.
+				await new Promise((r) => setTimeout(r, 20))
+				for (const m of mutations) sentIds.push(m.entityId)
+				return {
+					cursor: 2,
+					results: mutations.map((m) => ({
+						mutationId: m.mutationId,
+						status: 200,
+						outcome: 'applied',
+						data:
+							m.entity === 'project'
+								? ({
+										...baseProject(),
+										id: m.entityId,
+										key: String(m.patch['key']),
+										name: String(m.patch['name'])
+									} as unknown as Record<string, unknown>)
+								: ({
+										id: m.entityId,
+										workspaceId: WS_ID,
+										parentId: null,
+										path: m.entityId,
+										depth: 0,
+										slug: String(m.patch['slug'] ?? 'concurrent-doc'),
+										title: String(m.patch['title']),
+										icon: null,
+										visibility: 'workspace',
+										isTemplate: false,
+										isFavorite: false,
+										position: 'V',
+										createdBy: USER_ID,
+										archivedAt: null,
+										createdAt: nowIso,
+										updatedAt: nowIso,
+										version: 1,
+										byteSize: 0
+									} as unknown as Record<string, unknown>)
+					}))
+				}
+			}
+		}
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport
+		})
+		await engine.bootstrap()
+		const proj = await engine.createProject({ key: 'CONC', name: 'Concurrent Proj' })
+		const doc = await engine.createDocPage({ title: 'Concurrent Doc' })
+
+		const deadline = Date.now() + 1000
+		while (engine.getStatus().pendingCount > 0 && Date.now() < deadline) {
+			await new Promise((r) => setTimeout(r, 10))
+		}
+
+		expect(engine.getStatus().pendingCount).toBe(0)
+		expect(sentIds).toEqual([proj.id, doc.id])
+		expect(engine.collections.projects.get(proj.id)?.name).toBe('Concurrent Proj')
+		expect(engine.collections.docPages.get(doc.id)?.title).toBe('Concurrent Doc')
+		engine.dispose()
+	})
+
+	test('surfaces lastError on transient 500, force-flushes on demand, and schedules auto-retry', async () => {
+		const storage = new MemoryReplicaStorage()
+		let shouldFail = true
+		const nowIso = '2026-11-24T00:00:00Z'
+
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				return {
+					cursor: 1,
+					serverTime: nowIso,
+					projects: [],
+					projectStatuses: [],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: []
+				}
+			},
+			async fetchChanges(since) {
+				return { changes: [], nextCursor: since, hasMore: false, serverTime: nowIso }
+			},
+			async sendBatch(mutations) {
+				if (shouldFail) {
+					const err = new Error('mutations failed (500)') as Error & { status?: number }
+					err.status = 500
+					throw err
+				}
+				return {
+					cursor: 2,
+					results: mutations.map((m) => ({
+						mutationId: m.mutationId,
+						status: 200,
+						outcome: 'applied',
+						data: {
+							...baseProject(),
+							id: m.entityId,
+							key: String(m.patch['key']),
+							name: String(m.patch['name'])
+						} as unknown as Record<string, unknown>
+					}))
+				}
+			}
+		}
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport
+		})
+		await engine.bootstrap()
+		const proj = await engine.createProject({ key: 'RTRY', name: 'Retry Proj' })
+		await engine.flushOutbox()
+
+		expect(engine.getStatus().pendingCount).toBe(1)
+		expect(engine.getStatus().lastError).toContain('500')
+
+		// Subsequent syncNow() succeeds on GET /changes without clearing the active flush error.
+		await engine.syncNow()
+		expect(engine.getStatus().lastError).toContain('500')
+
+		// Normal flushOutbox() respects backoff; force: true bypasses backoff immediately.
+		shouldFail = false
+		await engine.flushOutbox()
+		expect(engine.getStatus().pendingCount).toBe(1)
+
+		await engine.flushOutbox({ force: true })
+		expect(engine.getStatus().pendingCount).toBe(0)
+		expect(engine.getStatus().lastError).toBeNull()
+		expect(engine.collections.projects.get(proj.id)?.key).toBe('RTRY')
+
+		// Second transient failure drains automatically via scheduled timer (~1000-1300ms).
+		shouldFail = true
+		const proj2 = await engine.createProject({ key: 'AUTO', name: 'Auto Retry' })
+		await engine.flushOutbox()
+		expect(engine.getStatus().pendingCount).toBe(1)
+
+		shouldFail = false
+		const timerDeadline = Date.now() + 2500
+		while (engine.getStatus().pendingCount > 0 && Date.now() < timerDeadline) {
+			await new Promise((r) => setTimeout(r, 25))
+		}
+		expect(engine.getStatus().pendingCount).toBe(0)
+		expect(engine.collections.projects.get(proj2.id)?.key).toBe('AUTO')
+		engine.dispose()
+	})
+
+	test('preserves pending optimistic project, saved_view, and doc_page across full snapshot resyncs', async () => {
+		const storage = new MemoryReplicaStorage()
+		const nowIso = '2026-11-24T00:00:00Z'
+		let triggerExpired = false
+
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				return {
+					cursor: 5,
+					serverTime: nowIso,
+					projects: [],
+					projectStatuses: [],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: []
+				}
+			},
+			async fetchChanges(since) {
+				if (triggerExpired) {
+					const err = new Error('sync_cursor_expired') as Error & { status?: number }
+					err.status = 410
+					throw err
+				}
+				return { changes: [], nextCursor: since, hasMore: false, serverTime: nowIso }
+			},
+			async sendBatch() {
+				const err = new Error('upstream unavailable (503)') as Error & { status?: number }
+				err.status = 503
+				throw err
+			}
+		}
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport
+		})
+		await engine.bootstrap()
+		const proj = await engine.createProject({ key: 'KEEP', name: 'Keep Optimistic' })
+		const view = await engine.createSavedView({ name: 'Keep View', layout: 'board' })
+		const doc = await engine.createDocPage({ title: 'Keep Doc' })
+		await engine.flushOutbox()
+		expect(engine.getStatus().pendingCount).toBe(3)
+
+		// 410 Gone triggers full snapshot resync with empty server collections — pending items must stay visible.
+		triggerExpired = true
+		await engine.syncNow()
+
+		expect(engine.getStatus().pendingCount).toBe(3)
+		expect(engine.collections.projects.get(proj.id)?.name).toBe('Keep Optimistic')
+		expect(engine.collections.savedViews.get(view.id)?.name).toBe('Keep View')
+		expect(engine.collections.docPages.get(doc.id)?.title).toBe('Keep Doc')
+		engine.dispose()
+	})
+
+	test('binds fetchRealtimeTicket method cleanly when useRealtimeTicket is enabled', async () => {
+		const storage = new MemoryReplicaStorage()
+		let ticketRequests = 0
+		const nowIso = '2026-11-24T00:00:00Z'
+
+		const transport = new HttpSyncTransport({
+			baseUrl: 'https://huriro.example',
+			workspaceId: WS_ID,
+			httpAdapter: async (config) => {
+				const url = config.url ?? ''
+				if (url.endsWith('/api/v1/realtime/ticket')) {
+					ticketRequests += 1
+					return {
+						data: { ticket: 'rt_bound_ok', expiresAt: nowIso },
+						status: 200,
+						statusText: 'OK',
+						headers: {},
+						config
+					}
+				}
+				if (url.endsWith('/api/v1/sync/snapshot')) {
+					return {
+						data: {
+							cursor: 1,
+							serverTime: nowIso,
+							projects: [],
+							projectStatuses: [],
+							labels: [],
+							cycles: [],
+							issues: [],
+							savedViews: [],
+							notifications: [],
+							docPages: []
+						},
+						status: 200,
+						statusText: 'OK',
+						headers: {},
+						config
+					}
+				}
+				return {
+					data: { changes: [], nextCursor: 1, hasMore: false, serverTime: nowIso },
+					status: 200,
+					statusText: 'OK',
+					headers: {},
+					config
+				}
+			}
+		})
+
+		const OrigWebSocket = globalThis.WebSocket
+		const sentHellos: string[] = []
+		class StubWebSocket {
+			static OPEN = 1
+			readyState = 1
+			onopen: (() => void) | null = null
+			onmessage: ((ev: { data: string }) => void) | null = null
+			onclose: (() => void) | null = null
+			onerror: (() => void) | null = null
+			constructor(_url: string) {
+				queueMicrotask(() => this.onopen?.())
+			}
+			send(data: string) {
+				sentHellos.push(data)
+			}
+			close() {}
+		}
+		globalThis.WebSocket = StubWebSocket as unknown as typeof WebSocket
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport,
+			wsUrl: 'wss://huriro.example/ws',
+			useRealtimeTicket: true
+		})
+		try {
+			await engine.bootstrap()
+			const deadline = Date.now() + 500
+			while (sentHellos.length === 0 && Date.now() < deadline) {
+				await new Promise((r) => setTimeout(r, 10))
+			}
+			expect(ticketRequests).toBe(1)
+			expect(sentHellos[0]).toContain('rt_bound_ok')
+		} finally {
+			engine.dispose()
+			globalThis.WebSocket = OrigWebSocket
+		}
+	})
+
+	test('treats 404 not_found on deleteDocPage and deleteIssue as idempotent while rolling back 403 forbidden deletes', async () => {
+		const storage = new MemoryReplicaStorage()
+		const ghostDocId = generateUuidV7()
+		const forbiddenDocId = generateUuidV7()
+		const ghostIssueId = generateUuidV7()
+		const nowIso = '2026-11-24T00:00:00Z'
+		const rejectedErrors: string[] = []
+
+		const makeDoc = (id: string, title: string): DocPageDto => ({
+			id,
+			workspaceId: WS_ID,
+			parentId: null,
+			path: id,
+			depth: 0,
+			slug: title.toLowerCase().replace(/\s+/g, '-'),
+			title,
+			icon: null,
+			visibility: 'workspace',
+			isTemplate: false,
+			isFavorite: false,
+			position: 'V',
+			createdBy: USER_ID,
+			archivedAt: null,
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1,
+			byteSize: 0
+		})
+
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				return {
+					cursor: 1,
+					serverTime: nowIso,
+					projects: [baseProject()],
+					projectStatuses: [baseStatus()],
+					labels: [],
+					cycles: [],
+					issues: [makeIssue(ghostIssueId, { title: 'Ghost issue' })],
+					savedViews: [],
+					notifications: [],
+					docPages: [makeDoc(ghostDocId, 'Repro Doc'), makeDoc(forbiddenDocId, 'Protected Doc')]
+				}
+			},
+			async fetchChanges(since) {
+				return { changes: [], nextCursor: since, hasMore: false, serverTime: nowIso }
+			},
+			async sendBatch(mutations) {
+				return {
+					cursor: 2,
+					results: mutations.map((m) => {
+						if (m.entityId === forbiddenDocId) {
+							return {
+								mutationId: m.mutationId,
+								status: 403,
+								outcome: 'forbidden',
+								error: 'Forbidden'
+							}
+						}
+						return {
+							mutationId: m.mutationId,
+							status: 404,
+							outcome: 'not_found',
+							error: m.entity === 'doc_page' ? 'Document page not found' : 'Issue not found'
+						}
+					})
+				}
+			}
+		}
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport,
+			onMutationRejected: (err) => rejectedErrors.push(err)
+		})
+		await engine.bootstrap()
+		engine.setOnline(false)
+
+		await engine.deleteDocPage(ghostDocId)
+		await engine.deleteIssue(ghostIssueId)
+		expect(engine.collections.docPages.get(ghostDocId)).toBeUndefined()
+		expect(engine.collections.issues.get(ghostIssueId)).toBeUndefined()
+
+		engine.setOnline(true)
+		await engine.flushOutbox()
+
+		expect(engine.getStatus().pendingCount).toBe(0)
+		expect(rejectedErrors).toEqual([])
+		expect(engine.collections.docPages.get(ghostDocId)).toBeUndefined()
+		expect(engine.collections.issues.get(ghostIssueId)).toBeUndefined()
+
+		// Confirm persisted replica does not resurrect ghost records across reload.
+		engine.dispose()
+		const reloaded = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport
+		})
+		await reloaded.bootstrap({ skipNetwork: true })
+		expect(reloaded.collections.docPages.get(ghostDocId)).toBeUndefined()
+		expect(reloaded.collections.issues.get(ghostIssueId)).toBeUndefined()
+
+		// 403 forbidden on delete still rolls back and reports rejection.
+		reloaded.setOnline(true)
+		await reloaded.deleteDocPage(forbiddenDocId)
+		await reloaded.flushOutbox()
+		expect(reloaded.collections.docPages.get(forbiddenDocId)?.title).toBe('Protected Doc')
+		expect(rejectedErrors).toEqual([]) // `reloaded` didn't attach callback, verify via separate engine below
+		reloaded.dispose()
+
+		const rejected2: string[] = []
+		const engine3 = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport,
+			onMutationRejected: (err) => rejected2.push(err)
+		})
+		await engine3.bootstrap()
+		await engine3.deleteDocPage(forbiddenDocId)
+		await engine3.flushOutbox()
+		expect(engine3.collections.docPages.get(forbiddenDocId)?.title).toBe('Protected Doc')
+		expect(rejected2).toEqual(['Forbidden'])
+		engine3.dispose()
+	})
+
+	test('resyncSnapshot purges stale ghost docPages while preserving pending optimistic creates', async () => {
+		const storage = new MemoryReplicaStorage()
+		const ghostDocId = generateUuidV7()
+		const nowIso = '2026-11-24T00:00:00Z'
+		let serverDocs: DocPageDto[] = [
+			{
+				id: ghostDocId,
+				workspaceId: WS_ID,
+				parentId: null,
+				path: ghostDocId,
+				depth: 0,
+				slug: 'repro-doc',
+				title: 'Repro Doc',
+				icon: null,
+				visibility: 'workspace',
+				isTemplate: false,
+				isFavorite: false,
+				position: 'V',
+				createdBy: USER_ID,
+				archivedAt: null,
+				createdAt: nowIso,
+				updatedAt: nowIso,
+				version: 1,
+				byteSize: 0
+			}
+		]
+		let failSnapshot = false
+
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				if (failSnapshot) {
+					const err = new Error('snapshot error') as Error & { status?: number }
+					err.status = 500
+					throw err
+				}
+				return {
+					cursor: serverDocs.length > 0 ? 1 : 2,
+					serverTime: nowIso,
+					projects: [],
+					projectStatuses: [],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: serverDocs
+				}
+			},
+			async fetchChanges(since) {
+				return { changes: [], nextCursor: since, hasMore: false, serverTime: nowIso }
+			},
+			async sendBatch() {
+				return { cursor: 2, results: [] }
+			}
+		}
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport
+		})
+		await engine.bootstrap()
+		expect(engine.collections.docPages.get(ghostDocId)?.title).toBe('Repro Doc')
+
+		engine.setOnline(false)
+		const localDoc = await engine.createDocPage({ title: 'Offline Draft' })
+		engine.setOnline(true)
+
+		// Server no longer has ghostDocId; resyncSnapshot removes it while keeping localDoc.
+		serverDocs = []
+		const ok = await engine.resyncSnapshot()
+		expect(ok).toBe(true)
+		expect(engine.collections.docPages.get(ghostDocId)).toBeUndefined()
+		expect(engine.collections.docPages.get(localDoc.id)?.title).toBe('Offline Draft')
+
+		failSnapshot = true
+		const failed = await engine.resyncSnapshot()
+		expect(failed).toBe(false)
+		engine.dispose()
+	})
 })

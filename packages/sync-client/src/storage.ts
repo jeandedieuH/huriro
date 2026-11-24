@@ -61,9 +61,27 @@ export class MemoryReplicaStorage implements ReplicaStorage {
 export class OpfsReplicaStorage implements ReplicaStorage {
 	readonly mode: ReplicaStorageMode = 'opfs'
 	private readonly dirName: string
+	// OPFS createWritable acquires an exclusive lock per file, so serialize access by key.
+	private readonly keyLocks = new Map<string, Promise<void>>()
 
 	constructor(workspaceId: string) {
 		this.dirName = `huriro-${workspaceId.replace(/[^a-zA-Z0-9_-]/g, '')}`
+	}
+
+	private enqueueKeyOp<T>(key: string, fn: () => Promise<T>): Promise<T> {
+		const prev = this.keyLocks.get(key) ?? Promise.resolve()
+		const next = prev.then(fn, fn)
+		const settled = next.then(
+			() => undefined,
+			() => undefined
+		)
+		this.keyLocks.set(key, settled)
+		void settled.finally(() => {
+			if (this.keyLocks.get(key) === settled) {
+				this.keyLocks.delete(key)
+			}
+		})
+		return next
 	}
 
 	private async getDir(): Promise<FileSystemDirectoryHandle> {
@@ -72,31 +90,42 @@ export class OpfsReplicaStorage implements ReplicaStorage {
 	}
 
 	async get(key: string): Promise<string | null> {
-		try {
-			const dir = await this.getDir()
-			const fh = await dir.getFileHandle(encodeKey(key))
-			const file = await fh.getFile()
-			return await file.text()
-		} catch {
-			return null
-		}
+		return this.enqueueKeyOp(key, async () => {
+			try {
+				const dir = await this.getDir()
+				const fh = await dir.getFileHandle(encodeKey(key))
+				const file = await fh.getFile()
+				return await file.text()
+			} catch {
+				return null
+			}
+		})
 	}
 
 	async set(key: string, value: string): Promise<void> {
-		const dir = await this.getDir()
-		const fh = await dir.getFileHandle(encodeKey(key), { create: true })
-		const writable = await fh.createWritable()
-		await writable.write(value)
-		await writable.close()
+		return this.enqueueKeyOp(key, async () => {
+			const dir = await this.getDir()
+			const fh = await dir.getFileHandle(encodeKey(key), { create: true })
+			const writable = await fh.createWritable()
+			try {
+				await writable.write(value)
+				await writable.close()
+			} catch (err) {
+				await writable.abort().catch(() => {})
+				throw err
+			}
+		})
 	}
 
 	async delete(key: string): Promise<void> {
-		try {
-			const dir = await this.getDir()
-			await dir.removeEntry(encodeKey(key))
-		} catch {
-			// Missing entry is already deleted.
-		}
+		return this.enqueueKeyOp(key, async () => {
+			try {
+				const dir = await this.getDir()
+				await dir.removeEntry(encodeKey(key))
+			} catch {
+				// Missing entry is already deleted.
+			}
+		})
 	}
 
 	async keys(): Promise<string[]> {
@@ -112,6 +141,7 @@ export class OpfsReplicaStorage implements ReplicaStorage {
 	}
 
 	async clear(): Promise<void> {
+		await Promise.allSettled([...this.keyLocks.values()])
 		const root = await navigator.storage.getDirectory()
 		await root.removeEntry(this.dirName, { recursive: true }).catch(() => {})
 	}
