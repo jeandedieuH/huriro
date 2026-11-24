@@ -3,11 +3,13 @@ import {
 	Bell,
 	Bot,
 	CheckCheck,
+	CreditCard,
 	Download,
 	GitBranch,
 	Keyboard,
 	Mail,
 	Palette,
+	ShieldCheck,
 	SlidersHorizontal,
 	Sparkles,
 	Users,
@@ -18,11 +20,13 @@ import {
 	SidebarSection,
 	useSidebarCollapsed
 } from '@/components/app-shell/sidebar/sidebar-primitives'
+import { useWorkspace } from '@/lib/workspace'
 import { useUiStore } from '@/stores/ui-store'
 
 export function SettingsSidebarNav({ collapsed }: { readonly collapsed?: boolean | undefined }) {
 	const ctxCollapsed = useSidebarCollapsed()
 	const isCollapsed = collapsed ?? ctxCollapsed
+	const { mode } = useWorkspace()
 	const settingsSection = useUiStore((s) => s.settingsSection)
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection)
 	const setShortcutsDialogOpen = useUiStore((s) => s.setShortcutsDialogOpen)
@@ -85,6 +89,22 @@ export function SettingsSidebarNav({ collapsed }: { readonly collapsed?: boolean
 					active={settingsSection === 'ai'}
 					collapsed={isCollapsed}
 					onClick={() => setSettingsSection('ai')}
+				/>
+				{mode === 'cloud' ? (
+					<SidebarNavItem
+						icon={<CreditCard className="size-4" />}
+						label={t('settings.sidebar.billing')}
+						active={settingsSection === 'billing'}
+						collapsed={isCollapsed}
+						onClick={() => setSettingsSection('billing')}
+					/>
+				) : null}
+				<SidebarNavItem
+					icon={<ShieldCheck className="size-4" />}
+					label={t('settings.sidebar.governance')}
+					active={settingsSection === 'governance'}
+					collapsed={isCollapsed}
+					onClick={() => setSettingsSection('governance')}
 				/>
 				<SidebarNavItem
 					icon={<Users className="size-4" />}

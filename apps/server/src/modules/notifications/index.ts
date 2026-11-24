@@ -5,34 +5,47 @@ import type { RealtimePubSub } from '../../realtime/pubsub'
 import type { Auth } from '../identity'
 import { workspaceDerive } from '../tenancy'
 import { type EmailMessage, type EmailTransport, runEmailDigestOnce } from './digest'
-import { dispatchWebPushNotifications, sendWebPushToUser, type VapidConfig } from './push'
+import {
+	dispatchMobilePushNotifications,
+	dispatchWebPushNotifications,
+	type ExpoPushConfig,
+	sendWebPushToUser,
+	type VapidConfig
+} from './push'
 import {
 	CreateWebPushSubscriptionBody,
 	DeliveryLogQuery,
+	MobileTokenIdParam,
 	NotificationIdParam,
 	NotificationsListQuery,
+	RegisterMobilePushTokenBody,
 	SubscriptionIdParam,
 	UpdateNotificationPreferencesBody
 } from './schema'
 import {
 	archiveNotification,
+	deleteMyMobilePushToken,
 	deleteMyWebPushSubscription,
 	getMyNotificationPreferences,
 	getNotificationsSnapshot,
+	listMyMobilePushTokens,
 	listMyNotificationDeliveries,
 	listMyNotifications,
 	listMyWebPushSubscriptions,
 	markAllNotificationsRead,
 	markNotificationRead,
 	processNotificationOutboxEvent,
+	registerMobilePushToken,
 	registerWebPushSubscription,
 	updateMyNotificationPreferences
 } from './service'
 
 export {
+	dispatchMobilePushNotifications,
 	dispatchWebPushNotifications,
 	type EmailMessage,
 	type EmailTransport,
+	type ExpoPushConfig,
 	getNotificationsSnapshot,
 	markNotificationRead,
 	processNotificationOutboxEvent,
@@ -106,6 +119,26 @@ export function notificationsModule(
 			{ params: SubscriptionIdParam },
 			async ({ params, inWorkspace }) => {
 				await inWorkspace((tx, actor) => deleteMyWebPushSubscription(tx, actor, params.id))
+				return { deleted: true, id: params.id }
+			}
+		)
+		.get('/notifications/push/mobile-tokens', ({ inWorkspace }) =>
+			inWorkspace((tx, actor) => listMyMobilePushTokens(tx, actor))
+		)
+		.post(
+			'/notifications/push/mobile-tokens',
+			{ body: RegisterMobilePushTokenBody },
+			async ({ body, inWorkspace, set }) => {
+				const created = await inWorkspace((tx, actor) => registerMobilePushToken(tx, actor, body))
+				set.status = 201
+				return created
+			}
+		)
+		.delete(
+			'/notifications/push/mobile-tokens/:id',
+			{ params: MobileTokenIdParam },
+			async ({ params, inWorkspace }) => {
+				await inWorkspace((tx, actor) => deleteMyMobilePushToken(tx, actor, params.id))
 				return { deleted: true, id: params.id }
 			}
 		)

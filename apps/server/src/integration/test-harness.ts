@@ -10,6 +10,7 @@ import type { Sql } from '@huriro/db'
 import { aMembership, aUser, aWorkspace, getTestDb, migrationsDir, type TestDb } from '@huriro/test-utils'
 import { createApp } from '../api/app'
 import type { DnsResolver } from '../api/egress'
+import type { BillingModuleConfig } from '../modules/billing'
 import type { CollabDirectBridge } from '../modules/docs'
 import { type BlobStorage, MemoryBlobStorage } from '../modules/files'
 import type { Auth } from '../modules/identity'
@@ -61,6 +62,7 @@ export function createTestAuth(): Auth {
 export function createIntegrationServer(
 	db: TestDb,
 	opts?: {
+		readonly mode?: 'selfhost' | 'cloud'
 		readonly collabBridge?: CollabDirectBridge
 		readonly collabTicketSecret?: string
 		readonly pubsub?: RealtimePubSub
@@ -72,6 +74,11 @@ export function createIntegrationServer(
 		readonly egressFetch?: typeof fetch
 		readonly egressResolver?: DnsResolver
 		readonly mail?: Partial<MailModuleConfig>
+		readonly billing?: Partial<BillingModuleConfig>
+		readonly readOnly?: boolean
+		readonly isReadOnly?: () => boolean
+		readonly rateLimitPerMinute?: number
+		readonly allowedOrigins?: readonly string[]
 	}
 ) {
 	const auth = createTestAuth()
@@ -83,7 +90,7 @@ export function createIntegrationServer(
 	const app = createApp({
 		sql: db.app,
 		migrationsDir: migrationsDir(),
-		mode: 'selfhost',
+		mode: opts?.mode ?? 'selfhost',
 		auth,
 		pubsub,
 		blobStorage,
@@ -95,7 +102,12 @@ export function createIntegrationServer(
 		...(opts?.vapid ? { vapid: opts.vapid } : {}),
 		...(opts?.egressFetch ? { egressFetch: opts.egressFetch } : {}),
 		...(opts?.egressResolver ? { egressResolver: opts.egressResolver } : {}),
-		...(opts?.mail ? { mail: opts.mail } : {})
+		...(opts?.mail ? { mail: opts.mail } : {}),
+		...(opts?.billing ? { billing: opts.billing } : {}),
+		...(opts?.readOnly !== undefined ? { readOnly: opts.readOnly } : {}),
+		...(opts?.isReadOnly ? { isReadOnly: opts.isReadOnly } : {}),
+		...(opts?.rateLimitPerMinute !== undefined ? { rateLimitPerMinute: opts.rateLimitPerMinute } : {}),
+		...(opts?.allowedOrigins ? { allowedOrigins: opts.allowedOrigins } : {})
 	})
 	return { app, auth, pubsub, blobStorage, rootSecret }
 }

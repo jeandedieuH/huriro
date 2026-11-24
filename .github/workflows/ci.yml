@@ -25,10 +25,18 @@ jobs:
         run: bun run typecheck
       - name: unit tests (no database)
         run: bun run test
+      - name: build
+        run: bun run build
       - name: module boundaries
         run: bun run check:boundaries
       - name: license allowlist
         run: bun run check:licenses
+      - name: web bundle budget
+        run: bun run check:bundles
+      - name: shared code ratio
+        run: bun run check:shared-code
+      - name: chaos resilience smoke
+        run: bun run chaos:smoke
       - name: generated-file drift
         run: bun run gen:check
 
@@ -55,6 +63,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: migrations + RLS coverage + two-tenant isolation
         run: bun test packages/test-utils
+      - name: server integration suite (PG18)
+        run: bun test --cwd apps/server --timeout 30000
 
   secrets:
     runs-on: ubuntu-latest

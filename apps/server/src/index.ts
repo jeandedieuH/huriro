@@ -21,7 +21,13 @@ import { FilesystemBlobStorage } from './modules/files'
 import { createAuth, ensureAgentOAuthSeed } from './modules/identity'
 import { ensureBootstrapSetupToken } from './modules/tenancy'
 import { createCollabRuntime, startRealtime } from './realtime'
-import { InProcessPubSub, PostgresNotifyPubSub } from './realtime/pubsub'
+import {
+	InProcessPubSub,
+	PostgresNotifyPubSub,
+	type RealtimePubSub,
+	ResilientPubSub,
+	ValkeyPubSub
+} from './realtime/pubsub'
 import { startWorker } from './worker'
 
 const USAGE = `huriro <command>
@@ -112,13 +118,20 @@ async function serve(args: string[]) {
 	const app = createAppPool(env.databaseUrl, { max: 10 })
 	const stoppers: (() => Promise<void> | void)[] = []
 
-	let pubsub: InProcessPubSub | PostgresNotifyPubSub
+	let pubsub: RealtimePubSub
 	if (role === 'all') {
 		pubsub = new InProcessPubSub()
 	} else {
 		const pgPubSub = new PostgresNotifyPubSub(app)
 		if (role === 'realtime') await pgPubSub.startListening()
 		pubsub = pgPubSub
+	}
+	if (env.VALKEY_URL) {
+		const valkey = new ValkeyPubSub(env.VALKEY_URL)
+		await valkey.connect().catch((err) => {
+			log.warn({ err }, 'valkey unavailable on startup; continuing with fallback pubsub')
+		})
+		pubsub = new ResilientPubSub(valkey, pubsub)
 	}
 	stoppers.push(() => pubsub.close())
 
@@ -184,6 +197,10 @@ async function serve(args: string[]) {
 		role === 'realtime' || role === 'all'
 			? createCollabRuntime({ sql: app, pubsub, ticketSecret: collabTicketSecret })
 			: undefined
+	const expoPush = {
+		endpoint: env.EXPO_PUSH_ENDPOINT,
+		...(env.expoPushAccessToken ? { accessToken: env.expoPushAccessToken } : {})
+	}
 
 	if (role === 'api' || role === 'all') {
 		// Identity lives behind a flag-free factory — better-auth needs the
@@ -197,6 +214,23 @@ async function serve(args: string[]) {
 			collabTicketSecret,
 			blobStorage,
 			rootSecret,
+			readOnly: env.HURIRO_READ_ONLY,
+			rateLimitPerMinute: env.API_RATE_LIMIT_PER_MINUTE,
+			billing: {
+				workspacePriceUsdCents: env.BILLING_WORKSPACE_PRICE_USD_CENTS,
+				fxApiUrl: env.BILLING_FX_API_URL,
+				usdToRwfFallback: env.BILLING_USD_TO_RWF_FALLBACK,
+				polarApiUrl: env.POLAR_API_URL,
+				polarAccessToken: env.polarAccessToken,
+				polarWebhookSecret: env.polarWebhookSecret,
+				polarProductId: env.POLAR_PRODUCT_ID,
+				iremboPayApiUrl: env.IREMBOPAY_API_URL,
+				iremboPaySecretKey: env.iremboPaySecretKey,
+				iremboPayWebhookSecret: env.iremboPayWebhookSecret,
+				iremboPayWebhookDelimiter: env.IREMBOPAY_WEBHOOK_DELIMITER,
+				iremboPayPaymentAccountId: env.IREMBOPAY_PAYMENT_ACCOUNT_ID,
+				iremboPayProductCode: env.IREMBOPAY_PRODUCT_CODE
+			},
 			...(env.CLAMAV_HOST ? { clamavHost: env.CLAMAV_HOST, clamavPort: env.CLAMAV_PORT } : {}),
 			...(env.githubAppWebhookSecret ? { githubAppWebhookSecret: env.githubAppWebhookSecret } : {}),
 			...(vapid ? { vapid } : {}),
@@ -210,6 +244,7 @@ async function serve(args: string[]) {
 		const worker = await startWorker({
 			adminUrl: env.databaseAdminUrl,
 			app,
+			mode: env.HURIRO_MODE,
 			pubsub,
 			heartbeatUrl: env.HEARTBEAT_URL,
 			blobStorage,
@@ -217,6 +252,7 @@ async function serve(args: string[]) {
 			smtp,
 			mail: mailConfig,
 			mailSyncIntervalSeconds: env.MAIL_SYNC_INTERVAL_SECONDS,
+			expoPush,
 			...(env.CLAMAV_HOST ? { clamavHost: env.CLAMAV_HOST, clamavPort: env.CLAMAV_PORT } : {}),
 			...(vapid ? { vapid } : {})
 		})

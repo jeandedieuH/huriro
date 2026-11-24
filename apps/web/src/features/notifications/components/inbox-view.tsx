@@ -5,7 +5,6 @@ import { useMemo } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { navigateToDoc, navigateToMail } from '@/lib/navigation'
 import type { TaskApiBridge } from '@/lib/sync-bootstrap'
 import { useUiStore } from '@/stores/ui-store'
@@ -50,15 +49,27 @@ export function InboxView({ api }: InboxViewProps) {
 				</div>
 
 				<div className="flex items-center gap-2">
-					<Tabs
-						value={inboxFilter === 'unread' ? 'unread' : 'all'}
-						onValueChange={(v) => setInboxFilter(v as 'unread' | 'all')}
-					>
-						<TabsList>
-							<TabsTrigger value="unread">{t('inbox.for-me')}</TabsTrigger>
-							<TabsTrigger value="all">{t('inbox.all')}</TabsTrigger>
-						</TabsList>
-					</Tabs>
+					<fieldset className="m-0 inline-flex items-center gap-1 border-0 p-0">
+						<legend className="sr-only">{t('inbox.title')}</legend>
+						<Button
+							type="button"
+							size="sm"
+							tone={inboxFilter === 'unread' ? 'default' : 'outline'}
+							aria-pressed={inboxFilter === 'unread'}
+							onClick={() => setInboxFilter('unread')}
+						>
+							{t('inbox.for-me')}
+						</Button>
+						<Button
+							type="button"
+							size="sm"
+							tone={inboxFilter !== 'unread' ? 'default' : 'outline'}
+							aria-pressed={inboxFilter !== 'unread'}
+							onClick={() => setInboxFilter('all')}
+						>
+							{t('inbox.all')}
+						</Button>
+					</fieldset>
 
 					<Button
 						size="sm"

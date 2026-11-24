@@ -1,0 +1,46 @@
+name: Mobile EAS Build & E2E
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/contracts/**'
+      - 'packages/domain/**'
+      - 'packages/design-tokens/**'
+      - 'packages/editor/**'
+      - 'packages/i18n/**'
+      - 'packages/sync-client/**'
+      - 'packages/env/mobile/**'
+  pull_request:
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/**'
+
+jobs:
+  mobile-quality:
+    name: Mobile Lint, Typecheck, Unit Tests & Config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe65e19d3923be20e52c5ab52ff877f7e4c32
+      - run: bun install --frozen-lockfile
+      - run: bun run --cwd apps/mobile gen:check
+      - run: bun run --cwd apps/mobile lint
+      - run: bun run --cwd apps/mobile typecheck
+      - run: bun run --cwd apps/mobile test
+      - run: bun run --cwd apps/mobile build
+
+  eas-preview:
+    name: EAS Preview Build (Manual / Tag)
+    needs: mobile-quality
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.EXPO_TOKEN != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe65e19d3923be20e52c5ab52ff877f7e4c32
+      - run: bun install --frozen-lockfile
+      - name: Trigger EAS preview build
+        env:
+          EXPO_TOKEN: ${{ vars.EXPO_TOKEN }}
+        run: bunx eas-cli build --platform all --profile preview --non-interactive --no-wait

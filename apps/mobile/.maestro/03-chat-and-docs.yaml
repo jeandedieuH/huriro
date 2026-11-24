@@ -1,0 +1,13 @@
+appId: app.huriro.mobile
+---
+- launchApp
+- tapOn: "Explore offline demo"
+- tapOn: "Chat"
+- tapOn: "Message #general…"
+- inputText: "Shipping M6 from mobile!"
+- tapOn: "Send"
+- assertVisible: "Shipping M6 from mobile!"
+- tapOn: "Docs"
+- assertVisible: "Engineering Handbook"
+- tapOn: "Engineering Handbook"
+- assertVisible: "Engineering Handbook"

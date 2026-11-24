@@ -75,6 +75,7 @@ export const notificationPreferences = pgTable(
 		quietHoursEnd: text('quiet_hours_end'),
 		timezone: text('timezone').notNull().default('UTC'),
 		webPushEnabled: boolean('web_push_enabled').notNull().default(false),
+		mobilePushEnabled: boolean('mobile_push_enabled').notNull().default(true),
 		lastDigestSentAt: timestamp('last_digest_sent_at', { withTimezone: true }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
@@ -93,7 +94,7 @@ export const notificationDeliveryLog = pgTable(
 		userId: uuid('user_id')
 			.notNull()
 			.references(() => users.id, { onDelete: 'cascade' }),
-		channel: text('channel', { enum: ['in_app', 'email_digest', 'web_push'] }).notNull(),
+		channel: text('channel', { enum: ['in_app', 'email_digest', 'web_push', 'mobile_push'] }).notNull(),
 		status: text('status', { enum: ['pending', 'sent', 'skipped_quiet_hours', 'failed'] }).notNull(),
 		dedupeKey: text('dedupe_key'),
 		detail: text('detail'),
@@ -131,5 +132,30 @@ export const webPushSubscriptions = pgTable(
 	(t) => [
 		unique('uq_web_push_subscriptions_ws_id').on(t.workspaceId, t.id),
 		unique('uq_web_push_subscriptions_ws_user_ep').on(t.workspaceId, t.userId, t.endpoint)
+	]
+)
+
+export const mobilePushTokens = pgTable(
+	'mobile_push_tokens',
+	{
+		id: uuid('id').primaryKey().default(sql`uuidv7()`),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		token: text('token').notNull(),
+		platform: text('platform', { enum: ['ios', 'android', 'expo'] }).notNull(),
+		deviceId: text('device_id').notNull(),
+		deviceName: text('device_name').notNull().default(''),
+		lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+		revokedAt: timestamp('revoked_at', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		unique('uq_mobile_push_tokens_ws_id').on(t.workspaceId, t.id),
+		unique('uq_mobile_push_tokens_ws_user_token').on(t.workspaceId, t.userId, t.token)
 	]
 )

@@ -1,5 +1,5 @@
 /**
- * M3 stage-2 integration suite â€” agent REST surface + dispatcher + approvals.
+ * M3 stage-2 integration suite — agent REST surface + dispatcher + approvals.
  *
  * Real better-auth instance over a migrated Testcontainers DB (same minting
  * path as agent-bearer.integration.test.ts). Covers: attribution, per-call
@@ -105,7 +105,7 @@ async function mintToken(
 
 /** Cookie session via real better-auth sign-up (writes public.users too). */
 async function signup(r: Rig, email: string): Promise<{ userId: string; cookie: string }> {
-	// Go through the HTTP handler so we capture the *signed* session cookie â€”
+	// Go through the HTTP handler so we capture the *signed* session cookie —
 	// the api return token is not the cookie value better-auth verifies.
 	const res = await r.auth.handler(
 		new Request(`${BASE}/api/auth/sign-up/email`, {
@@ -184,7 +184,7 @@ async function seedOwner(r: Rig, tag: string) {
 	return { ws, ...u, project }
 }
 
-describe('M3 stage 2 â€” agent tools + approvals', () => {
+describe('M3 stage 2 — agent tools + approvals', () => {
 	test('happy path: my_queue, agent-attributed comment/create, status, undo', async () => {
 		const r = await rig()
 		if (!r || !db) return

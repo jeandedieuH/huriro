@@ -1,8 +1,10 @@
 import { t } from '@huriro/i18n'
 import { createFileRoute } from '@tanstack/react-router'
 import { Moon, Sun } from 'lucide-react'
+import { lazy, Suspense } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { MailSettingsPanel } from '@/features/mail/components/mail-settings-panel'
 import { AgentsSettingsPanel } from '@/features/settings/components/agents-panel'
 import { AiSettingsPanel } from '@/features/settings/components/ai-settings-panel'
@@ -14,12 +16,23 @@ import { cn } from '@/lib/utils'
 import { useWorkspace } from '@/lib/workspace'
 import { useUiStore } from '@/stores/ui-store'
 
+const BillingSettingsPanel = lazy(() =>
+	import('@/features/settings/components/billing-panel').then((m) => ({
+		default: m.BillingSettingsPanel
+	}))
+)
+const GovernanceSettingsPanel = lazy(() =>
+	import('@/features/settings/components/governance-panel').then((m) => ({
+		default: m.GovernanceSettingsPanel
+	}))
+)
+
 export const Route = createFileRoute('/settings')({
 	component: SettingsRoute
 })
 
 function SettingsRoute() {
-	const { workspaceName, isPreview } = useWorkspace()
+	const { workspaceName, isPreview, mode } = useWorkspace()
 	const settingsSection = useUiStore((s) => s.settingsSection)
 	const setImportDialogOpen = useUiStore((s) => s.setImportDialogOpen)
 	const theme = useUiStore((s) => s.theme)
@@ -86,6 +99,20 @@ function SettingsRoute() {
 
 			<div className={cn(settingsSection === 'ai' && 'rounded-lg ring-1 ring-primary/50')}>
 				<AiSettingsPanel />
+			</div>
+
+			{mode === 'cloud' ? (
+				<div className={cn(settingsSection === 'billing' && 'rounded-lg ring-1 ring-primary/50')}>
+					<Suspense fallback={<Skeleton className="h-24 w-full" />}>
+						<BillingSettingsPanel />
+					</Suspense>
+				</div>
+			) : null}
+
+			<div className={cn(settingsSection === 'governance' && 'rounded-lg ring-1 ring-primary/50')}>
+				<Suspense fallback={<Skeleton className="h-24 w-full" />}>
+					<GovernanceSettingsPanel />
+				</Suspense>
 			</div>
 
 			<div

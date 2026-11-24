@@ -78,6 +78,7 @@ export const NotificationPreferencesDto = Type.Object({
 	quietHoursEnd: Type.Union([Type.String(), Type.Null()]),
 	timezone: Type.String(),
 	webPushEnabled: Type.Boolean(),
+	mobilePushEnabled: Type.Boolean(),
 	lastDigestSentAt: Type.Union([Type.String(), Type.Null()]),
 	updatedAt: Type.String()
 })
@@ -89,9 +90,39 @@ export const UpdateNotificationPreferencesBody = Type.Object({
 	quietHoursStart: Type.Optional(Type.Union([Type.String({ pattern: '^\\d{2}:\\d{2}$' }), Type.Null()])),
 	quietHoursEnd: Type.Optional(Type.Union([Type.String({ pattern: '^\\d{2}:\\d{2}$' }), Type.Null()])),
 	timezone: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
-	webPushEnabled: Type.Optional(Type.Boolean())
+	webPushEnabled: Type.Optional(Type.Boolean()),
+	mobilePushEnabled: Type.Optional(Type.Boolean())
 })
 export type UpdateNotificationPreferencesBody = Static<typeof UpdateNotificationPreferencesBody>
+
+export const MobilePushPlatform = Type.Union([
+	Type.Literal('ios'),
+	Type.Literal('android'),
+	Type.Literal('expo')
+])
+export type MobilePushPlatform = Static<typeof MobilePushPlatform>
+
+export const MobilePushTokenDto = Type.Object({
+	id: Type.String({ format: 'uuid' }),
+	workspaceId: Type.String({ format: 'uuid' }),
+	userId: Type.String({ format: 'uuid' }),
+	token: Type.String(),
+	platform: MobilePushPlatform,
+	deviceId: Type.String(),
+	deviceName: Type.String(),
+	lastUsedAt: Type.Union([Type.String(), Type.Null()]),
+	revokedAt: Type.Union([Type.String(), Type.Null()]),
+	createdAt: Type.String()
+})
+export type MobilePushTokenDto = Static<typeof MobilePushTokenDto>
+
+export const RegisterMobilePushTokenBody = Type.Object({
+	token: Type.String({ minLength: 10, maxLength: 512 }),
+	platform: MobilePushPlatform,
+	deviceId: Type.String({ minLength: 1, maxLength: 128 }),
+	deviceName: Type.Optional(Type.String({ maxLength: 200 }))
+})
+export type RegisterMobilePushTokenBody = Static<typeof RegisterMobilePushTokenBody>
 
 export const WebPushSubscriptionDto = Type.Object({
 	id: Type.String({ format: 'uuid' }),
@@ -120,7 +151,12 @@ export const NotificationDeliveryLogDto = Type.Object({
 	workspaceId: Type.String({ format: 'uuid' }),
 	notificationId: Type.Union([Type.String({ format: 'uuid' }), Type.Null()]),
 	userId: Type.String({ format: 'uuid' }),
-	channel: Type.Union([Type.Literal('in_app'), Type.Literal('email_digest'), Type.Literal('web_push')]),
+	channel: Type.Union([
+		Type.Literal('in_app'),
+		Type.Literal('email_digest'),
+		Type.Literal('web_push'),
+		Type.Literal('mobile_push')
+	]),
 	status: Type.Union([
 		Type.Literal('pending'),
 		Type.Literal('sent'),

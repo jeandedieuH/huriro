@@ -1,5 +1,5 @@
 /**
- * Docs controller & cross-module seam (Â§5.4, Â§7.2, Â§10).
+ * Docs controller & cross-module seam (§5.4, §7.2, §10).
  */
 import type { Queryable, Sql } from '@huriro/db'
 import { Elysia } from 'elysia'

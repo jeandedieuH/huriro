@@ -4,11 +4,36 @@
  * to a timestamped file with a manifest (§19.3).
  */
 
+import { createHash } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
-import { migrate, migrationsDir } from '@huriro/db'
+import { migrate, migrationsDir, type Sql } from '@huriro/db'
 import postgres from 'postgres'
 import { loadEnv } from '../env'
 import { rotateBootstrapSetupToken, SetupError } from '../modules/tenancy'
+
+const SENTINEL_TABLES = [
+	'workspaces',
+	'users',
+	'issues',
+	'doc_pages',
+	'chat_messages',
+	'mail_conversations',
+	'audit_log'
+] as const
+
+export function fingerprintSecretKey(secretKey: string | undefined): string | null {
+	if (!secretKey) return null
+	return createHash('sha256').update(secretKey, 'utf8').digest('hex').slice(0, 12)
+}
+
+export async function collectSentinelCounts(sql: Sql): Promise<Record<string, number>> {
+	const counts: Record<string, number> = {}
+	for (const table of SENTINEL_TABLES) {
+		const [row] = await sql.unsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM ${table}`)
+		counts[table] = row?.n ?? 0
+	}
+	return counts
+}
 
 export async function migrateCmd(args: string[]): Promise<void> {
 	const dir = flag(args, '--dir') ?? migrationsDir
@@ -80,6 +105,14 @@ export async function backup(args: string[]): Promise<void> {
 	const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 	const file = `${outDir}/huriro-${stamp}.dump`
 
+	const sourcePool = postgres(env.databaseAdminUrl, { max: 1 })
+	let sentinelCounts: Record<string, number> = {}
+	try {
+		sentinelCounts = await collectSentinelCounts(sourcePool)
+	} finally {
+		await sourcePool.end()
+	}
+
 	// --format=custom restores selectively + compresses; --no-owner keeps
 	// restores portable across role names (§19.3).
 	const proc = Bun.spawn(
@@ -91,7 +124,14 @@ export async function backup(args: string[]): Promise<void> {
 		console.error(`pg_dump failed (exit ${code})`)
 		process.exit(code)
 	}
-	await Bun.write(`${file}.manifest.json`, JSON.stringify({ file, at: stamp, format: 'custom' }, null, 2))
+	const manifest = {
+		file,
+		at: stamp,
+		format: 'custom',
+		secretKeyFingerprint: fingerprintSecretKey(env.secretKey),
+		sentinelCounts
+	}
+	await Bun.write(`${file}.manifest.json`, JSON.stringify(manifest, null, 2))
 	console.log(`backup: ${file}`)
 
 	if (args.includes('--verify')) {
@@ -108,9 +148,21 @@ export async function backup(args: string[]): Promise<void> {
 			})
 			if ((await rp.exited) !== 0) throw new Error('pg_restore failed')
 			const s = postgres(scratchUrl, { max: 1 })
-			const [n] = await s<{ n: number }[]>`SELECT count(*)::int AS n FROM workspaces`
-			await s.end()
-			console.log(`verify: restored into ${scratch} (${n?.n} workspaces)`)
+			try {
+				const restoredCounts = await collectSentinelCounts(s)
+				for (const table of SENTINEL_TABLES) {
+					const expected = sentinelCounts[table] ?? 0
+					const actual = restoredCounts[table] ?? 0
+					if (actual !== expected) {
+						throw new Error(`verify mismatch on ${table}: expected ${expected}, restored ${actual}`)
+					}
+				}
+				console.log(
+					`verify: restored into ${scratch} (${restoredCounts['workspaces']} workspaces, ${restoredCounts['issues']} issues, ${restoredCounts['doc_pages']} docs)`
+				)
+			} finally {
+				await s.end()
+			}
 		} finally {
 			await admin.unsafe(`DROP DATABASE IF EXISTS ${scratch}`).catch(() => {})
 			await admin.end()
@@ -121,7 +173,7 @@ export async function backup(args: string[]): Promise<void> {
 export async function restore(args: string[]): Promise<void> {
 	const file = args.find((a) => !a.startsWith('--'))
 	if (!file) {
-		console.error('usage: huriro restore <file.dump> [--yes]')
+		console.error('usage: huriro restore <file.dump> [--yes] [--ignore-key-mismatch]')
 		process.exit(1)
 	}
 	if (!args.includes('--yes')) {
@@ -129,6 +181,21 @@ export async function restore(args: string[]): Promise<void> {
 		process.exit(1)
 	}
 	const env = await loadEnv()
+	const manifestFile = Bun.file(`${file}.manifest.json`)
+	if (await manifestFile.exists()) {
+		const manifest = (await manifestFile.json()) as { secretKeyFingerprint?: string | null }
+		const currentFp = fingerprintSecretKey(env.secretKey)
+		if (
+			manifest.secretKeyFingerprint &&
+			currentFp !== manifest.secretKeyFingerprint &&
+			!args.includes('--ignore-key-mismatch')
+		) {
+			console.error(
+				`Secret key mismatch: backup expects HURIRO_SECRET_KEY fingerprint ${manifest.secretKeyFingerprint}, current is ${currentFp ?? 'unset'} (§19.5 key escrow). Pass --ignore-key-mismatch to override.`
+			)
+			process.exit(1)
+		}
+	}
 	const proc = Bun.spawn(
 		['pg_restore', '--clean', '--if-exists', '--no-owner', '--dbname', env.databaseAdminUrl, file],
 		{

@@ -62,7 +62,12 @@ export const ERROR_CODES = [
 	'mail_draft_locked',
 	'mail_provider_unconfigured',
 	'mail_send_window_expired',
-	'mail_message_too_large'
+	'mail_message_too_large',
+	// M6 mobile, billing, governance, hardening (§19–§22)
+	'read_only_mode',
+	'billing_disabled',
+	'web_only_billing',
+	'export_failed'
 ] as const
 
 export type ErrorCode = (typeof ERROR_CODES)[number]

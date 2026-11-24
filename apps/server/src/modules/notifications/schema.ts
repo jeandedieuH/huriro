@@ -3,6 +3,7 @@ import { Type } from 'typebox'
 export {
 	CreateWebPushSubscriptionBody,
 	NotificationsListQuery,
+	RegisterMobilePushTokenBody,
 	UpdateNotificationPreferencesBody
 } from '@huriro/contracts'
 
@@ -11,6 +12,10 @@ export const NotificationIdParam = Type.Object({
 })
 
 export const SubscriptionIdParam = Type.Object({
+	id: Type.String({ format: 'uuid' })
+})
+
+export const MobileTokenIdParam = Type.Object({
 	id: Type.String({ format: 'uuid' })
 })
 

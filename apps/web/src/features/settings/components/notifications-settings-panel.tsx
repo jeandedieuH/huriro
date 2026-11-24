@@ -63,7 +63,8 @@ export function NotificationsSettingsPanel() {
 				quietHoursStart: prefs.quietHoursStart || null,
 				quietHoursEnd: prefs.quietHoursEnd || null,
 				timezone: prefs.timezone.trim() || 'UTC',
-				webPushEnabled: prefs.webPushEnabled
+				webPushEnabled: prefs.webPushEnabled,
+				mobilePushEnabled: prefs.mobilePushEnabled
 			})
 			setPrefs(updated)
 			pushToast({ tone: 'success', title: t('settings.notifications.saved') })
@@ -203,6 +204,17 @@ export function NotificationsSettingsPanel() {
 					/>
 					<label htmlFor="notif-web-push" className="text-xs font-medium">
 						{t('settings.notifications.web-push')}
+					</label>
+				</div>
+
+				<div className="flex items-center gap-2">
+					<Checkbox
+						id="notif-mobile-push"
+						checked={prefs.mobilePushEnabled}
+						onCheckedChange={(checked) => setPrefs({ ...prefs, mobilePushEnabled: checked === true })}
+					/>
+					<label htmlFor="notif-mobile-push" className="text-xs font-medium">
+						{t('settings.notifications.mobile-push')}
 					</label>
 				</div>
 

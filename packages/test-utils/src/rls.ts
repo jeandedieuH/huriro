@@ -76,7 +76,11 @@ export const TENANT_TABLES = [
 	'mail_drafts',
 	'mail_conversation_tasks',
 	'mail_conversation_docs',
-	'mail_message_attachments'
+	'mail_message_attachments',
+	'mobile_push_tokens',
+	'billing_subscriptions',
+	'billing_usage_snapshots',
+	'workspace_exports'
 ] as const
 
 /**
@@ -101,7 +105,8 @@ export const SYSTEM_TABLES = [
 	'huriro_bootstrap',
 	'schema_migrations',
 	'github_webhook_events',
-	'embedding_models'
+	'embedding_models',
+	'billing_webhook_events'
 ] as const
 
 export type TableClass = 'tenant' | 'instance_rls' | 'system'

@@ -72,6 +72,14 @@
 		{
 			"name": "mail",
 			"description": "Shared inbox — accounts, conversations, drafts (§14)"
+		},
+		{
+			"name": "governance",
+			"description": "GDPR workspace exports and self-service erasure (§22.2)"
+		},
+		{
+			"name": "billing",
+			"description": "Cloud workspace subscriptions and metering (§2.5, §23 M6)"
 		}
 	],
 	"openapi": "3.1.2",
@@ -94,6 +102,16 @@
 		"/api/v1/integrations/github/webhook": {
 			"post": {
 				"operationId": "postApiV1IntegrationsGithubWebhook"
+			}
+		},
+		"/api/v1/billing/webhooks/polar": {
+			"post": {
+				"operationId": "postApiV1BillingWebhooksPolar"
+			}
+		},
+		"/api/v1/billing/webhooks/irembopay": {
+			"post": {
+				"operationId": "postApiV1BillingWebhooksIrembopay"
 			}
 		},
 		"/api/v1/auth/providers": {
@@ -6882,6 +6900,9 @@
 									},
 									"webPushEnabled": {
 										"type": "boolean"
+									},
+									"mobilePushEnabled": {
+										"type": "boolean"
 									}
 								}
 							}
@@ -6927,6 +6948,9 @@
 									},
 									"webPushEnabled": {
 										"type": "boolean"
+									},
+									"mobilePushEnabled": {
+										"type": "boolean"
 									}
 								}
 							}
@@ -6971,6 +6995,9 @@
 										"maxLength": 80
 									},
 									"webPushEnabled": {
+										"type": "boolean"
+									},
+									"mobilePushEnabled": {
 										"type": "boolean"
 									}
 								}
@@ -7130,6 +7157,137 @@
 					}
 				],
 				"operationId": "deleteApiV1NotificationsPushSubscriptionsById"
+			}
+		},
+		"/api/v1/notifications/push/mobile-tokens": {
+			"get": {
+				"operationId": "getApiV1NotificationsPushMobile-tokens"
+			},
+			"post": {
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"token",
+									"platform",
+									"deviceId"
+								],
+								"properties": {
+									"token": {
+										"type": "string",
+										"minLength": 10,
+										"maxLength": 512
+									},
+									"platform": {
+										"type": "string",
+										"enum": [
+											"ios",
+											"android",
+											"expo"
+										]
+									},
+									"deviceId": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									},
+									"deviceName": {
+										"type": "string",
+										"maxLength": 200
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"token",
+									"platform",
+									"deviceId"
+								],
+								"properties": {
+									"token": {
+										"type": "string",
+										"minLength": 10,
+										"maxLength": 512
+									},
+									"platform": {
+										"type": "string",
+										"enum": [
+											"ios",
+											"android",
+											"expo"
+										]
+									},
+									"deviceId": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									},
+									"deviceName": {
+										"type": "string",
+										"maxLength": 200
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"token",
+									"platform",
+									"deviceId"
+								],
+								"properties": {
+									"token": {
+										"type": "string",
+										"minLength": 10,
+										"maxLength": 512
+									},
+									"platform": {
+										"type": "string",
+										"enum": [
+											"ios",
+											"android",
+											"expo"
+										]
+									},
+									"deviceId": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									},
+									"deviceName": {
+										"type": "string",
+										"maxLength": 200
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1NotificationsPushMobile-tokens"
+			}
+		},
+		"/api/v1/notifications/push/mobile-tokens/{id}": {
+			"delete": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "deleteApiV1NotificationsPushMobile-tokensById"
 			}
 		},
 		"/api/v1/notifications/deliveries": {
@@ -15331,6 +15489,326 @@
 					}
 				],
 				"operationId": "postApiV1MailDraftsByDraftIdUndo"
+			}
+		},
+		"/api/v1/governance/erase-me": {
+			"post": {
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"confirmEmail"
+								],
+								"properties": {
+									"confirmEmail": {
+										"type": "string",
+										"minLength": 3,
+										"maxLength": 320
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"confirmEmail"
+								],
+								"properties": {
+									"confirmEmail": {
+										"type": "string",
+										"minLength": 3,
+										"maxLength": 320
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"confirmEmail"
+								],
+								"properties": {
+									"confirmEmail": {
+										"type": "string",
+										"minLength": 3,
+										"maxLength": 320
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1GovernanceErase-me"
+			}
+		},
+		"/api/v1/governance/exports": {
+			"get": {
+				"operationId": "getApiV1GovernanceExports"
+			},
+			"post": {
+				"operationId": "postApiV1GovernanceExports"
+			}
+		},
+		"/api/v1/governance/exports/{id}/download": {
+			"get": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "getApiV1GovernanceExportsByIdDownload"
+			}
+		},
+		"/api/v1/billing/subscription": {
+			"get": {
+				"operationId": "getApiV1BillingSubscription"
+			}
+		},
+		"/api/v1/billing/checkout": {
+			"post": {
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"plan",
+									"provider",
+									"successUrl",
+									"cancelUrl"
+								],
+								"properties": {
+									"plan": {
+										"type": "string",
+										"const": "pro"
+									},
+									"provider": {
+										"type": "string",
+										"enum": [
+											"polar",
+											"irembopay"
+										]
+									},
+									"successUrl": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2048
+									},
+									"cancelUrl": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2048
+									},
+									"billingEmail": {
+										"type": "string",
+										"format": "email"
+									},
+									"billingName": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 120
+									},
+									"paymentMethod": {
+										"type": "string",
+										"enum": [
+											"card",
+											"mtn_momo",
+											"airtel_money",
+											"irembopay_hosted"
+										]
+									},
+									"phoneNumber": {
+										"type": "string",
+										"minLength": 9,
+										"maxLength": 20
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"plan",
+									"provider",
+									"successUrl",
+									"cancelUrl"
+								],
+								"properties": {
+									"plan": {
+										"type": "string",
+										"const": "pro"
+									},
+									"provider": {
+										"type": "string",
+										"enum": [
+											"polar",
+											"irembopay"
+										]
+									},
+									"successUrl": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2048
+									},
+									"cancelUrl": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2048
+									},
+									"billingEmail": {
+										"type": "string",
+										"format": "email"
+									},
+									"billingName": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 120
+									},
+									"paymentMethod": {
+										"type": "string",
+										"enum": [
+											"card",
+											"mtn_momo",
+											"airtel_money",
+											"irembopay_hosted"
+										]
+									},
+									"phoneNumber": {
+										"type": "string",
+										"minLength": 9,
+										"maxLength": 20
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"plan",
+									"provider",
+									"successUrl",
+									"cancelUrl"
+								],
+								"properties": {
+									"plan": {
+										"type": "string",
+										"const": "pro"
+									},
+									"provider": {
+										"type": "string",
+										"enum": [
+											"polar",
+											"irembopay"
+										]
+									},
+									"successUrl": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2048
+									},
+									"cancelUrl": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2048
+									},
+									"billingEmail": {
+										"type": "string",
+										"format": "email"
+									},
+									"billingName": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 120
+									},
+									"paymentMethod": {
+										"type": "string",
+										"enum": [
+											"card",
+											"mtn_momo",
+											"airtel_money",
+											"irembopay_hosted"
+										]
+									},
+									"phoneNumber": {
+										"type": "string",
+										"minLength": 9,
+										"maxLength": 20
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1BillingCheckout"
+			}
+		},
+		"/api/v1/billing/portal": {
+			"post": {
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"returnUrl"
+								],
+								"properties": {
+									"returnUrl": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2048
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"returnUrl"
+								],
+								"properties": {
+									"returnUrl": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2048
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"returnUrl"
+								],
+								"properties": {
+									"returnUrl": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2048
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1BillingPortal"
 			}
 		}
 	},

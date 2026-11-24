@@ -5,10 +5,17 @@
  */
 import type { StorageAdapter } from '@tanstack/offline-transactions'
 
-export type ReplicaStorageMode = 'opfs' | 'idb' | 'memory'
+export type ReplicaStorageMode = 'opfs' | 'idb' | 'sqlite' | 'memory'
 
 export interface ReplicaStorage extends StorageAdapter {
 	readonly mode: ReplicaStorageMode
+}
+
+export interface SqliteDatabaseLike {
+	execAsync(source: string): Promise<void>
+	getFirstAsync<T>(source: string, ...params: unknown[]): Promise<T | null>
+	getAllAsync<T>(source: string, ...params: unknown[]): Promise<T[]>
+	runAsync(source: string, ...params: unknown[]): Promise<unknown>
 }
 
 function encodeKey(key: string): string {
@@ -201,6 +208,71 @@ export class IndexedDbReplicaStorage implements ReplicaStorage {
 		} finally {
 			db.close()
 		}
+	}
+}
+
+export class SqliteReplicaStorage implements ReplicaStorage {
+	readonly mode: ReplicaStorageMode = 'sqlite'
+	private readonly db: SqliteDatabaseLike
+	private readonly workspaceId: string
+	private initPromise: Promise<void> | null = null
+
+	constructor(db: SqliteDatabaseLike, workspaceId: string) {
+		this.db = db
+		this.workspaceId = workspaceId
+	}
+
+	private ensureTable(): Promise<void> {
+		if (!this.initPromise) {
+			this.initPromise = this.db.execAsync(
+				'CREATE TABLE IF NOT EXISTS huriro_replica_kv (workspace_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (workspace_id, key))'
+			)
+		}
+		return this.initPromise
+	}
+
+	async get(key: string): Promise<string | null> {
+		await this.ensureTable()
+		const row = await this.db.getFirstAsync<{ value: string }>(
+			'SELECT value FROM huriro_replica_kv WHERE workspace_id = ? AND key = ?',
+			this.workspaceId,
+			key
+		)
+		return row?.value ?? null
+	}
+
+	async set(key: string, value: string): Promise<void> {
+		await this.ensureTable()
+		await this.db.runAsync(
+			'INSERT INTO huriro_replica_kv (workspace_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(workspace_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+			this.workspaceId,
+			key,
+			value,
+			new Date().toISOString()
+		)
+	}
+
+	async delete(key: string): Promise<void> {
+		await this.ensureTable()
+		await this.db.runAsync(
+			'DELETE FROM huriro_replica_kv WHERE workspace_id = ? AND key = ?',
+			this.workspaceId,
+			key
+		)
+	}
+
+	async keys(): Promise<string[]> {
+		await this.ensureTable()
+		const rows = await this.db.getAllAsync<{ key: string }>(
+			'SELECT key FROM huriro_replica_kv WHERE workspace_id = ? ORDER BY key ASC',
+			this.workspaceId
+		)
+		return rows.map((r) => r.key)
+	}
+
+	async clear(): Promise<void> {
+		await this.ensureTable()
+		await this.db.runAsync('DELETE FROM huriro_replica_kv WHERE workspace_id = ?', this.workspaceId)
 	}
 }
 

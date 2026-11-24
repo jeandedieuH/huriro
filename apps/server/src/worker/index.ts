@@ -12,6 +12,7 @@ import type { DnsResolver } from '../api/egress'
 import { log, outboxLag } from '../api/observability'
 import { sweepExpiredApprovals } from '../modules/agents'
 import { processEmbeddingOutboxEvent } from '../modules/ai'
+import { captureDailyBillingUsageOnce } from '../modules/billing'
 import { processChatLinkPreviewOutboxEvent } from '../modules/chat'
 import { runDocMaintenanceOnce } from '../modules/docs'
 import { type BlobStorage, processFileQuarantineOutboxEvent } from '../modules/files'
@@ -28,8 +29,10 @@ import {
 	syncAccount
 } from '../modules/mail'
 import {
+	dispatchMobilePushNotifications,
 	dispatchWebPushNotifications,
 	type EmailTransport,
+	type ExpoPushConfig,
 	processNotificationOutboxEvent,
 	runEmailDigestOnce,
 	type VapidConfig
@@ -45,6 +48,7 @@ export interface DrainOutboxOptions {
 	readonly rootSecret?: string | undefined
 	readonly githubClient?: GithubApiClient | undefined
 	readonly vapid?: VapidConfig | undefined
+	readonly expoPush?: ExpoPushConfig | undefined
 	readonly egressFetch?: typeof fetch | undefined
 	readonly egressResolver?: DnsResolver | undefined
 	readonly mail?: Partial<MailModuleConfig> | undefined
@@ -56,6 +60,7 @@ export interface DrainOutboxOptions {
 export interface WorkerDeps extends DrainOutboxOptions {
 	readonly adminUrl: string
 	readonly app: Sql
+	readonly mode?: 'selfhost' | 'cloud' | undefined
 	readonly pubsub?: RealtimePubSub
 	readonly heartbeatUrl?: string | undefined
 	readonly outboxIntervalMs?: number
@@ -175,6 +180,14 @@ export async function drainOutboxOnce(
 						fetchImpl: opts.egressFetch,
 						resolver: opts.egressResolver
 					}).catch((err) => log.warn({ err, outboxId: row.id }, 'web push dispatch error'))
+				}
+
+				if (txResult.pendingMobilePush.length > 0 && opts?.expoPush) {
+					await dispatchMobilePushNotifications(app, row.workspaceId, txResult.pendingMobilePush, {
+						expo: opts.expoPush,
+						fetchImpl: opts.egressFetch,
+						resolver: opts.egressResolver
+					}).catch((err) => log.warn({ err, outboxId: row.id }, 'mobile push dispatch error'))
 				}
 
 				await processChatLinkPreviewOutboxEvent(
@@ -393,6 +406,15 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 	}
 
 	// Dead-man switch: page the operator if the worker loop goes quiet (§20.4).
+	if (deps.mode === 'cloud') {
+		await boss.createQueue('billing-usage-snapshot')
+		await boss.schedule('billing-usage-snapshot', '0 1 * * *', {}, { tz: 'UTC' })
+		await boss.work('billing-usage-snapshot', async () => {
+			const count = await captureDailyBillingUsageOnce(deps.app)
+			if (count > 0) log.info({ workspaces: count }, 'daily billing usage snapshot captured')
+		})
+	}
+
 	const heartbeatMs = 60_000
 	const heartbeat = deps.heartbeatUrl
 		? setInterval(() => {

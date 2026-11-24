@@ -3,7 +3,7 @@ import type { EncodedAnchor } from '@huriro/editor'
 import { t } from '@huriro/i18n'
 import { useCollectionItems, useSyncEngine } from '@huriro/sync-client'
 import { FilePlus2 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { ErrorState } from '@/components/ui/error-state'
@@ -16,9 +16,11 @@ import { CommentThreadPanel } from './comment-thread-panel'
 import { CreateDocDialog } from './create-doc-dialog'
 import { DocImportDialog } from './doc-import-dialog'
 import { DocShareDialog } from './doc-share-dialog'
-import { EditorShell } from './editor-shell'
 import { TocRail } from './toc-rail'
 import { VersionTimelinePanel } from './version-timeline-panel'
+
+// Lazy-load TipTap/Hocuspocus editor shell to keep initial web shell <= 200 KB gzip (§21.4).
+const EditorShell = lazy(() => import('./editor-shell').then((m) => ({ default: m.EditorShell })))
 
 export interface DocsWorkspaceProps {
 	readonly api: TaskApiBridge
@@ -166,36 +168,38 @@ export function DocsWorkspace({
 						}
 					/>
 				) : detail ? (
-					<EditorShell
-						key={detail.page.id}
-						detail={{
-							...detail,
-							page: activePageSummary ?? detail.page
-						}}
-						api={api}
-						isPreview={isPreview}
-						userDisplayName={currentMemberName}
-						onUpdateTitle={async (title) => {
-							await engine.updateDocPage(detail.page.id, { title })
-						}}
-						onToggleFavorite={async (favorite) => {
-							const updated = await api.setDocFavorite(detail.page.id, favorite)
-							engine.collections.docPagesManaged.upsertMany([updated])
-							setDetail((prev) => (prev ? { ...prev, page: updated } : prev))
-						}}
-						onExportMarkdown={handleExportMarkdown}
-						onSplitPage={async (title) => {
-							const child = await api.splitDocPage(detail.page.id, title)
-							engine.collections.docPagesManaged.upsertMany([child])
-							selectSlug(child.slug)
-						}}
-						onStartAnchoredComment={(anchor, selectedText) => {
-							setDraftAnchor(anchor)
-							setDraftQuote(selectedText || null)
-							setActivePanel('comments')
-						}}
-						onHeadingsChange={setHeadings}
-					/>
+					<Suspense fallback={<Skeleton className="m-8 h-64 w-full" />}>
+						<EditorShell
+							key={detail.page.id}
+							detail={{
+								...detail,
+								page: activePageSummary ?? detail.page
+							}}
+							api={api}
+							isPreview={isPreview}
+							userDisplayName={currentMemberName}
+							onUpdateTitle={async (title) => {
+								await engine.updateDocPage(detail.page.id, { title })
+							}}
+							onToggleFavorite={async (favorite) => {
+								const updated = await api.setDocFavorite(detail.page.id, favorite)
+								engine.collections.docPagesManaged.upsertMany([updated])
+								setDetail((prev) => (prev ? { ...prev, page: updated } : prev))
+							}}
+							onExportMarkdown={handleExportMarkdown}
+							onSplitPage={async (title) => {
+								const child = await api.splitDocPage(detail.page.id, title)
+								engine.collections.docPagesManaged.upsertMany([child])
+								selectSlug(child.slug)
+							}}
+							onStartAnchoredComment={(anchor, selectedText) => {
+								setDraftAnchor(anchor)
+								setDraftQuote(selectedText || null)
+								setActivePanel('comments')
+							}}
+							onHeadingsChange={setHeadings}
+						/>
+					</Suspense>
 				) : null}
 			</div>
 

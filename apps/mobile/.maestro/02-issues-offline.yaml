@@ -1,0 +1,11 @@
+appId: app.huriro.mobile
+---
+- launchApp
+- tapOn: "Explore offline demo"
+- tapOn: "Issues"
+- assertVisible: "ENG-1"
+- tapOn: "Quick issue title…"
+- inputText: "Offline mobile QA task"
+- tapOn: "Add Issue"
+- assertVisible: "Offline mobile QA task"
+- assertVisible: "Offline"

@@ -2,6 +2,8 @@
  * `huriro doctor` — preflight + fix hints (§12.2, §19.2). Exit code 1 when any
  * required check fails so scripts and CI can gate on it.
  */
+import { readdir } from 'node:fs/promises'
+import net from 'node:net'
 import { migrationsDir, pendingMigrations, type Sql } from '@huriro/db'
 import postgres from 'postgres'
 import { loadEnv } from '../env'
@@ -119,9 +121,72 @@ export async function doctor(args: string[]): Promise<void> {
 		})
 	}
 
+	// --- read-only maintenance mode + optional Valkey + backup freshness (§19.2, §20.3) ---
+	try {
+		const env = await loadEnv()
+		checks.push({
+			name: 'write mode',
+			ok: !env.HURIRO_READ_ONLY,
+			detail: env.HURIRO_READ_ONLY ? 'HURIRO_READ_ONLY=true (writes return 503)' : 'read-write',
+			hint: env.HURIRO_READ_ONLY ? 'unset HURIRO_READ_ONLY after maintenance completes' : undefined
+		})
+
+		if (env.VALKEY_URL) {
+			const valkeyOk = await checkTcpPort(env.VALKEY_URL)
+			checks.push({
+				name: 'valkey',
+				ok: valkeyOk,
+				detail: valkeyOk ? 'reachable' : 'unreachable',
+				hint: valkeyOk ? undefined : 'check VALKEY_URL or `--profile valkey` service'
+			})
+		}
+
+		const backupsDir = flag(args, '--backups-dir')
+		if (backupsDir) {
+			const files = await readdir(backupsDir).catch(() => [] as string[])
+			const manifests = files.filter((f) => f.endsWith('.manifest.json')).sort()
+			const latest = manifests.at(-1)
+			checks.push({
+				name: 'backup manifest',
+				ok: Boolean(latest),
+				detail: latest ? `latest: ${latest}` : `no backup manifests in ${backupsDir}`,
+				hint: latest ? undefined : 'run `huriro backup --verify`'
+			})
+		}
+	} catch {
+		// Environment failure was already reported above.
+	}
+
 	report(checks)
 	await sql?.end()
 	process.exit(checks.every((c) => c.ok) ? 0 : 1)
+}
+
+async function checkTcpPort(rawUrl: string): Promise<boolean> {
+	try {
+		const u = new URL(rawUrl)
+		const host = u.hostname || '127.0.0.1'
+		const port = u.port ? Number.parseInt(u.port, 10) : 6379
+		return await new Promise<boolean>((resolve) => {
+			const sock = net.createConnection({ host, port })
+			const timer = setTimeout(() => {
+				sock.destroy()
+				resolve(false)
+			}, 2_000)
+			sock.once('connect', () => {
+				clearTimeout(timer)
+				sock.destroy()
+				resolve(true)
+			})
+			sock.once('error', () => {
+				clearTimeout(timer)
+				sock.destroy()
+				resolve(false)
+			})
+		})
+	} catch {
+		return false
+	}
 }
 
 function report(checks: Check[]) {

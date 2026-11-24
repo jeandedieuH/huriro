@@ -33,6 +33,11 @@ export interface Config extends Env {
 	readonly githubAppWebhookSecret: string | undefined
 	readonly gmailClientSecret: string | undefined
 	readonly msClientSecret: string | undefined
+	readonly expoPushAccessToken: string | undefined
+	readonly polarAccessToken: string | undefined
+	readonly polarWebhookSecret: string | undefined
+	readonly iremboPaySecretKey: string | undefined
+	readonly iremboPayWebhookSecret: string | undefined
 }
 
 let cached: Config | null = null
@@ -67,6 +72,13 @@ export async function loadEnv(source: Record<string, string | undefined> = proce
 	const gmailClientSecret = env.GMAIL_CLIENT_SECRET ?? (await readSecretFile(env.GMAIL_CLIENT_SECRET_FILE))
 	const msClientSecret =
 		env.MICROSOFT_CLIENT_SECRET ?? (await readSecretFile(env.MICROSOFT_CLIENT_SECRET_FILE))
+	const expoPushAccessToken =
+		env.EXPO_PUSH_ACCESS_TOKEN ?? (await readSecretFile(env.EXPO_PUSH_ACCESS_TOKEN_FILE))
+	const polarAccessToken = env.POLAR_ACCESS_TOKEN ?? (await readSecretFile(env.POLAR_ACCESS_TOKEN_FILE))
+	const polarWebhookSecret = env.POLAR_WEBHOOK_SECRET ?? (await readSecretFile(env.POLAR_WEBHOOK_SECRET_FILE))
+	const iremboPaySecretKey = env.IREMBOPAY_SECRET_KEY ?? (await readSecretFile(env.IREMBOPAY_SECRET_KEY_FILE))
+	const iremboPayWebhookSecret =
+		env.IREMBOPAY_WEBHOOK_SECRET ?? (await readSecretFile(env.IREMBOPAY_WEBHOOK_SECRET_FILE))
 
 	if (!databaseUrl) problems.push('DATABASE_URL or DATABASE_URL_FILE is required')
 	if (env.HURIRO_ENV === 'production' && !secretKey) {
@@ -111,7 +123,12 @@ export async function loadEnv(source: Record<string, string | undefined> = proce
 		githubAppPrivateKey,
 		githubAppWebhookSecret,
 		gmailClientSecret,
-		msClientSecret
+		msClientSecret,
+		expoPushAccessToken,
+		polarAccessToken,
+		polarWebhookSecret,
+		iremboPaySecretKey,
+		iremboPayWebhookSecret
 	}
 	return cached
 }

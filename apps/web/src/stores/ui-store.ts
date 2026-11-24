@@ -10,6 +10,8 @@ export type InboxPane = 'notifications' | 'mail'
 export type SettingsSection =
 	| 'general'
 	| 'notifications'
+	| 'billing'
+	| 'governance'
 	| 'imports'
 	| 'webhooks'
 	| 'agents'
@@ -71,6 +73,7 @@ export interface UiState {
 	createProjectOpen: boolean
 	conflictDialogOpen: boolean
 	importDialogOpen: boolean
+	serverReadOnly: boolean
 
 	// Docs workspace ephemeral state
 	docsSidebarOpen: boolean
@@ -111,6 +114,7 @@ export interface UiState {
 	setCreateProjectOpen: (open: boolean) => void
 	setConflictDialogOpen: (conflictDialogOpen: boolean) => void
 	setImportDialogOpen: (open: boolean) => void
+	setServerReadOnly: (readOnly: boolean) => void
 	setDocsSidebarOpen: (open: boolean) => void
 	setActiveDocSidePanel: (panel: DocSidePanel) => void
 	setCreateDocOpen: (open: boolean) => void
@@ -159,6 +163,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 	createProjectOpen: false,
 	conflictDialogOpen: false,
 	importDialogOpen: false,
+	serverReadOnly: false,
 
 	docsSidebarOpen: true,
 	activeDocSidePanel: 'comments',
@@ -233,6 +238,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 	setCreateProjectOpen: (createProjectOpen) => set({ createProjectOpen }),
 	setConflictDialogOpen: (conflictDialogOpen) => set({ conflictDialogOpen }),
 	setImportDialogOpen: (importDialogOpen) => set({ importDialogOpen }),
+	setServerReadOnly: (serverReadOnly) => set({ serverReadOnly }),
 	setDocsSidebarOpen: (docsSidebarOpen) => set({ docsSidebarOpen }),
 	setActiveDocSidePanel: (activeDocSidePanel) => set({ activeDocSidePanel }),
 	setCreateDocOpen: (createDocOpen) => set({ createDocOpen }),

@@ -31,6 +31,11 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/approvals/{id}`
 - `/api/v1/approvals/{id}/decide`
 - `/api/v1/auth/providers`
+- `/api/v1/billing/checkout`
+- `/api/v1/billing/portal`
+- `/api/v1/billing/subscription`
+- `/api/v1/billing/webhooks/irembopay`
+- `/api/v1/billing/webhooks/polar`
 - `/api/v1/chat/channels`
 - `/api/v1/chat/channels/{id}`
 - `/api/v1/chat/channels/{id}/changes`
@@ -69,6 +74,9 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/files/{id}/download`
 - `/api/v1/files/{id}/finalize`
 - `/api/v1/flags`
+- `/api/v1/governance/erase-me`
+- `/api/v1/governance/exports`
+- `/api/v1/governance/exports/{id}/download`
 - `/api/v1/imports`
 - `/api/v1/imports/dry-run`
 - `/api/v1/imports/execute`
@@ -124,6 +132,8 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/notifications`
 - `/api/v1/notifications/deliveries`
 - `/api/v1/notifications/preferences`
+- `/api/v1/notifications/push/mobile-tokens`
+- `/api/v1/notifications/push/mobile-tokens/{id}`
 - `/api/v1/notifications/push/subscriptions`
 - `/api/v1/notifications/push/subscriptions/{id}`
 - `/api/v1/notifications/push/vapid-key`

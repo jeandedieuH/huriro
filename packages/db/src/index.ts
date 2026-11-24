@@ -21,6 +21,7 @@ export {
 	authVerifications,
 	betterAuthSchema
 } from './schema/auth'
+export { billingSubscriptions, billingUsageSnapshots, billingWebhookEvents } from './schema/billing'
 export {
 	chatChannelMembers,
 	chatChannels,
@@ -42,6 +43,7 @@ export {
 	docVersions
 } from './schema/docs'
 export { files } from './schema/files'
+export { workspaceExports } from './schema/governance'
 export { users } from './schema/identity'
 export { importJobs, importMappings } from './schema/imports'
 export { githubInstallations, githubWebhookEvents, issueGithubLinks } from './schema/integrations'
@@ -59,6 +61,7 @@ export {
 	mailMessages
 } from './schema/mail'
 export {
+	mobilePushTokens,
 	notificationDeliveryLog,
 	notificationPreferences,
 	notifications,

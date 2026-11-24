@@ -1,0 +1,9 @@
+appId: app.huriro.mobile
+---
+- launchApp
+- assertVisible: "Sign in to Huriro"
+- tapOn: "Explore offline demo"
+- assertVisible: "Inbox"
+- assertVisible: "Assigned ENG-1"
+- tapOn: "Settings"
+- assertVisible: "managed on the Huriro web app"

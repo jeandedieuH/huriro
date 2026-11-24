@@ -10,10 +10,11 @@
  *   - 60 messages/min per-socket token bucket rate limit
  *   - 20 s heartbeat ping/pong + 5 min periodic re-authorization check
  */
+import { randomUUID } from 'node:crypto'
 import type { WsClientMessage, WsPresenceUser, WsServerMessage } from '@huriro/contracts'
 import { isUuid, type Sql, withWorkspace } from '@huriro/db'
 import type { ServerWebSocket } from 'bun'
-import { log } from '../api/observability'
+import { log, wsConnectionsGauge } from '../api/observability'
 import { canUserAccessChannel } from '../modules/chat'
 import { type Auth, requireSession } from '../modules/identity'
 import { verifyAndConsumeRealtimeTicket } from '../modules/sync'
@@ -40,6 +41,7 @@ interface SignalSocketData {
 	userId: string | null
 	workspaceId: string | null
 	authenticated: boolean
+	counted: boolean
 	msgTokens: number
 	lastRefillAt: number
 	handshakeTimer: ReturnType<typeof setTimeout> | null
@@ -78,6 +80,7 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 	const coalesceMs = deps.coalesceMs ?? 250
 	const maxCoalesceMs = deps.maxCoalesceMs ?? 1_000
 	const allowedOrigins = deps.allowedOrigins ?? []
+	const nodeId = randomUUID()
 
 	const workspaceSockets = new Map<string, Set<ServerWebSocket<SocketData>>>()
 	const pendingCursors = new Map<string, CoalesceEntry>()
@@ -108,14 +111,53 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 		}
 	}
 
-	function setUserPresence(workspaceId: string, userId: string, status: 'online' | 'away') {
+	function applyPresenceState(
+		workspaceId: string,
+		userId: string,
+		status: 'online' | 'away',
+		lastSeenAt: number,
+		publish: boolean
+	) {
 		let map = workspacePresence.get(workspaceId)
 		if (!map) {
 			map = new Map()
 			workspacePresence.set(workspaceId, map)
 		}
-		map.set(userId, { status, lastSeenAt: Date.now() })
+		map.set(userId, { status, lastSeenAt })
 		broadcastPresence(workspaceId)
+		if (publish) {
+			void pubsub.publishPresence?.(workspaceId, userId, status, lastSeenAt, nodeId).catch(() => {})
+		}
+	}
+
+	function setUserPresence(workspaceId: string, userId: string, status: 'online' | 'away') {
+		applyPresenceState(workspaceId, userId, status, Date.now(), true)
+	}
+
+	async function broadcastTypingSignal(
+		workspaceId: string,
+		channelId: string,
+		senderId: string,
+		until: number
+	) {
+		const set = workspaceSockets.get(workspaceId)
+		if (!set || set.size === 0) return
+		const peers = await filterAuthorizedChannelSockets(workspaceId, channelId, [...set])
+		const typingPayload = JSON.stringify({
+			t: 'typing',
+			channelId,
+			userId: senderId,
+			until
+		} satisfies WsServerMessage)
+		for (const peer of peers) {
+			if (peer.data.kind === 'signal' && peer.data.userId !== senderId) {
+				try {
+					peer.send(typingPayload)
+				} catch {
+					// Ignore closed socket
+				}
+			}
+		}
 	}
 
 	function addSocket(workspaceId: string, ws: ServerWebSocket<SocketData>) {
@@ -139,6 +181,10 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 		const set = workspaceSockets.get(wsId)
 		if (!set) return
 		set.delete(ws)
+		if (ws.data.counted) {
+			ws.data.counted = false
+			wsConnectionsGauge.dec()
+		}
 		if (set.size === 0) workspaceSockets.delete(wsId)
 
 		if (userId) {
@@ -201,6 +247,10 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 			if (ws.data.kind === 'signal' && ws.data.userId === userId) {
 				sendMsg(ws, { t: 'revoke', reason })
 				ws.close(4003, reason)
+				if (ws.data.counted) {
+					ws.data.counted = false
+					wsConnectionsGauge.dec()
+				}
 				set.delete(ws)
 			}
 		}
@@ -270,6 +320,10 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 			void fanOutChatSignal(ev)
 		} else if (ev.type === 'revoke') {
 			revokeUserSockets(ev.workspaceId, ev.userId, ev.reason)
+		} else if (ev.type === 'presence' && ev.originId !== nodeId) {
+			applyPresenceState(ev.workspaceId, ev.userId, ev.status, ev.lastSeenAt, false)
+		} else if (ev.type === 'typing' && ev.originId !== nodeId) {
+			void broadcastTypingSignal(ev.workspaceId, ev.channelId, ev.userId, ev.until)
 		}
 	})
 
@@ -338,6 +392,10 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 		ws.data.userId = userIdForQuery
 		ws.data.workspaceId = msg.workspaceId
 		ws.data.authenticated = true
+		if (!ws.data.counted) {
+			ws.data.counted = true
+			wsConnectionsGauge.inc()
+		}
 		addSocket(msg.workspaceId, ws)
 		setUserPresence(msg.workspaceId, userIdForQuery, 'online')
 
@@ -419,6 +477,7 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 						userId: null,
 						workspaceId: null,
 						authenticated: false,
+						counted: false,
 						msgTokens: MAX_TOKENS,
 						lastRefillAt: Date.now(),
 						handshakeTimer: null
@@ -555,24 +614,9 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 					).catch(() => false)
 					if (!okSender) return
 
-					const set = workspaceSockets.get(wsId)
-					if (!set) return
-					const peers = await filterAuthorizedChannelSockets(wsId, msg.channelId, [...set])
-					const typingPayload = JSON.stringify({
-						t: 'typing',
-						channelId: msg.channelId,
-						userId: senderId,
-						until: now + 5_000
-					} satisfies WsServerMessage)
-					for (const peer of peers) {
-						if (peer.data.kind === 'signal' && peer.data.userId !== senderId) {
-							try {
-								peer.send(typingPayload)
-							} catch {
-								// Ignore closed socket
-							}
-						}
-					}
+					const until = now + 5_000
+					await broadcastTypingSignal(wsId, msg.channelId, senderId, until)
+					void pubsub.publishTyping?.(wsId, msg.channelId, senderId, until, nodeId).catch(() => {})
 				}
 			},
 			pong(ws) {

@@ -3,11 +3,13 @@
 
 export * from './agents'
 export * from './ai'
+export * from './billing'
 export * from './chat'
 export * from './docs'
 export type { ErrorCode } from './errors'
 export { ERROR_CODES, ERROR_DOC_BASE, ProblemDetails, problem } from './errors'
 export * from './files'
+export * from './governance'
 export * from './imports'
 export * from './integrations'
 export * from './mail'

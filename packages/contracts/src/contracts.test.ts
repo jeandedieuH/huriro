@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import Value from 'typebox/value'
 import {
 	CollabTicketResponse,
+	CreateCheckoutBody,
 	CreateDocCommentBody,
 	CreateDocPageBody,
 	CreateIssueBody,
@@ -9,10 +10,12 @@ import {
 	decodeCursor,
 	ERROR_CODES,
 	ERROR_DOC_BASE,
+	EraseAccountBody,
 	encodeCursor,
 	ImportDryRunBody,
 	MutationEnvelope,
-	problem
+	problem,
+	RegisterMobilePushTokenBody
 } from './index'
 
 describe('problem()', () => {
@@ -140,5 +143,60 @@ describe('M2 docs wire contracts', () => {
 				patch: { title: 'Offline Doc' }
 			})
 		).toBe(true)
+	})
+})
+
+describe('M6 mobile, billing & governance contracts', () => {
+	test('RegisterMobilePushTokenBody validates platform and non-empty token', () => {
+		expect(
+			Value.Check(RegisterMobilePushTokenBody, {
+				token: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]',
+				platform: 'expo',
+				deviceId: 'iphone-15-pro',
+				deviceName: 'Test Phone'
+			})
+		).toBe(true)
+		expect(
+			Value.Check(RegisterMobilePushTokenBody, {
+				token: 'short',
+				platform: 'windows',
+				deviceId: 'x'
+			})
+		).toBe(false)
+	})
+
+	test('CreateCheckoutBody accepts Polar international and IremboPay Rwanda Mobile Money checkout', () => {
+		expect(
+			Value.Check(CreateCheckoutBody, {
+				plan: 'pro',
+				provider: 'polar',
+				successUrl: 'https://app.huriro.dev/settings?billing=ok',
+				cancelUrl: 'https://app.huriro.dev/settings?billing=cancel'
+			})
+		).toBe(true)
+		expect(
+			Value.Check(CreateCheckoutBody, {
+				plan: 'pro',
+				provider: 'irembopay',
+				paymentMethod: 'mtn_momo',
+				phoneNumber: '0788123456',
+				billingEmail: 'founder@huriro.rw',
+				successUrl: 'https://app.huriro.dev/settings?billing=ok',
+				cancelUrl: 'https://app.huriro.dev/settings?billing=cancel'
+			})
+		).toBe(true)
+		expect(
+			Value.Check(CreateCheckoutBody, {
+				plan: 'enterprise',
+				provider: 'polar',
+				successUrl: 'https://app.huriro.dev/settings',
+				cancelUrl: 'https://app.huriro.dev/settings'
+			})
+		).toBe(false)
+	})
+
+	test('EraseAccountBody requires email-length confirmation string', () => {
+		expect(Value.Check(EraseAccountBody, { confirmEmail: 'user@example.com' })).toBe(true)
+		expect(Value.Check(EraseAccountBody, { confirmEmail: 'no' })).toBe(false)
 	})
 })

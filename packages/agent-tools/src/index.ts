@@ -4,8 +4,8 @@ import type { Static } from 'typebox'
 import { TOOLS } from './registry'
 
 /**
- * JSON manifest of every tool â€” consumed by the CLI generator, the OpenAPI
- * agent-operations generator, and the MCP adapter (Â§13.1a). Schemas are
+ * JSON manifest of every tool — consumed by the CLI generator, the OpenAPI
+ * agent-operations generator, and the MCP adapter (§13.1a). Schemas are
  * emitted as TypeBox JSON Schema, which is JSON Schema draft-07+ compatible.
  */
 export function toolManifest(): ReadonlyArray<{

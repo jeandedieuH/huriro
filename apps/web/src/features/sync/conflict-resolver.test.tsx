@@ -8,7 +8,7 @@ import {
 } from '@huriro/sync-client'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createPreviewSeedSnapshot } from '@/lib/sync-bootstrap'
+import { createPreviewSeedSnapshot } from '@/lib/preview-workspace'
 import { expectNoViolations } from '@/lib/test-setup'
 import { useUiStore } from '@/stores/ui-store'
 import { ConflictResolverDialog } from './components/conflict-resolver-dialog'

@@ -37,3 +37,13 @@ playwright-report/
 test-results/
 storybook-static/
 nul
+
+# mobile (Expo / RN)
+.expo/
+apps/mobile/.expo/
+apps/mobile/android/
+apps/mobile/ios/
+apps/mobile/*.jks
+apps/mobile/*.p8
+apps/mobile/*.p12
+apps/mobile/*.mobileprovision

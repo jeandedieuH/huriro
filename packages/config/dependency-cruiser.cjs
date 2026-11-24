@@ -28,6 +28,8 @@ const MODULE_SCHEMA_OWNERSHIP = {
 	files: ['files'],
 	webhooks: ['webhooks'],
 	integrations: ['integrations'],
+	billing: ['billing'],
+	governance: ['governance'],
 	audit: ['audit'],
 	sync: ['sync']
 }
@@ -127,9 +129,9 @@ module.exports = {
 	],
 	options: {
 		// Generated/bundled artifacts are not source: Nitro output (apps/web/.output),
-		// the static Storybook bundle, and TanStack's generated route tree
-		// (type-only back-imports by design).
-		exclude: { path: '\\.output/|storybook-static/|routeTree\\.gen\\.[tj]sx?$' },
+		// the static Storybook bundle, Expo native build dirs, and TanStack's
+		// generated route tree (type-only back-imports by design).
+		exclude: { path: '\\.output/|storybook-static/|\\.expo/|android/|ios/|routeTree\\.gen\\.[tj]sx?$' },
 		doNotFollow: { path: 'node_modules' },
 		tsPreCompilationDeps: true,
 		enhancedResolveOptions: {

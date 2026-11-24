@@ -1,8 +1,9 @@
 // M1 Gate G1 load test (§23, §4.3): 200 concurrent VUs mixing reads, writes,
 // delta pulls, and search against the standard deployment shape.
 // Run: k6 run -e BASE_URL=http://localhost:3001 -e WORKSPACE_ID=... -e AUTH_COOKIE=... scripts/k6/m1-load.js
-import http from 'k6/http'
+
 import { check, sleep } from 'k6'
+import http from 'k6/http'
 
 export const options = {
 	scenarios: {

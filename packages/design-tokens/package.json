@@ -12,7 +12,9 @@
 		"./rn-theme": {
 			"types": "./dist/rn/theme.ts",
 			"default": "./dist/rn/theme.ts"
-		}
+		},
+		"./tailwind": "./dist/tailwind/theme.css",
+		"./css": "./dist/css/tokens.css"
 	},
 	"files": [
 		"src",

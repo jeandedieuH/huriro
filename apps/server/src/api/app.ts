@@ -3,7 +3,7 @@
  * app type for Eden — per elysiajs skill: hooks/plugins before routes,
  * `.listen()` lives in the process entrypoint only.
  */
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { openapi } from '@elysia/openapi'
 import { problem } from '@huriro/contracts'
 import { pendingMigrations, type Sql, withSystem } from '@huriro/db'
@@ -11,9 +11,11 @@ import { Elysia } from 'elysia'
 import { agentsModule } from '../modules/agents'
 import { mcpEndpoint } from '../modules/agents/mcp'
 import { aiModule } from '../modules/ai'
+import { type BillingModuleConfig, billingModule, billingWebhookPublicModule } from '../modules/billing'
 import { chatModule } from '../modules/chat'
 import { type CollabDirectBridge, docsModule } from '../modules/docs'
 import { type BlobStorage, filesModule, MemoryBlobStorage } from '../modules/files'
+import { governanceModule } from '../modules/governance'
 import { type Auth, identityModule } from '../modules/identity'
 import { importsModule } from '../modules/imports'
 import { type GithubApiClient, githubWebhookPublicModule, integrationsModule } from '../modules/integrations'
@@ -31,6 +33,7 @@ import type { DnsResolver } from './egress'
 import { HttpError, toProblem } from './error'
 import { LLMS_TXT } from './llms-txt.gen'
 import { log, metrics, observability } from './observability'
+import { ApiRateLimiter } from './rate-limit'
 
 export interface AppDeps {
 	readonly sql: Sql
@@ -52,6 +55,26 @@ export interface AppDeps {
 	readonly egressFetch?: typeof fetch | undefined
 	readonly egressResolver?: DnsResolver | undefined
 	readonly mail?: Partial<MailModuleConfig> | undefined
+	readonly billing?: Partial<BillingModuleConfig> | undefined
+	readonly readOnly?: boolean | undefined
+	readonly isReadOnly?: (() => boolean) | undefined
+	readonly rateLimitPerMinute?: number | undefined
+}
+
+function rateLimitKeyForRequest(request: Request): string {
+	const testUser = request.headers.get('x-test-user-id')
+	if (testUser) return `test:${testUser}`
+	const authHeader = request.headers.get('authorization')
+	if (authHeader) {
+		return `auth:${createHash('sha256').update(authHeader).digest('hex').slice(0, 16)}`
+	}
+	const cookie = request.headers.get('cookie')
+	if (cookie) {
+		return `cookie:${createHash('sha256').update(cookie).digest('hex').slice(0, 16)}`
+	}
+	const fwd = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+	const realIp = request.headers.get('x-real-ip')?.trim()
+	return `ip:${fwd || realIp || 'local'}`
 }
 
 export function createApp(deps: AppDeps) {
@@ -85,6 +108,55 @@ export function createApp(deps: AppDeps) {
 		msClientId: deps.mail?.msClientId,
 		msClientSecret: deps.mail?.msClientSecret,
 		smtpRelay: deps.mail?.smtpRelay
+	}
+	const billingCfg: BillingModuleConfig = {
+		mode,
+		...(deps.billing?.workspacePriceUsdCents !== undefined
+			? { workspacePriceUsdCents: deps.billing.workspacePriceUsdCents }
+			: {}),
+		...(deps.billing?.fxApiUrl ? { fxApiUrl: deps.billing.fxApiUrl } : {}),
+		...(deps.billing?.usdToRwfFallback !== undefined
+			? { usdToRwfFallback: deps.billing.usdToRwfFallback }
+			: {}),
+		...(deps.billing?.fxConverter ? { fxConverter: deps.billing.fxConverter } : {}),
+		...(deps.billing?.polarProvider ? { polarProvider: deps.billing.polarProvider } : {}),
+		...(deps.billing?.polarApiUrl ? { polarApiUrl: deps.billing.polarApiUrl } : {}),
+		...(deps.billing?.polarAccessToken ? { polarAccessToken: deps.billing.polarAccessToken } : {}),
+		...(deps.billing?.polarWebhookSecret ? { polarWebhookSecret: deps.billing.polarWebhookSecret } : {}),
+		...(deps.billing?.polarProductId ? { polarProductId: deps.billing.polarProductId } : {}),
+		...(deps.billing?.iremboPayProvider ? { iremboPayProvider: deps.billing.iremboPayProvider } : {}),
+		...(deps.billing?.iremboPayApiUrl ? { iremboPayApiUrl: deps.billing.iremboPayApiUrl } : {}),
+		...(deps.billing?.iremboPaySecretKey ? { iremboPaySecretKey: deps.billing.iremboPaySecretKey } : {}),
+		...(deps.billing?.iremboPayWebhookSecret
+			? { iremboPayWebhookSecret: deps.billing.iremboPayWebhookSecret }
+			: {}),
+		...(deps.billing?.iremboPayWebhookDelimiter
+			? { iremboPayWebhookDelimiter: deps.billing.iremboPayWebhookDelimiter }
+			: {}),
+		...(deps.billing?.iremboPayPaymentAccountId
+			? { iremboPayPaymentAccountId: deps.billing.iremboPayPaymentAccountId }
+			: {}),
+		...(deps.billing?.iremboPayProductCode
+			? { iremboPayProductCode: deps.billing.iremboPayProductCode }
+			: {}),
+		...(deps.egressFetch ? { fetchImpl: deps.egressFetch } : {}),
+		...(deps.egressResolver ? { resolver: deps.egressResolver } : {})
+	}
+	const rateLimiter = new ApiRateLimiter({ limitPerMinute: deps.rateLimitPerMinute ?? 600 })
+
+	async function checkReadiness() {
+		let database = false
+		let migrationsPending = -1
+		try {
+			await sql`SELECT 1`
+			database = true
+			migrationsPending = (await pendingMigrations(sql, migrationsDir)).length
+		} catch (err) {
+			log.warn({ err }, 'readiness check failed')
+		}
+		const ready = database && migrationsPending === 0
+		if (!ready) throw new HttpError(503, 'internal', 'Not ready', 'See /metrics and logs')
+		return { ready, checks: { database, migrationsPending } }
 	}
 
 	const base = new Elysia({ name: 'huriro.api' })
@@ -138,27 +210,18 @@ export function createApp(deps: AppDeps) {
 						{ name: 'approvals', description: 'Human approval decisions for R2 agent calls' },
 						{ name: 'agent', description: 'Agent tool surface — OAuth bearer, audience-separated (§13)' },
 						{ name: 'ai', description: 'AI gateway — provider config, summaries, semantic search (§11)' },
-						{ name: 'mail', description: 'Shared inbox — accounts, conversations, drafts (§14)' }
+						{ name: 'mail', description: 'Shared inbox — accounts, conversations, drafts (§14)' },
+						{ name: 'governance', description: 'GDPR workspace exports and self-service erasure (§22.2)' },
+						{ name: 'billing', description: 'Cloud workspace subscriptions and metering (§2.5, §23 M6)' }
 					]
 				}
 			})
 		)
 		// ---- infra endpoints (no auth, no tenant context) ----
 		.get('/health', { detail: { hide: true } }, () => ({ status: 'ok' as const }))
-		.get('/ready', async () => {
-			let database = false
-			let migrationsPending = -1
-			try {
-				await sql`SELECT 1`
-				database = true
-				migrationsPending = (await pendingMigrations(sql, migrationsDir)).length
-			} catch (err) {
-				log.warn({ err }, 'readiness check failed')
-			}
-			const ready = database && migrationsPending === 0
-			if (!ready) throw new HttpError(503, 'internal', 'Not ready', 'See /metrics and logs')
-			return { ready, checks: { database, migrationsPending } }
-		})
+		.get('/healthz', { detail: { hide: true } }, () => ({ status: 'ok' as const }))
+		.get('/ready', checkReadiness)
+		.get('/readyz', { detail: { hide: true } }, checkReadiness)
 		.get('/metrics', async ({ set }) => {
 			set.headers['content-type'] = metrics.contentType
 			return await metrics.metrics()
@@ -178,14 +241,47 @@ export function createApp(deps: AppDeps) {
 		// each module derives its workspace context via `workspaceDerive`.
 		.group('/api/v1', (api) =>
 			api
-				// Unauthenticated GitHub webhook receiver verifies HMAC-SHA256 before CSRF/workspace guards.
+				// Unauthenticated webhook receivers verify HMAC signatures before CSRF/workspace guards.
 				.use(githubWebhookPublicModule(sql, integrationOpts))
-				// Single CSRF gate for the whole API surface (§12.6): cookie-authed
-				// mutations need a trusted Origin, sane Sec-Fetch-Site, and
-				// X-Huriro-Client — enforced once here so a route can't forget it.
-				.onBeforeHandle(({ request }) => {
+				.use(billingWebhookPublicModule(sql, billingCfg))
+				// Global read-only maintenance guard, rate limiting, and CSRF gate (§12.6, §20.3).
+				.onBeforeHandle(({ request, set }) => {
 					const path = new URL(request.url).pathname
-					if (path === '/api/v1/integrations/github/webhook') return
+					const method = request.method.toUpperCase()
+					if ((deps.readOnly || deps.isReadOnly?.()) && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+						throw new HttpError(
+							503,
+							'read_only_mode',
+							'Instance is in read-only maintenance mode',
+							'Writes are temporarily paused while maintenance completes.',
+							undefined,
+							{ 'retry-after': '60' }
+						)
+					}
+					const rl = rateLimiter.check(rateLimitKeyForRequest(request))
+					set.headers['x-ratelimit-limit'] = String(rl.limit)
+					set.headers['x-ratelimit-remaining'] = String(rl.remaining)
+					if (!rl.allowed) {
+						throw new HttpError(
+							429,
+							'rate_limited',
+							'Too many requests',
+							'API rate limit exceeded; retry after the window resets.',
+							undefined,
+							{
+								'retry-after': String(rl.resetSeconds),
+								'x-ratelimit-limit': String(rl.limit),
+								'x-ratelimit-remaining': '0'
+							}
+						)
+					}
+					if (
+						path === '/api/v1/integrations/github/webhook' ||
+						path === '/api/v1/billing/webhooks/polar' ||
+						path === '/api/v1/billing/webhooks/irembopay'
+					) {
+						return
+					}
 					// Mail webhooks are token-authed pre-tenant routes (§14.2) — no cookies involved.
 					if (path.startsWith('/api/v1/mail/inbound/') || path.startsWith('/api/v1/mail/webhook/')) return
 					assertCookieCsrf(request, deps.allowedOrigins)
@@ -222,6 +318,8 @@ export function createApp(deps: AppDeps) {
 					})
 				)
 				.use(mailModule(sql, auth, blobStorage, mailCfg, pubsub))
+				.use(governanceModule(sql, auth, blobStorage, pubsub))
+				.use(billingModule(sql, auth, billingCfg))
 		)
 
 	// /mcp lives at the app root (not under /api/v1): the OAuth resource URI is

@@ -33,6 +33,8 @@ export {
 	MemoryReplicaStorage,
 	OpfsReplicaStorage,
 	type ReplicaStorage,
-	type ReplicaStorageMode
+	type ReplicaStorageMode,
+	type SqliteDatabaseLike,
+	SqliteReplicaStorage
 } from './storage'
 export { WsSignalClient, type WsSignalClientOptions } from './ws-signal'

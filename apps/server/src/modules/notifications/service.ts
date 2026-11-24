@@ -1,11 +1,13 @@
 import type {
 	CreateWebPushSubscriptionBody,
+	MobilePushTokenDto,
 	NotificationDeliveryLogDto,
 	NotificationDto,
 	NotificationKind,
 	NotificationPreferencesDto,
 	NotificationsListQuery,
 	NotificationsListResponse,
+	RegisterMobilePushTokenBody,
 	UpdateNotificationPreferencesBody,
 	WebPushSubscriptionDto
 } from '@huriro/contracts'
@@ -26,14 +28,17 @@ import {
 	getOrDefaultNotificationPreferences,
 	insertNotificationDeliveryLog,
 	insertNotificationRow,
+	listMobilePushTokensForUser,
 	listNotificationDeliveryLogs,
 	listNotificationsForUser,
 	listWebPushSubscriptionsForUser,
 	markAllNotificationsReadRows,
 	markNotificationReadRow,
 	resolveWorkspaceUserIdsByHandles,
+	revokeMobilePushTokenById,
 	revokeWebPushSubscriptionById,
 	updateCollapsedNotificationRow,
+	upsertMobilePushToken,
 	upsertNotificationPreferences,
 	upsertWebPushSubscription
 } from './repo'
@@ -60,16 +65,19 @@ export async function processNotificationOutboxEvent(
 ): Promise<{
 	readonly cursor: number | null
 	readonly pendingWebPush: PendingWebPushDispatch[]
+	readonly pendingMobilePush: PendingWebPushDispatch[]
 }> {
-	if (!event.workspaceId) return { cursor: null, pendingWebPush: [] }
+	if (!event.workspaceId) return { cursor: null, pendingWebPush: [], pendingMobilePush: [] }
 	const claimed = await claimNotificationOutboxEvent(tx, NOTIFICATIONS_CONSUMER, event.id)
-	if (!claimed) return { cursor: null, pendingWebPush: [] }
+	if (!claimed) return { cursor: null, pendingWebPush: [], pendingMobilePush: [] }
 
 	const p = event.payload
 	const actorId = typeof p['actorId'] === 'string' ? p['actorId'] : null
 	const actorType = asActorType(p['actorType'])
 	const createdNotifications: NotificationDto[] = []
 	const pendingWebPush: PendingWebPushDispatch[] = []
+	const pendingMobilePush: PendingWebPushDispatch[] = []
+	const chatMobileHandled = new Set<string>()
 
 	if (event.eventType === 'tasks.issue.assigned.v1') {
 		const recipient = typeof p['assigneeUserId'] === 'string' ? p['assigneeUserId'] : null
@@ -440,6 +448,13 @@ export async function processNotificationOutboxEvent(
 					) {
 						pendingWebPush.push({ userId: uid, notification: notif })
 					}
+					if (
+						pref.mobilePushEnabled &&
+						!isWithinQuietHours(nowIso, pref.quietHoursStart, pref.quietHoursEnd, pref.timezone)
+					) {
+						pendingMobilePush.push({ userId: uid, notification: notif })
+					}
+					chatMobileHandled.add(notif.id)
 				}
 			}
 		}
@@ -527,7 +542,27 @@ export async function processNotificationOutboxEvent(
 		}
 	}
 
-	if (createdNotifications.length === 0) return { cursor: null, pendingWebPush }
+	if (createdNotifications.length === 0) {
+		return { cursor: null, pendingWebPush, pendingMobilePush }
+	}
+
+	const extraRecipientIds = [
+		...new Set(createdNotifications.filter((n) => !chatMobileHandled.has(n.id)).map((n) => n.recipientUserId))
+	]
+	if (extraRecipientIds.length > 0) {
+		const extraPrefs = await getNotificationPreferencesMap(tx, event.workspaceId, extraRecipientIds)
+		const nowIso = new Date().toISOString()
+		for (const notif of createdNotifications) {
+			if (chatMobileHandled.has(notif.id)) continue
+			const pref = extraPrefs.get(notif.recipientUserId)
+			if (
+				pref?.mobilePushEnabled &&
+				!isWithinQuietHours(nowIso, pref.quietHoursStart, pref.quietHoursEnd, pref.timezone)
+			) {
+				pendingMobilePush.push({ userId: notif.recipientUserId, notification: notif })
+			}
+		}
+	}
 
 	const changes: ChangeLogEntry[] = createdNotifications.map((n) => ({
 		entityType: 'notification',
@@ -538,7 +573,7 @@ export async function processNotificationOutboxEvent(
 		actorId
 	}))
 	const cursor = await appendChanges(tx, event.workspaceId, changes)
-	return { cursor, pendingWebPush }
+	return { cursor, pendingWebPush, pendingMobilePush }
 }
 
 export async function listMyNotifications(
@@ -706,4 +741,38 @@ export async function listMyNotificationDeliveries(
 ): Promise<NotificationDeliveryLogDto[]> {
 	assertActiveWorkspaceMember(actor)
 	return listNotificationDeliveryLogs(tx, actor.workspaceId, actor.principalId, limit)
+}
+
+export async function listMyMobilePushTokens(
+	tx: Queryable,
+	actor: ActorContext
+): Promise<MobilePushTokenDto[]> {
+	assertActiveWorkspaceMember(actor)
+	return listMobilePushTokensForUser(tx, actor.workspaceId, actor.principalId)
+}
+
+export async function registerMobilePushToken(
+	tx: Queryable,
+	actor: ActorContext,
+	input: RegisterMobilePushTokenBody
+): Promise<MobilePushTokenDto> {
+	assertActiveWorkspaceMember(actor)
+	return upsertMobilePushToken(tx, {
+		workspaceId: actor.workspaceId,
+		userId: actor.userId,
+		token: input.token.trim(),
+		platform: input.platform,
+		deviceId: input.deviceId.trim(),
+		deviceName: input.deviceName?.trim() ?? ''
+	})
+}
+
+export async function deleteMyMobilePushToken(
+	tx: Queryable,
+	actor: ActorContext,
+	tokenId: string
+): Promise<void> {
+	assertActiveWorkspaceMember(actor)
+	const ok = await revokeMobilePushTokenById(tx, actor.workspaceId, tokenId, actor.principalId)
+	if (!ok) throw new HttpError(404, 'not_found', 'Mobile push token not found')
 }

@@ -1,7 +1,9 @@
-# Huriro ops runbook (M0)
+# Huriro ops runbook (GA)
 
-Deploy, health-check, and recover a self-hosted instance. §19 is the spec; this
-is the operator's copy.
+Deploy, health-check, and recover a self-hosted or cloud Huriro instance. §19–§20 are the spec; see the specialized runbooks under `docs/runbooks/` for detailed procedures:
+- [PostgreSQL Backup & Restore](file:///docs/runbooks/restore-postgres.md)
+- [Incident Response](file:///docs/runbooks/incident-response.md)
+- [Secret & Key Rotation](file:///docs/runbooks/rotate-secrets.md)
 
 ## Deploy
 
@@ -56,12 +58,16 @@ procedure and RPO expectations are identical, only the transport differs.
 RPO with nightly dumps is 24h; WAL archiving (pgBackRest) reduces it to ~5 min
 once object storage lands in M3.
 
-## Observability
+## Observability & Maintenance
 
-- `GET /metrics` — Prometheus-format counters (requests, durations, errors).
-- `GET /health` — liveness; compose healthchecks already consume it.
+- `GET /metrics` — Prometheus counters & histograms (`infra/grafana/overview.json`).
+- `GET /health` & `GET /healthz` — liveness probe; compose healthchecks consume it.
+- `GET /ready` & `GET /readyz` — readiness probe (PostgreSQL connectivity + zero pending migrations).
+- `HURIRO_READ_ONLY=true` — pauses all API mutations with HTTP `503 read_only_mode` (`Retry-After: 60`) while keeping reads online during maintenance.
+- `bun run dr:drill` (`--live` with PG18) — automated migration + RLS + restore rehearsal (< 15 min RTO).
+- `bun run chaos:smoke` — RESP2 Valkey failover & rate-limiter resilience verification.
 - Structured logs on stdout (`docker compose logs -f huriro`) — no PII/secrets.
-- External heartbeat: point your uptime monitor at `/health`; if using a
+- External heartbeat: point your uptime monitor at `/healthz`; if using a
   push-style heartbeat, set `HEARTBEAT_URL` and the server pings it.
 
 ## Incident basics

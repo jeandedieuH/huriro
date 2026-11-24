@@ -217,7 +217,105 @@ export const serverSchemas = {
 		.int()
 		.min(1024)
 		.default(5_242_880)
-		.describe('Per-credential read result bytes per rolling hour')
+		.describe('Per-credential read result bytes per rolling hour'),
+
+	// ---- M6: mobile push, Valkey HA, hardening & cloud billing (§18–§22) ----
+	HURIRO_READ_ONLY: z.coerce
+		.boolean()
+		.default(false)
+		.describe('Global read-only maintenance mode (writes return 503, reads keep serving, §20.3)'),
+	VALKEY_URL: z
+		.string()
+		.optional()
+		.describe('Optional Valkey/Redis URL for multi-replica realtime signal + presence pub/sub'),
+	API_RATE_LIMIT_PER_MINUTE: z.coerce
+		.number()
+		.int()
+		.min(10)
+		.max(100_000)
+		.default(600)
+		.describe('Per-actor/IP API request rate limit per rolling minute'),
+	EXPO_PUSH_ENDPOINT: z
+		.url()
+		.default('https://exp.host/--/api/v2/push/send')
+		.describe('Expo Push API endpoint for mobile notifications'),
+	EXPO_PUSH_ACCESS_TOKEN: z.string().optional().describe('Optional Expo Push access token (or use _FILE)'),
+	EXPO_PUSH_ACCESS_TOKEN_FILE: z
+		.string()
+		.optional()
+		.describe('Path to file containing EXPO_PUSH_ACCESS_TOKEN (Docker secret)'),
+	BILLING_WORKSPACE_PRICE_USD_CENTS: z.coerce
+		.number()
+		.int()
+		.min(100)
+		.max(1_000_000)
+		.default(1000)
+		.describe('Monthly per-workspace price in USD cents (default 1000 = $10/workspace)'),
+	BILLING_FX_API_URL: z
+		.url()
+		.default('https://open.er-api.com/v6/latest/USD')
+		.describe('Live USD base FX rate endpoint for local RWF conversion'),
+	BILLING_USD_TO_RWF_FALLBACK: z.coerce
+		.number()
+		.positive()
+		.default(1400)
+		.describe('Fallback USD->RWF exchange rate used only when live FX fetch is unavailable'),
+	POLAR_API_URL: z
+		.url()
+		.default('https://api.polar.sh')
+		.describe('Polar REST API base URL for international card checkouts'),
+	POLAR_ACCESS_TOKEN: z
+		.string()
+		.optional()
+		.describe('Polar organization access token for HURIRO_MODE=cloud billing (or use _FILE)'),
+	POLAR_ACCESS_TOKEN_FILE: z
+		.string()
+		.optional()
+		.describe('Path to file containing POLAR_ACCESS_TOKEN (Docker secret)'),
+	POLAR_WEBHOOK_SECRET: z
+		.string()
+		.optional()
+		.describe('Polar Standard Webhooks signing secret for HURIRO_MODE=cloud (or use _FILE)'),
+	POLAR_WEBHOOK_SECRET_FILE: z
+		.string()
+		.optional()
+		.describe('Path to file containing POLAR_WEBHOOK_SECRET (Docker secret)'),
+	POLAR_PRODUCT_ID: z
+		.string()
+		.optional()
+		.describe('Polar product ID representing the $10/workspace Cloud plan'),
+	IREMBOPAY_API_URL: z
+		.url()
+		.default('https://api.irembopay.com')
+		.describe('IremboPay REST API base URL for Rwanda local RWF & Mobile Money payments'),
+	IREMBOPAY_SECRET_KEY: z
+		.string()
+		.optional()
+		.describe('IremboPay API secret key for HURIRO_MODE=cloud billing (or use _FILE)'),
+	IREMBOPAY_SECRET_KEY_FILE: z
+		.string()
+		.optional()
+		.describe('Path to file containing IREMBOPAY_SECRET_KEY (Docker secret)'),
+	IREMBOPAY_WEBHOOK_SECRET: z
+		.string()
+		.optional()
+		.describe('IremboPay webhook signing secret for HURIRO_MODE=cloud (or use _FILE)'),
+	IREMBOPAY_WEBHOOK_SECRET_FILE: z
+		.string()
+		.optional()
+		.describe('Path to file containing IREMBOPAY_WEBHOOK_SECRET (Docker secret)'),
+	IREMBOPAY_WEBHOOK_DELIMITER: z
+		.enum(['#', '.'])
+		.default('#')
+		.describe('Delimiter between timestamp and payload in irembopay-signature HMAC verification'),
+	IREMBOPAY_PAYMENT_ACCOUNT_ID: z
+		.string()
+		.optional()
+		.describe('IremboPay merchant payment account identifier'),
+	IREMBOPAY_PRODUCT_CODE: z
+		.string()
+		.optional()
+		.describe('IremboPay product code registered for Huriro Cloud Workspace')
 }
 
 /**

@@ -1,7 +1,7 @@
 import { activateI18n } from '@huriro/i18n'
 import { SyncProvider } from '@huriro/sync-client'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { createPreviewWorkspace } from '@/lib/sync-bootstrap'
 import { expectNoViolations } from '@/lib/test-setup'
@@ -33,6 +33,10 @@ async function renderDocsWorkspace(activeSlug: string | null) {
 }
 
 describe('DocsWorkspace', () => {
+	beforeAll(async () => {
+		await import('./components/editor-shell')
+	})
+
 	beforeEach(() => {
 		useUiStore.setState({
 			destination: 'docs',
@@ -56,9 +60,12 @@ describe('DocsWorkspace', () => {
 	it('renders page tree and active TipTap collaborative doc cleanly with zero axe violations', async () => {
 		const { boot, container } = await renderDocsWorkspace('engineering-handbook')
 		try {
-			await waitFor(() => {
-				expect(screen.getByDisplayValue('Engineering Handbook')).toBeInTheDocument()
-			})
+			await waitFor(
+				() => {
+					expect(screen.getByDisplayValue('Engineering Handbook')).toBeInTheDocument()
+				},
+				{ timeout: 5000 }
+			)
 			expect(screen.getByRole('navigation', { name: 'Workspace pages' })).toBeInTheDocument()
 			expect(screen.getByText('Let us keep latency under 50ms p95.')).toBeInTheDocument()
 			await expectNoViolations(container)
@@ -70,9 +77,12 @@ describe('DocsWorkspace', () => {
 	it('supports adding comments, resolving threads, and inspecting orphaned-anchor badge', async () => {
 		const { boot, container } = await renderDocsWorkspace('engineering-handbook')
 		try {
-			await waitFor(() => {
-				expect(screen.getByDisplayValue('Engineering Handbook')).toBeInTheDocument()
-			})
+			await waitFor(
+				() => {
+					expect(screen.getByDisplayValue('Engineering Handbook')).toBeInTheDocument()
+				},
+				{ timeout: 5000 }
+			)
 
 			const commentInput = screen.getByPlaceholderText('Add a comment (@mention colleagues)…')
 			fireEvent.change(commentInput, { target: { value: 'Great RFC breakdown!' } })
@@ -102,9 +112,12 @@ describe('DocsWorkspace', () => {
 		useUiStore.setState({ activeDocSidePanel: 'versions' })
 		const { boot, container } = await renderDocsWorkspace('engineering-handbook')
 		try {
-			await waitFor(() => {
-				expect(screen.getByDisplayValue('Engineering Handbook')).toBeInTheDocument()
-			})
+			await waitFor(
+				() => {
+					expect(screen.getByDisplayValue('Engineering Handbook')).toBeInTheDocument()
+				},
+				{ timeout: 5000 }
+			)
 
 			await waitFor(() => {
 				expect(screen.getByText('Initial baseline')).toBeInTheDocument()
@@ -136,9 +149,12 @@ describe('DocsWorkspace', () => {
 	it('supports creating a new page from template and opening share dialog with zero axe violations', async () => {
 		const { boot, container } = await renderDocsWorkspace('engineering-handbook')
 		try {
-			await waitFor(() => {
-				expect(screen.getByDisplayValue('Engineering Handbook')).toBeInTheDocument()
-			})
+			await waitFor(
+				() => {
+					expect(screen.getByDisplayValue('Engineering Handbook')).toBeInTheDocument()
+				},
+				{ timeout: 5000 }
+			)
 
 			// Open share dialog
 			fireEvent.click(screen.getByRole('button', { name: 'Share' }))

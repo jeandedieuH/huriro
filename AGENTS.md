@@ -11,16 +11,21 @@ A secure, self-hostable, modular workspace platform. Monorepo: Bun workspaces
 | Command                        | Purpose                                                                                                                                 |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `bun install`                  | install all workspaces                                                                                                                  |
-| `bun run verify`               | the gate: lint + typecheck + test + build + gen:check + boundaries + licenses                                                           |
+| `bun run verify`               | the gate: lint + typecheck + test + build + gen:check + boundaries + licenses + bundles + shared-code                                   |
 | `bun run dev`                  | dev (turbo)                                                                                                                             |
 | `bun run migrate`              | apply DB migrations                                                                                                                     |
 | `bun run doctor`               | instance preflight checks                                                                                                               |
+| `bun run check:bundles`        | enforce initial web entry shell `<= 200 KB` gzip and lazy editor chunks                                                                 |
+| `bun run check:shared-code`    | enforce `>= 60%` shared TypeScript client LOC in `packages/*`                                                                           |
+| `bun run dr:drill`             | disaster recovery rehearsal (`--live` runs PG18 restore & RLS drill)                                                                    |
+| `bun run chaos:smoke`          | Valkey RESP2 pub/sub failover + API rate limiter smoke test                                                                             |
 | `bun test packages/test-utils` | RLS/integration suite (needs `DATABASE_URL` or `HURIRO_TESTCONTAINERS=1`; if ryuk can't pull, also `TESTCONTAINERS_RYUK_DISABLED=true`) |
 
 ## Layout
 
 - `apps/server` — one image, three roles (api/worker/realtime) + `huriro` CLI.
-- `apps/web` — Vite + React 19 + Tailwind v4 app; `components/ui` shadcn-contract set, app shell, Storybook.
+- `apps/web` — Vite + React 19 + Tailwind v4 app; `components/ui` shadcn-contract set, app shell, PWA, Storybook.
+- `apps/mobile` — Expo SDK 58 + Expo Router + Uniwind + `heroui-native` offline-first mobile app (EAS + Maestro).
 - `packages/config` — shared tsconfig/biome/boundary rules.
 - `packages/design-tokens` — DTCG token JSON → css/tailwind/rn/docs; `gen` + `gen:check`.
 - `packages/i18n` — Lingui catalogs + typed `t()` + generated pseudo-locale.
@@ -29,6 +34,7 @@ A secure, self-hostable, modular workspace platform. Monorepo: Bun workspaces
 - `packages/domain` — PURE core: permission catalog, roles, `can()` policy.
 - `packages/editor` — shared TipTap v3 + Yjs schema, Markdown/Y.Doc converters, relative anchors, HTML/URL sanitizer.
 - `packages/db` — Drizzle schema + raw SQL migrations + `withWorkspace` + runner.
+- `packages/sync-client` — shared optimistic offline-first sync engine, IndexedDB & SQLite replica storage.
 - `packages/test-utils` — factories, DB harness, the RLS coverage test.
 - `infra/` — compose stack, postgres image (18 + pgvector + pgBackRest).
 - `docs/plan`, `docs/adr`, `scripts/` — plan sections, ADRs, repo tooling.

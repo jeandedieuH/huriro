@@ -116,6 +116,10 @@ export const githubSyncTotal = new client.Counter({
 	help: 'GitHub two-way sync operations by direction and status (§16.6)',
 	labelNames: ['direction', 'status']
 })
+export const wsConnectionsGauge = new client.Gauge({
+	name: 'huriro_ws_active_connections',
+	help: 'Currently active signal-plane WebSocket connections (§20.1)'
+})
 metrics.registerMetric(httpDuration)
 metrics.registerMetric(outboxLag)
 metrics.registerMetric(changeLogWriteMs)
@@ -129,6 +133,7 @@ metrics.registerMetric(chatFeedLatencyMs)
 metrics.registerMetric(webhookDeliveriesTotal)
 metrics.registerMetric(fileScansTotal)
 metrics.registerMetric(githubSyncTotal)
+metrics.registerMetric(wsConnectionsGauge)
 
 export function hashForLog(id: string | undefined): string | undefined {
 	if (!id) return undefined

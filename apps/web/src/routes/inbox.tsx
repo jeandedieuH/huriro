@@ -1,6 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { InboxView } from '@/features/notifications/components/inbox-view'
+import { lazy, Suspense } from 'react'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useWorkspace } from '@/lib/workspace'
+
+const InboxView = lazy(() =>
+	import('@/features/notifications/components/inbox-view').then((m) => ({ default: m.InboxView }))
+)
 
 export const Route = createFileRoute('/inbox')({
 	component: InboxRoute
@@ -8,5 +13,9 @@ export const Route = createFileRoute('/inbox')({
 
 function InboxRoute() {
 	const { api } = useWorkspace()
-	return <InboxView api={api} />
+	return (
+		<Suspense fallback={<Skeleton className="m-6 h-48 w-full" />}>
+			<InboxView api={api} />
+		</Suspense>
+	)
 }

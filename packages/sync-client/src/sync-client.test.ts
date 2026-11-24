@@ -1,3 +1,4 @@
+import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 import type {
 	DocPageDto,
@@ -11,9 +12,12 @@ import type {
 } from '@huriro/contracts'
 import {
 	generateUuidV7,
+	HttpSyncTransport,
 	HuriroSyncEngine,
 	MAX_OUTBOX_MUTATIONS,
 	MemoryReplicaStorage,
+	type SqliteDatabaseLike,
+	SqliteReplicaStorage,
 	type SyncTransport
 } from './index'
 
@@ -615,5 +619,166 @@ describe('HuriroSyncEngine', () => {
 		await engine.deleteDocPage(docId)
 		expect(engine.collections.docPages.get(docId)).toBeUndefined()
 		engine.dispose()
+	})
+
+	test('SqliteReplicaStorage persists replica and outbox across HuriroSyncEngine restarts', async () => {
+		const sqlite = new Database(':memory:')
+		const dbAdapter: SqliteDatabaseLike = {
+			async execAsync(source) {
+				sqlite.run(source)
+			},
+			async getFirstAsync<T>(source: string, ...params: unknown[]): Promise<T | null> {
+				const row = sqlite.query(source).get(...(params as [string | number | bigint | boolean | null]))
+				return (row as T | null) ?? null
+			},
+			async getAllAsync<T>(source: string, ...params: unknown[]): Promise<T[]> {
+				return sqlite.query(source).all(...(params as [string | number | bigint | boolean | null])) as T[]
+			},
+			async runAsync(source: string, ...params: unknown[]): Promise<unknown> {
+				return sqlite.query(source).run(...(params as [string | number | bigint | boolean | null]))
+			}
+		}
+
+		const storage1 = new SqliteReplicaStorage(dbAdapter, WS_ID)
+		await storage1.set('probe', 'value-1')
+		expect(await storage1.get('probe')).toBe('value-1')
+		expect(await storage1.keys()).toEqual(['probe'])
+		await storage1.delete('probe')
+		expect(await storage1.get('probe')).toBeNull()
+
+		const sentBatches: MutationEnvelope[][] = []
+		const serverDocs = new Map<string, IssueDto>()
+		const issueId = generateUuidV7()
+
+		const makeTransport = (): SyncTransport => ({
+			async fetchSnapshot(): Promise<SyncSnapshotResponse> {
+				return {
+					cursor: 1,
+					serverTime: new Date().toISOString(),
+					projects: [baseProject()],
+					projectStatuses: [baseStatus()],
+					labels: [],
+					cycles: [],
+					issues: [...serverDocs.values()],
+					savedViews: [],
+					notifications: [],
+					docPages: []
+				}
+			},
+			async fetchChanges(since) {
+				return {
+					changes: [],
+					nextCursor: since,
+					hasMore: false,
+					serverTime: new Date().toISOString()
+				}
+			},
+			async sendBatch(mutations) {
+				sentBatches.push([...mutations])
+				for (const m of mutations) {
+					if (m.entity === 'issue' && m.op === 'create') {
+						serverDocs.set(
+							m.entityId,
+							makeIssue(m.entityId, {
+								title: String(m.patch['title'] ?? 'Offline SQLite issue'),
+								version: 1
+							})
+						)
+					}
+				}
+				return {
+					cursor: 2,
+					results: mutations.map((m) => ({
+						mutationId: m.mutationId,
+						status: 201,
+						outcome: 'applied',
+						data: serverDocs.get(m.entityId) as unknown as Record<string, unknown>
+					}))
+				}
+			}
+		})
+
+		const engine1 = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage: storage1,
+			transport: makeTransport()
+		})
+		await engine1.bootstrap()
+		expect(engine1.getStatus().storageMode).toBe('sqlite')
+		engine1.setOnline(false)
+		await engine1.createIssue({
+			id: issueId,
+			projectId: PROJ_ID,
+			title: 'Created offline in SQLite'
+		})
+		expect(engine1.getStatus().pendingCount).toBe(1)
+		engine1.dispose()
+
+		// Re-open engine against the same SQLite database (simulates mobile app cold restart).
+		const storage2 = new SqliteReplicaStorage(dbAdapter, WS_ID)
+		const engine2 = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage: storage2,
+			transport: makeTransport()
+		})
+		await engine2.bootstrap({ skipNetwork: true })
+		expect(engine2.collections.issues.get(issueId)?.title).toBe('Created offline in SQLite')
+		expect(engine2.getStatus().pendingCount).toBe(1)
+
+		await engine2.flushOutbox()
+		expect(engine2.getStatus().pendingCount).toBe(0)
+		expect(sentBatches).toHaveLength(1)
+		expect(serverDocs.get(issueId)?.title).toBe('Created offline in SQLite')
+		await storage2.clear()
+		expect(await storage2.keys()).toEqual([])
+		engine2.dispose()
+		sqlite.close()
+	})
+
+	test('HttpSyncTransport forwards clientName, credentials, and dynamic headers', async () => {
+		const originalFetch = globalThis.fetch
+		const calls: { url: string; headers: Headers; credentials: RequestCredentials | undefined }[] = []
+		globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+			calls.push({
+				url: String(input),
+				headers: new Headers(init?.headers),
+				credentials: init?.credentials
+			})
+			return new Response(
+				JSON.stringify({
+					cursor: 1,
+					serverTime: new Date().toISOString(),
+					projects: [],
+					projectStatuses: [],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: []
+				} satisfies SyncSnapshotResponse),
+				{ status: 200, headers: { 'content-type': 'application/json' } }
+			)
+		}) as unknown as typeof fetch
+
+		try {
+			const transport = new HttpSyncTransport({
+				baseUrl: 'https://huriro.example/',
+				workspaceId: WS_ID,
+				clientName: 'huriro-mobile',
+				credentials: 'omit',
+				getHeaders: () => ({ authorization: 'Bearer test-mobile-token' })
+			})
+			await transport.fetchSnapshot()
+			expect(calls).toHaveLength(1)
+			expect(calls[0]?.url).toBe('https://huriro.example/api/v1/sync/snapshot')
+			expect(calls[0]?.credentials).toBe('omit')
+			expect(calls[0]?.headers.get('x-huriro-client')).toBe('huriro-mobile')
+			expect(calls[0]?.headers.get('authorization')).toBe('Bearer test-mobile-token')
+		} finally {
+			globalThis.fetch = originalFetch
+		}
 	})
 })

@@ -1,7 +1,8 @@
 // M4 Gate G4 (§23.2): 500-message concurrent channel burst & incremental sync delta pull SLO test.
 // Run: k6 run -e BASE_URL=http://localhost:3001 -e WORKSPACE_ID=... -e CHANNEL_ID=... -e AUTH_COOKIE=... scripts/k6/m4-chat-burst.js
-import http from 'k6/http'
+
 import { check } from 'k6'
+import http from 'k6/http'
 
 export const options = {
 	scenarios: {

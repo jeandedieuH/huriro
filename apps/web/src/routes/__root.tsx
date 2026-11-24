@@ -9,7 +9,7 @@ import {
 	useNavigate,
 	useRouterState
 } from '@tanstack/react-router'
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, type ReactNode, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { AppShell } from '@/components/app-shell/app-shell'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Toaster } from '@/components/ui/toast'
@@ -24,16 +24,12 @@ import {
 	DocsSidebarHeaderAction,
 	DocsSidebarNav
 } from '@/features/docs/components/docs-sidebar-nav'
-import { ImportDialog } from '@/features/imports/components/import-dialog'
-import { ShortcutsDialog } from '@/features/keyboard/shortcuts-dialog'
 import { useKeyboardShortcuts } from '@/features/keyboard/use-keyboard-shortcuts'
 import {
 	InboxSidebarFooterUtility,
 	InboxSidebarNav
 } from '@/features/notifications/components/inbox-sidebar-nav'
-import { CommandPalette } from '@/features/search/components/command-palette'
 import { SettingsSidebarNav } from '@/features/settings/components/settings-sidebar-nav'
-import { ConflictResolverDialog } from '@/features/sync/components/conflict-resolver-dialog'
 import { SyncStatusBanner } from '@/features/sync/components/sync-status-banner'
 import { TasksSidebarFooterUtility, TasksSidebarNav } from '@/features/tasks/components/tasks-sidebar-nav'
 import { type SocialProviderId, signOut } from '@/lib/auth'
@@ -56,9 +52,25 @@ import {
 	isOnboardingRequired,
 	type OnboardingRequired
 } from '@/lib/sync-bootstrap'
+import { startWebVitalsRum } from '@/lib/web-vitals'
 import { useWorkspace, WorkspaceProvider } from '@/lib/workspace'
 import { useUiStore } from '@/stores/ui-store'
 import globalsCss from '@/styles/globals.css?url'
+
+const CommandPalette = lazy(() =>
+	import('@/features/search/components/command-palette').then((m) => ({ default: m.CommandPalette }))
+)
+const ConflictResolverDialog = lazy(() =>
+	import('@/features/sync/components/conflict-resolver-dialog').then((m) => ({
+		default: m.ConflictResolverDialog
+	}))
+)
+const ShortcutsDialog = lazy(() =>
+	import('@/features/keyboard/shortcuts-dialog').then((m) => ({ default: m.ShortcutsDialog }))
+)
+const ImportDialog = lazy(() =>
+	import('@/features/imports/components/import-dialog').then((m) => ({ default: m.ImportDialog }))
+)
 
 activateI18n('en')
 
@@ -67,10 +79,12 @@ export const Route = createRootRoute({
 		meta: [
 			{ charSet: 'utf-8' },
 			{ name: 'viewport', content: 'width=device-width, initial-scale=1' },
+			{ name: 'theme-color', content: '#18181b' },
 			{ title: 'Huriro' }
 		],
 		links: [
 			{ rel: 'stylesheet', href: globalsCss },
+			{ rel: 'manifest', href: '/manifest.webmanifest' },
 			{ rel: 'icon', type: 'image/png', href: '/images/icon.png' },
 			{ rel: 'apple-touch-icon', href: '/images/icon.png' }
 		]
@@ -175,6 +189,13 @@ function RootComponent() {
 			registerMailNavigator(null)
 		}
 	}, [navigate])
+
+	useEffect(() => {
+		startWebVitalsRum()
+		if (import.meta.env.PROD && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+			void navigator.serviceWorker.register('/sw.js').catch(() => {})
+		}
+	}, [])
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: bootAttempt is the re-run trigger bumped by auth/onboarding actions, not a referenced value
 	useEffect(() => {
@@ -444,6 +465,11 @@ function WorkspaceFrame() {
 	const toggleSidebarCollapsed = useUiStore((s) => s.toggleSidebarCollapsed)
 	const theme = useUiStore((s) => s.theme)
 	const toggleTheme = useUiStore((s) => s.toggleTheme)
+	const commandPaletteOpen = useUiStore((s) => s.commandPaletteOpen)
+	const conflictDialogOpen = useUiStore((s) => s.conflictDialogOpen)
+	const shortcutsDialogOpen = useUiStore((s) => s.shortcutsDialogOpen)
+	const importDialogOpen = useUiStore((s) => s.importDialogOpen)
+	const serverReadOnly = useUiStore((s) => s.serverReadOnly)
 	const setCommandPaletteOpen = useUiStore((s) => s.setCommandPaletteOpen)
 	const setShortcutsDialogOpen = useUiStore((s) => s.setShortcutsDialogOpen)
 	const toasts = useUiStore((s) => s.toasts)
@@ -546,16 +572,26 @@ function WorkspaceFrame() {
 				}
 			>
 				<SyncStatusBanner />
+				{serverReadOnly ? (
+					<div
+						role="status"
+						className="border-b border-amber-500/40 bg-amber-500/15 px-4 py-2 text-xs font-medium text-foreground"
+					>
+						{t('shell.read-only')}
+					</div>
+				) : null}
 
 				<div className="min-h-0 flex-1 overflow-y-auto">
 					<Outlet />
 				</div>
 			</AppShell>
 
-			<CommandPalette api={api} />
-			<ConflictResolverDialog />
-			<ShortcutsDialog />
-			<ImportDialog api={api} />
+			<Suspense fallback={null}>
+				{commandPaletteOpen ? <CommandPalette api={api} /> : null}
+				{conflictDialogOpen ? <ConflictResolverDialog /> : null}
+				{shortcutsDialogOpen ? <ShortcutsDialog /> : null}
+				{importDialogOpen ? <ImportDialog api={api} /> : null}
+			</Suspense>
 
 			<Toaster toasts={toasts} onDismiss={dismissToast} />
 		</>

@@ -50,22 +50,28 @@ export class HttpSyncTransport implements SyncTransport {
 	private readonly baseUrl: string
 	private readonly workspaceId: string
 	private readonly getHeaders: (() => Record<string, string>) | undefined
+	private readonly clientName: string
+	private readonly credentials: RequestCredentials
 
 	constructor(args: {
 		readonly baseUrl?: string | undefined
 		readonly workspaceId: string
 		readonly getHeaders?: (() => Record<string, string>) | undefined
+		readonly clientName?: string | undefined
+		readonly credentials?: RequestCredentials | undefined
 	}) {
 		this.baseUrl = (args.baseUrl ?? '').replace(/\/$/, '')
 		this.workspaceId = args.workspaceId
 		this.getHeaders = args.getHeaders
+		this.clientName = args.clientName ?? 'huriro-web'
+		this.credentials = args.credentials ?? 'include'
 	}
 
 	private buildHeaders(extra?: Record<string, string>): Record<string, string> {
 		return {
 			'content-type': 'application/json',
 			'x-workspace-id': this.workspaceId,
-			'x-huriro-client': 'huriro-web',
+			'x-huriro-client': this.clientName,
 			...(this.getHeaders ? this.getHeaders() : {}),
 			...extra
 		}
@@ -73,7 +79,7 @@ export class HttpSyncTransport implements SyncTransport {
 
 	async fetchChanges(since: number, limit: number, clientId: string): Promise<SyncChangesResponse> {
 		const url = `${this.baseUrl}/api/v1/sync/changes?since=${since}&limit=${limit}&clientId=${encodeURIComponent(clientId)}`
-		const res = await fetch(url, { credentials: 'include', headers: this.buildHeaders() })
+		const res = await fetch(url, { credentials: this.credentials, headers: this.buildHeaders() })
 		if (res.status === 410) {
 			const err = new Error('sync_cursor_expired') as Error & { status?: number }
 			err.status = 410
@@ -90,7 +96,7 @@ export class HttpSyncTransport implements SyncTransport {
 	async fetchSnapshot(scope?: string): Promise<SyncSnapshotResponse> {
 		const qs = scope ? `?scope=${encodeURIComponent(scope)}` : ''
 		const res = await fetch(`${this.baseUrl}/api/v1/sync/snapshot${qs}`, {
-			credentials: 'include',
+			credentials: this.credentials,
 			headers: this.buildHeaders()
 		})
 		if (!res.ok) {
@@ -105,7 +111,7 @@ export class HttpSyncTransport implements SyncTransport {
 		const idempotencyKey = mutations[0]?.mutationId ?? generateUuidV7()
 		const res = await fetch(`${this.baseUrl}/api/v1/mutations`, {
 			method: 'POST',
-			credentials: 'include',
+			credentials: this.credentials,
 			headers: this.buildHeaders({ 'idempotency-key': idempotencyKey }),
 			body: JSON.stringify({ mutations })
 		})
@@ -120,7 +126,7 @@ export class HttpSyncTransport implements SyncTransport {
 	async fetchRealtimeTicket(deviceId: string): Promise<{ ticket: string }> {
 		const res = await fetch(`${this.baseUrl}/api/v1/realtime/ticket`, {
 			method: 'POST',
-			credentials: 'include',
+			credentials: this.credentials,
 			headers: this.buildHeaders(),
 			body: JSON.stringify({ deviceId })
 		})
@@ -163,6 +169,7 @@ export class HuriroSyncEngine {
 	readonly currentUserId: string
 	readonly collections = new HuriroSyncCollections()
 	private storage: ReplicaStorage
+	private readonly hasExplicitStorage: boolean
 	private outbox: HuriroMutationOutbox
 	private readonly transport: SyncTransport | null
 	private readonly wsUrl: string | undefined
@@ -197,6 +204,7 @@ export class HuriroSyncEngine {
 	constructor(opts: HuriroSyncEngineOptions) {
 		this.workspaceId = opts.workspaceId
 		this.currentUserId = opts.currentUserId
+		this.hasExplicitStorage = opts.storage !== undefined
 		this.storage = opts.storage ?? new MemoryReplicaStorage()
 		this.outbox = new HuriroMutationOutbox(this.storage)
 		this.transport = opts.transport ?? null
@@ -261,7 +269,7 @@ export class HuriroSyncEngine {
 	}
 
 	async bootstrap(opts?: { readonly skipNetwork?: boolean }): Promise<void> {
-		if (this.storage.mode === 'memory' && !opts?.skipNetwork) {
+		if (!this.hasExplicitStorage && this.storage.mode === 'memory' && !opts?.skipNetwork) {
 			// Only upgrade storage if caller didn't inject an explicit ReplicaStorage.
 			const best = await createBestReplicaStorage(this.workspaceId)
 			if (best.mode !== 'memory') {
@@ -295,7 +303,7 @@ export class HuriroSyncEngine {
 		this.reapplyPendingOptimisticState()
 		this.emit()
 
-		if (typeof window !== 'undefined') {
+		if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
 			this.onlineHandler = () => {
 				this.setOnline(true)
 			}
@@ -1149,7 +1157,7 @@ export class HuriroSyncEngine {
 		this.disposed = true
 		this.wsClient?.stop()
 		this.wsClient = null
-		if (typeof window !== 'undefined') {
+		if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
 			if (this.onlineHandler) window.removeEventListener('online', this.onlineHandler)
 			if (this.offlineHandler) window.removeEventListener('offline', this.offlineHandler)
 		}
