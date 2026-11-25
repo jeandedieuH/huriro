@@ -68,7 +68,7 @@ export default function InboxTabScreen() {
 					<EmptyStateCard
 						icon={<BellOff size={22} color="#71717a" />}
 						title={t('inbox.empty')}
-						description="Activity across issues, docs, chat, and mail will appear here."
+						description={t('mobile.inbox.activity-description')}
 					/>
 				}
 			/>

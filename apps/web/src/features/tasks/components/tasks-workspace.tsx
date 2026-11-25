@@ -4,12 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useKeyboardShortcuts } from '@/features/keyboard/use-keyboard-shortcuts'
 import type { TaskApiBridge, WorkspaceMemberSummary } from '@/lib/sync-bootstrap'
 import { type TasksPreset, useUiStore } from '@/stores/ui-store'
-import { CreateIssueDialog } from './create-issue-dialog'
+import { CreateIssueDialog } from './create-task-dialog'
 import { CreateProjectDialog } from './create-project-dialog'
 import { FilterBar } from './filter-bar'
-import { IssueBoardView } from './issue-board-view'
-import { IssueDetailPanel } from './issue-detail-panel'
-import { IssueListView } from './issue-list-view'
+import { IssueBoardView } from './task-board-view'
+import { IssueDetailPanel } from './task-detail-panel'
+import { IssueListView } from './task-list-view'
 
 export interface TasksWorkspaceProps {
 	readonly api: TaskApiBridge

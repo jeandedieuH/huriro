@@ -1,4 +1,4 @@
-export { HuriroSyncCollections, type PersistedReplicaState } from './collections'
+export { HuriroSyncCollections, type PersistedReplicaState, REPLICA_SCHEMA_VERSION } from './collections'
 export {
 	HttpSyncTransport,
 	HuriroSyncEngine,

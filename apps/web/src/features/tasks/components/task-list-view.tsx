@@ -98,7 +98,7 @@ export function IssueListView({
 							</span>
 							{isPending ? (
 								<span
-									className="inline-flex items-center gap-1 text-xs text-(--warning)"
+									className="inline-flex items-center gap-1 text-xs text-warning"
 									title={t('tasks.pending-sync')}
 								>
 									<Clock className="size-3" aria-hidden />

@@ -181,7 +181,7 @@ describe('Settings Workspace redesign', () => {
 					</SyncProvider>
 				</WorkspaceProvider>
 			)
-			expect(generalRender.getByText('Open issues')).toBeInTheDocument()
+			expect(generalRender.getByText('Open tasks')).toBeInTheDocument()
 			await expectNoViolations(generalRender.container)
 			generalRender.unmount()
 		} finally {

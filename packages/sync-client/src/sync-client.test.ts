@@ -1313,4 +1313,132 @@ describe('HuriroSyncEngine', () => {
 		expect(failed).toBe(false)
 		engine.dispose()
 	})
+
+	test('legacy persisted replica hydrates for instant render but does not trust its cursor', async () => {
+		const storage = new MemoryReplicaStorage()
+		const issue = makeIssue(generateUuidV7(), { title: 'Recovered task' })
+		const fullSnapshot: SyncSnapshotResponse = {
+			cursor: 58,
+			serverTime: new Date().toISOString(),
+			projects: [baseProject()],
+			projectStatuses: [baseStatus()],
+			labels: [],
+			cycles: [],
+			issues: [issue],
+			savedViews: [],
+			notifications: [],
+			docPages: []
+		}
+
+		// Replicas written before replica schema versioning have no schemaVersion.
+		// Their entity arrays may still be useful for offline-first rendering, but
+		// their cursor cannot prove that the local collections are complete.
+		await storage.set(
+			'huriro:replica:v1',
+			JSON.stringify({
+				cursor: 58,
+				projects: [],
+				projectStatuses: [],
+				labels: [],
+				cycles: [],
+				issues: [],
+				savedViews: [],
+				notifications: [],
+				docPages: []
+			})
+		)
+
+		let snapshotCalls = 0
+		let changeCalls = 0
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				snapshotCalls += 1
+				return fullSnapshot
+			},
+			async fetchChanges(since) {
+				changeCalls += 1
+				return { changes: [], nextCursor: since, hasMore: false, serverTime: new Date().toISOString() }
+			},
+			async sendBatch() {
+				return { cursor: 58, results: [] }
+			}
+		}
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport
+		})
+		await engine.bootstrap()
+
+		expect(snapshotCalls).toBe(1)
+		expect(changeCalls).toBe(0)
+		expect(engine.getStatus().cursor).toBe(58)
+		expect(engine.collections.projects.get(PROJ_ID)?.name).toBe('Engineering')
+		expect(engine.collections.issues.get(issue.id)?.title).toBe('Recovered task')
+		engine.dispose()
+	})
+
+	test('schema-versioned persisted replica keeps trusting its cursor across restarts', async () => {
+		const storage = new MemoryReplicaStorage()
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				return {
+					cursor: 10,
+					serverTime: new Date().toISOString(),
+					projects: [baseProject()],
+					projectStatuses: [baseStatus()],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: []
+				}
+			},
+			async fetchChanges(since) {
+				return { changes: [], nextCursor: since, hasMore: false, serverTime: new Date().toISOString() }
+			},
+			async sendBatch() {
+				return { cursor: 10, results: [] }
+			}
+		}
+
+		const first = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport
+		})
+		await first.bootstrap()
+		expect(first.collections.projects.get(PROJ_ID)?.name).toBe('Engineering')
+		first.dispose()
+
+		let snapshotCallsAfterRestart = 0
+		let changeCallsAfterRestart = 0
+		const restartTransport: SyncTransport = {
+			...transport,
+			async fetchSnapshot(scope) {
+				snapshotCallsAfterRestart += 1
+				return transport.fetchSnapshot(scope)
+			},
+			async fetchChanges(since, limit, clientId) {
+				changeCallsAfterRestart += 1
+				return transport.fetchChanges(since, limit, clientId)
+			}
+		}
+		const restarted = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport: restartTransport
+		})
+		await restarted.bootstrap()
+
+		expect(snapshotCallsAfterRestart).toBe(0)
+		expect(changeCallsAfterRestart).toBe(1)
+		expect(restarted.collections.projects.get(PROJ_ID)?.name).toBe('Engineering')
+		restarted.dispose()
+	})
 })

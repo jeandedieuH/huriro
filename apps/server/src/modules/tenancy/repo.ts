@@ -91,7 +91,16 @@ export interface InvitationRow {
 	expiresAt: Date
 }
 
-export async function insertInvitation(
+/**
+ * Insert-or-resend upsert keyed on the partial unique index
+ * `uq_invitations_pending` (workspace_id, email WHERE status = 'pending').
+ * A live pending invite — even an expired one — is renewed in place: the token
+ * rotates (old links die), the expiry extends, role/inviter track the latest
+ * intent. Accepted/revoked/expired rows don't match the index predicate, so
+ * re-invites after those insert a fresh row — exactly the schema's contract.
+ * `inserted` discriminates via the xmax system column (0 ⟺ freshly inserted).
+ */
+export async function upsertPendingInvitation(
 	tx: Queryable,
 	args: {
 		workspaceId: string
@@ -101,13 +110,33 @@ export async function insertInvitation(
 		invitedBy: string
 		expiresAt: Date
 	}
-): Promise<string> {
-	const [row] = await tx<{ id: string }[]>`
+): Promise<{ id: string; inserted: boolean }> {
+	const [row] = await tx<{ id: string; inserted: boolean }[]>`
 		INSERT INTO invitations (workspace_id, email, role_id, token_hash, invited_by, expires_at)
 		VALUES (${args.workspaceId}, ${args.email}, ${args.roleId}, ${args.tokenHash}, ${args.invitedBy}, ${args.expiresAt})
-		RETURNING id
+		ON CONFLICT (workspace_id, email) WHERE status = 'pending' DO UPDATE SET
+			token_hash = EXCLUDED.token_hash,
+			role_id = EXCLUDED.role_id,
+			invited_by = EXCLUDED.invited_by,
+			expires_at = EXCLUDED.expires_at
+		RETURNING id, (xmax = 0) AS inserted
 	`
-	return row!.id
+	return row!
+}
+
+/** Active membership lookup by email — re-inviting a seated member is a no-op the caller must reject. */
+export async function findMembershipByEmail(
+	tx: Queryable,
+	workspaceId: string,
+	email: string
+): Promise<{ userId: string } | undefined> {
+	const [row] = await tx<{ userId: string }[]>`
+		SELECT m.user_id AS "userId"
+		FROM memberships m
+		JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL
+		WHERE m.workspace_id = ${workspaceId} AND u.email = ${email}
+	`
+	return row
 }
 
 /** Pending, unexpired invite by token hash — the accept path's only lookup. */

@@ -64,12 +64,12 @@ describe('TasksWorkspace', () => {
 			expect(screen.getByText('ENG-1')).toBeInTheDocument()
 			await expectNoViolations(container)
 
-			// J focuses first issue, Enter opens detail drawer
+			// J focuses first task, Enter opens detail drawer
 			fireEvent.keyDown(window, { key: 'j' })
 			fireEvent.keyDown(window, { key: 'Enter' })
 
 			await waitFor(() => {
-				expect(screen.getByLabelText('Issue details')).toBeInTheDocument()
+				expect(screen.getByLabelText('Task details')).toBeInTheDocument()
 			})
 		} finally {
 			boot.engine.dispose()
@@ -107,10 +107,10 @@ describe('TasksWorkspace', () => {
 		}
 	})
 
-	it('filters issues, saves a view, and creates a new issue', async () => {
+	it('filters tasks, saves a view, and creates a new task', async () => {
 		const { boot } = await renderTasksWorkspace()
 		try {
-			const filterInput = screen.getByPlaceholderText('Filter issues…')
+			const filterInput = screen.getByPlaceholderText('Filter tasks…')
 			fireEvent.change(filterInput, { target: { value: 'SEC-1' } })
 
 			expect(screen.getByText('SEC-1')).toBeInTheDocument()

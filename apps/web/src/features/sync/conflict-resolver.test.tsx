@@ -111,4 +111,46 @@ describe('SyncStatusBanner & ConflictResolverDialog', () => {
 			engine.dispose()
 		}
 	})
+
+	it('Sync now performs an authoritative snapshot resync', async () => {
+		const seed = createPreviewSeedSnapshot()
+		let snapshotCalls = 0
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				snapshotCalls += 1
+				return seed
+			},
+			async fetchChanges(since) {
+				return {
+					changes: [],
+					nextCursor: since,
+					hasMore: false,
+					serverTime: new Date().toISOString()
+				}
+			},
+			async sendBatch() {
+				return { cursor: seed.cursor, results: [] }
+			}
+		}
+		const engine = new HuriroSyncEngine({
+			workspaceId: seed.projects[0]?.workspaceId ?? generateUuidV7(),
+			currentUserId: seed.projects[0]?.createdBy ?? generateUuidV7(),
+			storage: new MemoryReplicaStorage(),
+			transport
+		})
+		await engine.bootstrap()
+		expect(snapshotCalls).toBe(1)
+
+		try {
+			render(
+				<SyncProvider engine={engine}>
+					<SyncStatusBanner />
+				</SyncProvider>
+			)
+			fireEvent.click(screen.getByRole('button', { name: 'Sync now' }))
+			await waitFor(() => expect(snapshotCalls).toBe(2))
+		} finally {
+			engine.dispose()
+		}
+	})
 })

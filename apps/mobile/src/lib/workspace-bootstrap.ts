@@ -74,7 +74,7 @@ export function createMobilePreviewSnapshot(): SyncSnapshotResponse {
 				cycleId: null,
 				title: 'Verify Expo SQLite offline outbox queue',
 				description: null,
-				descriptionText: 'Create an issue offline and flush once back online.',
+				descriptionText: 'Create a task offline and flush once back online.',
 				statusId: MOBILE_PREVIEW_STATUS_TODO_ID,
 				priority: 2,
 				assigneeType: 'user',

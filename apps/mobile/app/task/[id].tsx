@@ -1,3 +1,4 @@
+import { t } from '@huriro/i18n'
 import { useCollectionItems, useSyncEngine } from '@huriro/sync-client'
 import { Stack, useLocalSearchParams } from 'expo-router'
 import { Button, Card, Chip } from 'heroui-native'
@@ -24,7 +25,9 @@ export default function IssueDetailScreen() {
 
 	return (
 		<>
-			<Stack.Screen options={{ headerShown: true, title: issue?.identifier ?? 'Issue' }} />
+			<Stack.Screen
+				options={{ headerShown: true, title: issue?.identifier ?? t('mobile.tasks.detail-fallback') }}
+			/>
 			<Container>
 				{issue ? (
 					<>
@@ -62,8 +65,8 @@ export default function IssueDetailScreen() {
 				) : (
 					<EmptyStateCard
 						icon={<CheckSquare size={22} color="#71717a" />}
-						title="Issue unavailable offline"
-						description={`Issue "${id}" has not synced to this device replica yet.`}
+						title={t('mobile.tasks.unavailable-title')}
+						description={t('mobile.tasks.unavailable-description', { id })}
 					/>
 				)}
 			</Container>

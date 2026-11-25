@@ -90,7 +90,7 @@ export function SyncStatusBanner() {
 					size="sm"
 					tone="ghost"
 					className="ml-auto h-6 px-2 text-xs"
-					onClick={() => void engine.flushOutbox({ force: true }).then(() => engine.syncNow())}
+					onClick={() => void engine.flushOutbox({ force: true }).then(() => engine.resyncSnapshot())}
 				>
 					{t('sync.sync-now')}
 				</Button>

@@ -1,3 +1,4 @@
+import { t } from '@huriro/i18n'
 import { useCollectionItems, useSyncEngine } from '@huriro/sync-client'
 import { useRouter } from 'expo-router'
 import { Button, Card, Chip, Input, SearchField, TextField } from 'heroui-native'
@@ -8,7 +9,7 @@ import { Container } from '../../src/components/app/container'
 import { EmptyStateCard } from '../../src/components/common/empty-state-card'
 import { FlashList } from '../../src/components/common/flash-list'
 import { SyncStatusBanner } from '../../src/components/common/sync-status-banner'
-import { IssueCard } from '../../src/components/issues/issue-card'
+import { IssueCard } from '../../src/components/tasks/task-card'
 
 export default function IssuesTabScreen() {
 	const router = useRouter()
@@ -63,18 +64,18 @@ export default function IssuesTabScreen() {
 						<SearchField value={search} onChange={setSearch}>
 							<SearchField.Group>
 								<SearchField.SearchIcon />
-								<SearchField.Input placeholder="Filter issues or identifiers…" />
+								<SearchField.Input placeholder={t('mobile.tasks.filter-placeholder')} />
 								<SearchField.ClearButton />
 							</SearchField.Group>
 						</SearchField>
 
-						<Card className="p-3 rounded-2xl border border-border/60">
+						<Card className="p-3 rounded-2xl border border-default-soft-hover">
 							<View className="flex-row items-center gap-2">
 								<TextField className="flex-1">
 									<Input
 										value={draftTitle}
 										onChangeText={setDraftTitle}
-										placeholder="Quick issue title…"
+										placeholder={t('mobile.tasks.quick-title-placeholder')}
 										onSubmitEditing={() => void handleAddIssue()}
 									/>
 								</TextField>
@@ -85,7 +86,7 @@ export default function IssuesTabScreen() {
 									onPress={() => void handleAddIssue()}
 								>
 									<Plus size={15} color="#ffffff" />
-									<Button.Label>Add Issue</Button.Label>
+									<Button.Label>{t('mobile.tasks.add')}</Button.Label>
 								</Button>
 							</View>
 						</Card>
@@ -126,8 +127,8 @@ export default function IssuesTabScreen() {
 				ListEmptyComponent={
 					<EmptyStateCard
 						icon={<CheckSquare size={22} color="#71717a" />}
-						title="No matching issues"
-						description="Create one above — offline issues queue safely in SQLite until reconnected."
+						title={t('mobile.tasks.empty-title')}
+						description={t('mobile.tasks.empty-description')}
 					/>
 				}
 			/>

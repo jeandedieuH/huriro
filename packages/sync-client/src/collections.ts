@@ -106,7 +106,11 @@ function makeManagedCollection<T extends { readonly id: string }>(id: string): M
 	}
 }
 
+export const REPLICA_SCHEMA_VERSION = 1
+
 export interface PersistedReplicaState {
+	/** Versioned so older replicas can render locally without trusted-cursor drift. */
+	readonly schemaVersion?: number | undefined
 	readonly cursor: number
 	readonly projects: ProjectDto[]
 	readonly projectStatuses: ProjectStatusDto[]
@@ -339,6 +343,7 @@ export class HuriroSyncCollections {
 
 	exportState(cursor: number): PersistedReplicaState {
 		return {
+			schemaVersion: REPLICA_SCHEMA_VERSION,
 			cursor,
 			projects: this.projectsManaged.values(),
 			projectStatuses: this.statusesManaged.values(),

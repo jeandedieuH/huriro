@@ -23,7 +23,7 @@ import type {
 } from '@huriro/contracts'
 import { generateKeyBetween } from '@huriro/domain'
 import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
-import { HuriroSyncCollections, type PersistedReplicaState } from './collections'
+import { HuriroSyncCollections, type PersistedReplicaState, REPLICA_SCHEMA_VERSION } from './collections'
 import {
 	type FlushOptions,
 	generateUuidV7,
@@ -62,6 +62,19 @@ function formatHttpError(label: string, status: number, data: unknown): Error & 
 	}
 	err.status = status
 	return err
+}
+
+function hasPersistedReplicaShape(state: PersistedReplicaState): boolean {
+	return (
+		Array.isArray(state.projects) &&
+		Array.isArray(state.projectStatuses) &&
+		Array.isArray(state.labels) &&
+		Array.isArray(state.cycles) &&
+		Array.isArray(state.issues) &&
+		Array.isArray(state.savedViews) &&
+		Array.isArray(state.notifications) &&
+		(state.docPages === undefined || Array.isArray(state.docPages))
+	)
 }
 
 export class HttpSyncTransport implements SyncTransport {
@@ -316,9 +329,18 @@ export class HuriroSyncEngine {
 		if (rawReplica) {
 			try {
 				const parsed = JSON.parse(rawReplica) as PersistedReplicaState
-				this.cursor = parsed.cursor ?? 0
+				if (!hasPersistedReplicaShape(parsed)) {
+					throw new Error('Persisted replica shape is invalid')
+				}
+				// Hydrate even legacy rows for instant local rendering, but only a
+				// current-schema replica proves the cursor matches those collections.
 				this.collections.applyFullSnapshot(parsed)
+				this.cursor =
+					parsed.schemaVersion === REPLICA_SCHEMA_VERSION && Number.isFinite(parsed.cursor)
+						? parsed.cursor
+						: 0
 			} catch {
+				this.cursor = 0
 				this.collections.markAllReady()
 			}
 		} else {

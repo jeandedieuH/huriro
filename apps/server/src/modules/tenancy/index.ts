@@ -156,37 +156,47 @@ export function tenancyModule(
 			.post('/invitations', { body: InviteBody }, async ({ body, request }) => {
 				if (!auth) throw new HttpError(501, 'not_implemented', 'Auth not configured')
 				const session = await requireSession(auth, request)
-				const created = await sql.begin(async (tx) => {
-					await tx`SELECT set_config('app.workspace_id', ${body.workspaceId}, true)`
-					await tx`SELECT set_config('app.user_id', ${session.userId}, true)`
-					const roleKey = await tx<{ key: string }[]>`
+				const created = await sql
+					.begin(async (tx) => {
+						await tx`SELECT set_config('app.workspace_id', ${body.workspaceId}, true)`
+						await tx`SELECT set_config('app.user_id', ${session.userId}, true)`
+						const roleKey = await tx<{ key: string }[]>`
 						SELECT r.key FROM memberships m JOIN roles r ON r.id = m.role_id
 						WHERE m.workspace_id = ${body.workspaceId} AND m.user_id = ${session.userId}
 							AND m.status = 'active'
 					`
-					if (!roleKey[0] || !['owner', 'admin'].includes(roleKey[0].key)) {
-						throw new HttpError(403, 'insufficient_role', 'Only owner/admin can invite members')
-					}
-					const roleId = await getRoleIdByKey(tx, body.workspaceId, body.role)
-					if (!roleId) throw new HttpError(422, 'validation_failed', `Unknown role "${body.role}"`)
-					const invite = await createInvitation(tx, {
-						workspaceId: body.workspaceId,
-						email: body.email,
-						roleId,
-						invitedBy: session.userId
-					})
-					const [wsRow] = await tx<{ name: string }[]>`
+						if (!roleKey[0] || !['owner', 'admin'].includes(roleKey[0].key)) {
+							throw new HttpError(403, 'insufficient_role', 'Only owner/admin can invite members')
+						}
+						const roleId = await getRoleIdByKey(tx, body.workspaceId, body.role)
+						if (!roleId) throw new HttpError(422, 'validation_failed', `Unknown role "${body.role}"`)
+						const invite = await createInvitation(tx, {
+							workspaceId: body.workspaceId,
+							email: body.email,
+							roleId,
+							invitedBy: session.userId
+						})
+						const [wsRow] = await tx<{ name: string }[]>`
 						SELECT name FROM workspaces WHERE id = ${body.workspaceId}
 					`
-					const [inviterRow] = await tx<{ displayName: string }[]>`
+						const [inviterRow] = await tx<{ displayName: string }[]>`
 						SELECT display_name AS "displayName" FROM users WHERE id = ${session.userId}
 					`
-					return {
-						...invite,
-						workspaceName: wsRow?.name ?? 'Huriro Workspace',
-						inviterName: inviterRow?.displayName ?? session.email
-					}
-				})
+						return {
+							...invite,
+							workspaceName: wsRow?.name ?? 'Huriro Workspace',
+							inviterName: inviterRow?.displayName ?? session.email
+						}
+					})
+					// Domain failures (e.g. inviting a seated member) become problem+json;
+					// anything else still hits the global mapper as an unhandled 500.
+					.catch((err) => {
+						if (err instanceof InvitationError) {
+							const { status, code } = InvitationErrorMap[err.code]
+							throw new HttpError(status, code, err.message)
+						}
+						throw err
+					})
 
 				let emailSent = false
 				if (opts?.email?.configured) {
@@ -207,6 +217,7 @@ export function tenancyModule(
 				return {
 					id: created.id,
 					token: created.token,
+					resent: created.resent,
 					emailSent,
 					emailProvider: opts?.email?.provider ?? 'noop'
 				}

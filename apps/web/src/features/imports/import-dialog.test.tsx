@@ -26,12 +26,12 @@ describe('ImportDialog', () => {
 
 			fireEvent.click(screen.getByRole('button', { name: 'Dry-run preview' }))
 			await waitFor(() => {
-				expect(screen.getByText(/Ready: 1 issues, 0 comments \(0 skipped\)/)).toBeInTheDocument()
+				expect(screen.getByText(/Ready: 1 tasks, 0 comments \(0 skipped\)/)).toBeInTheDocument()
 			})
 
 			fireEvent.click(screen.getByRole('button', { name: 'Run import' }))
 			await waitFor(() => {
-				expect(screen.getByText(/Imported 1 issues and 0 comments/)).toBeInTheDocument()
+				expect(screen.getByText(/Imported 1 tasks and 0 comments/)).toBeInTheDocument()
 			})
 		} finally {
 			boot.engine.dispose()
@@ -102,12 +102,12 @@ describe('ImportDialog', () => {
 
 			fireEvent.click(screen.getByRole('button', { name: 'Dry-run preview' }))
 			await waitFor(() => {
-				expect(screen.getByText(/Ready: 1 issues, 0 comments \(0 skipped\)/)).toBeInTheDocument()
+				expect(screen.getByText(/Ready: 1 tasks, 0 comments \(0 skipped\)/)).toBeInTheDocument()
 			})
 
 			fireEvent.click(screen.getByRole('button', { name: 'Run import' }))
 			await waitFor(() => {
-				expect(screen.getByText(/Imported 1 issues and 0 comments/)).toBeInTheDocument()
+				expect(screen.getByText(/Imported 1 tasks and 0 comments/)).toBeInTheDocument()
 			})
 		} finally {
 			boot.engine.dispose()

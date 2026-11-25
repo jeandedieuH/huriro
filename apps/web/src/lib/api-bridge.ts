@@ -310,6 +310,8 @@ export interface TaskApiBridge {
 export interface CreateInvitationResponse {
 	readonly id: string
 	readonly token: string
+	/** true when an existing pending invite was renewed (token rotated) instead of freshly created. */
+	readonly resent: boolean
 	readonly emailSent: boolean
 	readonly emailProvider: string
 }

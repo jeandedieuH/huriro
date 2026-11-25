@@ -22,10 +22,10 @@ import {
 	audit,
 	deleteAclEntryById,
 	emitEvent,
+	findMembershipByEmail,
 	findPendingInvitation,
 	getActorMembershipAndPermissions,
 	insertAclEntry,
-	insertInvitation,
 	insertMembership,
 	insertRole,
 	insertRolePermission,
@@ -34,7 +34,8 @@ import {
 	listResourceAclEntries,
 	listResourceAclLevelsForUser,
 	type MembershipSummaryRow,
-	markInvitationAccepted
+	markInvitationAccepted,
+	upsertPendingInvitation
 } from './repo'
 // insertMembership is used by seedWorkspace; the accept path needs ON CONFLICT
 // so it inlines its own INSERT below.
@@ -132,15 +133,24 @@ function hashToken(token: string): string {
 /**
  * Create an invite inside the caller's tenant transaction.
  * Returns the plaintext token ONCE — only the sha256 hash is persisted.
+ *
+ * Re-invite semantics (upsert on the partial `uq_invitations_pending` index):
+ * a still-pending invite is renewed in place — fresh token, fresh 7-day expiry,
+ * latest role — and reported as `resent`. This covers the expired-invite case
+ * too: expiry never flips a row's status, but renewal makes that irrelevant.
  */
 export async function createInvitation(
 	tx: Queryable,
 	args: { workspaceId: string; email: string; roleId: string; invitedBy: string }
-): Promise<{ id: string; token: string }> {
+): Promise<{ id: string; token: string; resent: boolean }> {
+	const email = args.email.toLowerCase()
+	if (await findMembershipByEmail(tx, args.workspaceId, email)) {
+		throw new InvitationError('already_member', 'That person is already a member of this workspace')
+	}
 	const token = randomBytes(32).toString('base64url')
-	const id = await insertInvitation(tx, {
+	const { id, inserted } = await upsertPendingInvitation(tx, {
 		workspaceId: args.workspaceId,
-		email: args.email.toLowerCase(),
+		email,
 		roleId: args.roleId,
 		tokenHash: hashToken(token),
 		invitedBy: args.invitedBy,
@@ -151,18 +161,18 @@ export async function createInvitation(
 		aggregateId: id,
 		eventType: TENANCY_EVENTS.InvitationCreated,
 		workspaceId: args.workspaceId,
-		payload: { invitationId: id, email: args.email.toLowerCase(), roleId: args.roleId }
+		payload: { invitationId: id, email, roleId: args.roleId, resent: !inserted }
 	})
 	await audit(tx, {
 		workspaceId: args.workspaceId,
 		actorType: 'user',
 		actorId: args.invitedBy,
-		action: 'invitation.create',
+		action: inserted ? 'invitation.create' : 'invitation.resend',
 		targetType: 'invitation',
 		targetId: id,
-		metadata: { email: args.email.toLowerCase() }
+		metadata: { email }
 	})
-	return { id, token }
+	return { id, token, resent: !inserted }
 }
 
 /**
