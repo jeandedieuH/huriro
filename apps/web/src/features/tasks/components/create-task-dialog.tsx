@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { useUiStore } from '@/stores/ui-store'
 
-export interface CreateIssueDialogProps {
+export interface CreateTaskDialogProps {
 	readonly projects: readonly ProjectDto[]
 	readonly statuses: readonly ProjectStatusDto[]
 	readonly onSubmit: (input: {
@@ -27,7 +27,7 @@ export interface CreateIssueDialogProps {
 	}) => Promise<void>
 }
 
-export function CreateIssueDialog({ projects, statuses, onSubmit }: CreateIssueDialogProps) {
+export function CreateTaskDialog({ projects, statuses, onSubmit }: CreateTaskDialogProps) {
 	const open = useUiStore((s) => s.createIssueOpen)
 	const setOpen = useUiStore((s) => s.setCreateIssueOpen)
 	const activeProjectId = useUiStore((s) => s.activeProjectId)

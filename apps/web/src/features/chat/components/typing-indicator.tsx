@@ -29,10 +29,10 @@ export function TypingIndicator({
 
 	if (activeIds.length === 0) return <div className="h-5" />
 
-	const label =
-		activeIds.length === 1
-			? t('chat.typing.one', { name: memberNamesById.get(activeIds[0]!) ?? 'Someone' })
-			: t('chat.typing.many')
+	const soleTyperId = activeIds.length === 1 ? activeIds[0] : undefined
+	const label = soleTyperId
+		? t('chat.typing.one', { name: memberNamesById.get(soleTyperId) ?? 'Someone' })
+		: t('chat.typing.many')
 
 	return (
 		<p role="status" aria-live="polite" className="h-5 text-xs text-muted-foreground">

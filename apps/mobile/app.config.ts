@@ -42,14 +42,20 @@ export default function defineAppConfig({ config }: ExpoConfigContext = {}) {
 				}
 			]
 		},
-		plugins: ['expo-router', 'expo-sqlite', 'expo-secure-store', 'expo-notifications',[
-				"expo-splash-screen",
+		plugins: [
+			'expo-router',
+			'expo-sqlite',
+			'expo-secure-store',
+			'expo-notifications',
+			[
+				'expo-splash-screen',
 				{
-					"image": "./assets/images/splash.png",
-					"resizeMode": "cover",
-					"backgroundColor": "#ffffff"
+					image: './assets/images/splash.png',
+					resizeMode: 'cover',
+					backgroundColor: '#ffffff'
 				}
-			],],
+			]
+		],
 		experiments: {
 			typedRoutes: true
 		},

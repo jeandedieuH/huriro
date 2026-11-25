@@ -73,7 +73,9 @@ describe('ChatWorkspace', () => {
 
 			// Open thread panel from the first message
 			const replyBtns = screen.getAllByRole('button', { name: 'Reply in thread' })
-			fireEvent.click(replyBtns[0]!)
+			const firstReplyBtn = replyBtns[0]
+			if (!firstReplyBtn) throw new Error('expected at least one reply button')
+			fireEvent.click(firstReplyBtn)
 			const threadAside = await screen.findByLabelText('Thread')
 			expect(threadAside).toBeInTheDocument()
 			await expectNoViolations(container)
@@ -81,7 +83,9 @@ describe('ChatWorkspace', () => {
 			const threadInput = screen.getByPlaceholderText('Reply in thread…')
 			fireEvent.change(threadInput, { target: { value: 'Tracking in thread now.' } })
 			const sendBtns = screen.getAllByRole('button', { name: 'Send' })
-			fireEvent.click(sendBtns[sendBtns.length - 1]!)
+			const threadSendBtn = sendBtns.at(-1)
+			if (!threadSendBtn) throw new Error('expected a thread send button')
+			fireEvent.click(threadSendBtn)
 			await waitFor(() => {
 				expect(screen.getByText('Tracking in thread now.')).toBeInTheDocument()
 			})

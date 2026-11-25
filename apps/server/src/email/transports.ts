@@ -2,7 +2,6 @@ import {
 	ApiConnectionException,
 	ApiErrorException,
 	Emailit,
-	type EmailitEmailResponse,
 	type EmailSendParams,
 	RateLimitException
 } from '@emailit/node'
@@ -101,7 +100,9 @@ export function parseSmtpConfig(cfg: {
 
 export interface EmailitClientLike {
 	readonly emails: {
-		send(params: EmailSendParams): Promise<EmailitEmailResponse>
+		// Minimal structural seam — the pipeline only consumes `.id`, so test/self-host
+		// fakes don't have to implement the SDK response object's helper methods.
+		send(params: EmailSendParams): Promise<{ readonly id?: string | undefined }>
 	}
 }
 

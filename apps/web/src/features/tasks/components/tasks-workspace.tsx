@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useKeyboardShortcuts } from '@/features/keyboard/use-keyboard-shortcuts'
 import type { TaskApiBridge, WorkspaceMemberSummary } from '@/lib/sync-bootstrap'
 import { type TasksPreset, useUiStore } from '@/stores/ui-store'
-import { CreateIssueDialog } from './create-task-dialog'
 import { CreateProjectDialog } from './create-project-dialog'
+import { CreateTaskDialog } from './create-task-dialog'
 import { FilterBar } from './filter-bar'
 import { IssueBoardView } from './task-board-view'
 import { IssueDetailPanel } from './task-detail-panel'
@@ -365,7 +365,7 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 				/>
 			) : null}
 
-			<CreateIssueDialog
+			<CreateTaskDialog
 				projects={projects}
 				statuses={statuses}
 				onSubmit={async (input) => {

@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 import { activateI18n, t } from '@huriro/i18n'
 import type { SqliteDatabaseLike } from '@huriro/sync-client'
+import { AxiosError, type AxiosRequestConfig } from 'axios'
 import { HuriroMobileApiClient } from '../lib/api-client'
 import { createMemorySecureKvStore, MobileAuthStore } from '../lib/auth-store'
 import { parseHuriroDeepLink } from '../lib/deep-links'
@@ -117,6 +118,10 @@ describe('Huriro mobile core (§18)', () => {
 		expect(rt1.engine.getStatus().pendingCount).toBe(1)
 		rt1.dispose()
 
+		// Simulate an unreachable server so the restart stays offline deterministically —
+		// a real dev server on localhost:3001 would answer 401 and trigger the replica wipe.
+		const offlineAdapter: AxiosRequestConfig['adapter'] = (config) =>
+			Promise.reject(new AxiosError('connect ECONNREFUSED', 'ERR_NETWORK', config))
 		const rt2 = await bootstrapMobileRuntime({
 			session: {
 				serverUrl: 'http://localhost:3001',
@@ -126,7 +131,8 @@ describe('Huriro mobile core (§18)', () => {
 				email: 'owner@huriro.rw',
 				displayName: 'Owner'
 			},
-			sqliteDb: dbAdapter
+			sqliteDb: dbAdapter,
+			httpAdapter: offlineAdapter
 		})
 		// Offline before sync: previous SQLite replica + queued mutation rehydrate immediately.
 		expect(rt2.engine.collections.issues.get(created.id)?.title).toBe('Mobile offline SQLite issue')

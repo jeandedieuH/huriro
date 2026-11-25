@@ -173,11 +173,13 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
 				for (const msg of delta.changes) {
 					if (msg.threadParentId === null) {
 						topLevel = mergeMessageIntoList(topLevel, msg)
-						if (nextThreads[msg.id]) {
-							nextThreads[msg.id] = { ...nextThreads[msg.id]!, parent: msg }
+						const thread = nextThreads[msg.id]
+						if (thread) {
+							nextThreads[msg.id] = { ...thread, parent: msg }
 						}
-					} else if (nextThreads[msg.threadParentId]) {
-						const entry = nextThreads[msg.threadParentId]!
+					} else {
+						const entry = nextThreads[msg.threadParentId]
+						if (!entry) continue
 						const replies =
 							msg.deletedAt !== null
 								? entry.replies.filter((r) => r.id !== msg.id)
@@ -265,14 +267,18 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
 				m.id === updated.id ? updated : m
 			)
 			const nextThreads = { ...s.threadsByParent }
-			if (updated.threadParentId && nextThreads[updated.threadParentId]) {
-				const entry = nextThreads[updated.threadParentId]!
-				nextThreads[updated.threadParentId] = {
-					...entry,
-					replies: entry.replies.map((r) => (r.id === updated.id ? updated : r))
+			const parentId = updated.threadParentId
+			const parentEntry = parentId ? nextThreads[parentId] : undefined
+			if (parentId && parentEntry) {
+				nextThreads[parentId] = {
+					...parentEntry,
+					replies: parentEntry.replies.map((r) => (r.id === updated.id ? updated : r))
 				}
-			} else if (nextThreads[updated.id]) {
-				nextThreads[updated.id] = { ...nextThreads[updated.id]!, parent: updated }
+			} else {
+				const thread = nextThreads[updated.id]
+				if (thread) {
+					nextThreads[updated.id] = { ...thread, parent: updated }
+				}
 			}
 			return {
 				messagesByChannel: { ...s.messagesByChannel, [updated.channelId]: list },
@@ -287,11 +293,12 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
 		set((s) => {
 			const list = (s.messagesByChannel[deleted.channelId] ?? []).filter((m) => m.id !== deleted.id)
 			const nextThreads = { ...s.threadsByParent }
-			if (deleted.threadParentId && nextThreads[deleted.threadParentId]) {
-				const entry = nextThreads[deleted.threadParentId]!
-				nextThreads[deleted.threadParentId] = {
-					...entry,
-					replies: entry.replies.filter((r) => r.id !== deleted.id)
+			const parentId = deleted.threadParentId
+			const parentEntry = parentId ? nextThreads[parentId] : undefined
+			if (parentId && parentEntry) {
+				nextThreads[parentId] = {
+					...parentEntry,
+					replies: parentEntry.replies.filter((r) => r.id !== deleted.id)
 				}
 			}
 			return {
@@ -310,14 +317,18 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
 				m.id === updated.id ? updated : m
 			)
 			const nextThreads = { ...s.threadsByParent }
-			if (updated.threadParentId && nextThreads[updated.threadParentId]) {
-				const entry = nextThreads[updated.threadParentId]!
-				nextThreads[updated.threadParentId] = {
-					...entry,
-					replies: entry.replies.map((r) => (r.id === updated.id ? updated : r))
+			const parentId = updated.threadParentId
+			const parentEntry = parentId ? nextThreads[parentId] : undefined
+			if (parentId && parentEntry) {
+				nextThreads[parentId] = {
+					...parentEntry,
+					replies: parentEntry.replies.map((r) => (r.id === updated.id ? updated : r))
 				}
-			} else if (nextThreads[updated.id]) {
-				nextThreads[updated.id] = { ...nextThreads[updated.id]!, parent: updated }
+			} else {
+				const thread = nextThreads[updated.id]
+				if (thread) {
+					nextThreads[updated.id] = { ...thread, parent: updated }
+				}
 			}
 			return {
 				messagesByChannel: { ...s.messagesByChannel, [updated.channelId]: list },
