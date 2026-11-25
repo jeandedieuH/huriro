@@ -30,7 +30,7 @@ export type SettingsSection =
 	| 'integrations'
 	| 'mail'
 	| 'appearance'
-export type TasksLayout = 'list' | 'board' | 'my-work'
+export type TasksLayout = 'list' | 'board' | 'my-work' | 'timeline' | 'calendar'
 export type DocSidePanel = 'comments' | 'versions' | 'toc' | null
 export type DisplayDensity = 'compact' | 'comfortable'
 export type ThemeMode = 'light' | 'dark'

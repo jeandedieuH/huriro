@@ -327,6 +327,136 @@ export const CycleDailySnapshotDto = Type.Object({
 })
 export type CycleDailySnapshotDto = Static<typeof CycleDailySnapshotDto>
 
+// ---------- M8 planning: initiatives, project updates & milestones (§3.2) ----------
+
+export const PlanningHealth = Type.Union([
+	Type.Literal('on_track'),
+	Type.Literal('at_risk'),
+	Type.Literal('off_track'),
+	Type.Literal('completed')
+])
+export type PlanningHealth = Static<typeof PlanningHealth>
+
+export const MilestoneStatus = Type.Union([
+	Type.Literal('planned'),
+	Type.Literal('completed'),
+	Type.Literal('missed')
+])
+export type MilestoneStatus = Static<typeof MilestoneStatus>
+
+const DateString = Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' })
+
+export const InitiativeDto = Type.Object({
+	id: Type.String({ format: 'uuid' }),
+	workspaceId: Type.String({ format: 'uuid' }),
+	name: Type.String(),
+	description: Type.Union([Type.Unknown(), Type.Null()]),
+	descriptionText: Type.String(),
+	health: PlanningHealth,
+	ownerId: Type.Union([Type.String({ format: 'uuid' }), Type.Null()]),
+	targetDate: Type.Union([Type.String(), Type.Null()]),
+	position: Type.String(),
+	/** Ordered project ids attached through initiative_projects (visibility-filtered). */
+	projectIds: Type.Array(Type.String({ format: 'uuid' })),
+	createdAt: Type.String(),
+	updatedAt: Type.String(),
+	version: Type.Integer()
+})
+export type InitiativeDto = Static<typeof InitiativeDto>
+
+export const CreateInitiativeBody = Type.Object({
+	id: Type.Optional(Type.String({ format: 'uuid' })),
+	name: Type.String({ minLength: 1, maxLength: 160 }),
+	description: Type.Optional(Type.Union([Type.Unknown(), Type.Null()])),
+	descriptionText: Type.Optional(Type.String({ maxLength: 20000 })),
+	health: Type.Optional(PlanningHealth),
+	ownerId: Type.Optional(Type.Union([Type.String({ format: 'uuid' }), Type.Null()])),
+	targetDate: Type.Optional(Type.Union([DateString, Type.Null()])),
+	projectIds: Type.Optional(
+		Type.Array(Type.String({ format: 'uuid' }), { maxItems: 200, uniqueItems: true })
+	),
+	position: Type.Optional(Type.String({ minLength: 1, maxLength: 128 }))
+})
+export type CreateInitiativeBody = Static<typeof CreateInitiativeBody>
+
+export const UpdateInitiativeBody = Type.Object({
+	name: Type.Optional(Type.String({ minLength: 1, maxLength: 160 })),
+	description: Type.Optional(Type.Union([Type.Unknown(), Type.Null()])),
+	descriptionText: Type.Optional(Type.String({ maxLength: 20000 })),
+	health: Type.Optional(PlanningHealth),
+	ownerId: Type.Optional(Type.Union([Type.String({ format: 'uuid' }), Type.Null()])),
+	targetDate: Type.Optional(Type.Union([DateString, Type.Null()])),
+	projectIds: Type.Optional(
+		Type.Array(Type.String({ format: 'uuid' }), { maxItems: 200, uniqueItems: true })
+	),
+	position: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
+	version: Type.Integer({ minimum: 1 })
+})
+export type UpdateInitiativeBody = Static<typeof UpdateInitiativeBody>
+
+export const ProjectMilestoneDto = Type.Object({
+	id: Type.String({ format: 'uuid' }),
+	workspaceId: Type.String({ format: 'uuid' }),
+	projectId: Type.String({ format: 'uuid' }),
+	name: Type.String(),
+	description: Type.String(),
+	targetDate: Type.Union([Type.String(), Type.Null()]),
+	status: MilestoneStatus,
+	position: Type.String(),
+	createdAt: Type.String(),
+	updatedAt: Type.String(),
+	version: Type.Integer()
+})
+export type ProjectMilestoneDto = Static<typeof ProjectMilestoneDto>
+
+export const CreateProjectMilestoneBody = Type.Object({
+	id: Type.Optional(Type.String({ format: 'uuid' })),
+	name: Type.String({ minLength: 1, maxLength: 160 }),
+	description: Type.Optional(Type.String({ maxLength: 5000 })),
+	targetDate: Type.Optional(Type.Union([DateString, Type.Null()])),
+	status: Type.Optional(MilestoneStatus),
+	position: Type.Optional(Type.String({ minLength: 1, maxLength: 128 }))
+})
+export type CreateProjectMilestoneBody = Static<typeof CreateProjectMilestoneBody>
+
+export const UpdateProjectMilestoneBody = Type.Object({
+	name: Type.Optional(Type.String({ minLength: 1, maxLength: 160 })),
+	description: Type.Optional(Type.String({ maxLength: 5000 })),
+	targetDate: Type.Optional(Type.Union([DateString, Type.Null()])),
+	status: Type.Optional(MilestoneStatus),
+	position: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
+	version: Type.Integer({ minimum: 1 })
+})
+export type UpdateProjectMilestoneBody = Static<typeof UpdateProjectMilestoneBody>
+
+export const ProjectUpdateDto = Type.Object({
+	id: Type.String({ format: 'uuid' }),
+	workspaceId: Type.String({ format: 'uuid' }),
+	projectId: Type.String({ format: 'uuid' }),
+	health: PlanningHealth,
+	body: Type.Union([Type.Unknown(), Type.Null()]),
+	bodyText: Type.String(),
+	completedIssues: Type.Integer({ minimum: 0 }),
+	totalIssues: Type.Integer({ minimum: 0 }),
+	scopeChange: Type.Integer(),
+	createdBy: Type.Union([Type.String({ format: 'uuid' }), Type.Null()]),
+	createdAt: Type.String(),
+	updatedAt: Type.String(),
+	version: Type.Integer()
+})
+export type ProjectUpdateDto = Static<typeof ProjectUpdateDto>
+
+export const CreateProjectUpdateBody = Type.Object({
+	id: Type.Optional(Type.String({ format: 'uuid' })),
+	health: PlanningHealth,
+	body: Type.Optional(Type.Union([Type.Unknown(), Type.Null()])),
+	bodyText: Type.Optional(Type.String({ maxLength: 20000 })),
+	completedIssues: Type.Optional(Type.Integer({ minimum: 0 })),
+	totalIssues: Type.Optional(Type.Integer({ minimum: 0 })),
+	scopeChange: Type.Optional(Type.Integer())
+})
+export type CreateProjectUpdateBody = Static<typeof CreateProjectUpdateBody>
+
 export const IssueDto = Type.Object({
 	id: Type.String({ format: 'uuid' }),
 	workspaceId: Type.String({ format: 'uuid' }),
@@ -336,6 +466,7 @@ export const IssueDto = Type.Object({
 	identifier: Type.String(),
 	parentId: Type.Union([Type.String({ format: 'uuid' }), Type.Null()]),
 	cycleId: Type.Union([Type.String({ format: 'uuid' }), Type.Null()]),
+	milestoneId: Type.Optional(Type.Union([Type.String({ format: 'uuid' }), Type.Null()])),
 	title: Type.String(),
 	description: Type.Union([Type.Unknown(), Type.Null()]),
 	descriptionText: Type.String(),
@@ -366,6 +497,7 @@ export const CreateIssueBody = Type.Object({
 	projectId: Type.String({ format: 'uuid' }),
 	parentId: Type.Optional(Type.Union([Type.String({ format: 'uuid' }), Type.Null()])),
 	cycleId: Type.Optional(Type.Union([Type.String({ format: 'uuid' }), Type.Null()])),
+	milestoneId: Type.Optional(Type.Union([Type.String({ format: 'uuid' }), Type.Null()])),
 	title: Type.String({ minLength: 1, maxLength: 500 }),
 	description: Type.Optional(Type.Union([Type.Unknown(), Type.Null()])),
 	descriptionText: Type.Optional(Type.String({ maxLength: 50000 })),
@@ -391,6 +523,7 @@ export const UpdateIssueBody = Type.Object({
 	descriptionText: Type.Optional(Type.String({ maxLength: 50000 })),
 	statusId: Type.Optional(Type.String({ format: 'uuid' })),
 	cycleId: Type.Optional(Type.Union([Type.String({ format: 'uuid' }), Type.Null()])),
+	milestoneId: Type.Optional(Type.Union([Type.String({ format: 'uuid' }), Type.Null()])),
 	parentId: Type.Optional(Type.Union([Type.String({ format: 'uuid' }), Type.Null()])),
 	priority: Type.Optional(Type.Integer({ minimum: 0, maximum: 4 })),
 	assigneeType: Type.Optional(Type.Union([AssigneeType, Type.Null()])),

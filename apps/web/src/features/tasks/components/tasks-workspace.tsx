@@ -1,7 +1,7 @@
 import { evaluateFilter, type FilterExpr } from '@huriro/domain'
 import { t } from '@huriro/i18n'
 import { isTier2Issue, useCollectionItems, useSyncEngine, useSyncStatus } from '@huriro/sync-client'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useKeyboardShortcuts } from '@/features/keyboard/use-keyboard-shortcuts'
 import type { TaskApiBridge, WorkspaceMemberSummary } from '@/lib/sync-bootstrap'
 import { type TasksPreset, useUiStore } from '@/stores/ui-store'
@@ -15,6 +15,15 @@ import { IssueBoardView } from './task-board-view'
 import { IssueDetailPanel } from './task-detail-panel'
 import { IssueListView } from './task-list-view'
 import { TriageInbox } from './triage-inbox'
+
+// M8 planning canvases are deliberately lazy: the interactive shell and list/board
+// path stay within the initial-bundle budget while timeline/calendar load on demand.
+const TaskTimelineView = lazy(() =>
+	import('./task-timeline-view').then((m) => ({ default: m.TaskTimelineView }))
+)
+const TaskCalendarView = lazy(() =>
+	import('./task-calendar-view').then((m) => ({ default: m.TaskCalendarView }))
+)
 
 export interface TasksWorkspaceProps {
 	readonly api: TaskApiBridge
@@ -56,6 +65,9 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 	const issues = useCollectionItems(engine.collections.issues)
 	const savedViews = useCollectionItems(engine.collections.savedViews)
 	const cycles = useCollectionItems(engine.collections.cycles)
+	const initiatives = useCollectionItems(engine.collections.initiatives)
+	const milestones = useCollectionItems(engine.collections.projectMilestones)
+	const relations = useCollectionItems(engine.collections.issueRelations)
 
 	const activeProjectId = useUiStore((s) => s.activeProjectId)
 	const tasksPreset = useUiStore((s) => s.tasksPreset)
@@ -87,6 +99,9 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 
 	const statusesById = useMemo(() => new Map(statuses.map((s) => [s.id, s])), [statuses])
 	const membersById = useMemo(() => new Map(members.map((m) => [m.userId, m])), [members])
+	const currentMemberRole = membersById.get(currentUserId)?.role
+	const canManageInitiatives = currentMemberRole === 'owner' || currentMemberRole === 'admin'
+	const canWriteProjects = currentMemberRole !== undefined && currentMemberRole !== 'guest'
 
 	const visibleStatuses = useMemo(() => {
 		if (activeProjectId) {
@@ -319,7 +334,10 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 						await engine.createSavedView({
 							name,
 							projectId: activeProjectId,
-							layout: tasksLayout === 'board' ? 'board' : 'list',
+							layout:
+								tasksLayout === 'board' || tasksLayout === 'timeline' || tasksLayout === 'calendar'
+									? tasksLayout
+									: 'list',
 							filters: {
 								...(filters.statusId !== 'all' ? { statusIds: [filters.statusId] } : {}),
 								...(filters.priority !== 'all' ? { priorities: [filters.priority] } : {}),
@@ -379,6 +397,36 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 							onMoveIssue={handleMoveIssue}
 							onPatchIssue={async (id, patch) => engine.updateIssue(id, patch)}
 						/>
+					) : null}
+
+					{tasksPreset !== 'triage' && tasksLayout === 'timeline' ? (
+						<Suspense
+							fallback={<div className="p-6 text-sm text-muted-foreground">{t('tasks.timeline.title')}…</div>}
+						>
+							<TaskTimelineView
+								issues={filteredIssues}
+								projects={projects}
+								initiatives={initiatives}
+								milestones={milestones}
+								relations={relations}
+								statusesById={statusesById}
+								canManageInitiatives={canManageInitiatives}
+								canWriteProjects={canWriteProjects}
+								onPatchIssue={(id, patch) => engine.updateIssue(id, patch)}
+							/>
+						</Suspense>
+					) : null}
+
+					{tasksPreset !== 'triage' && tasksLayout === 'calendar' ? (
+						<Suspense
+							fallback={<div className="p-6 text-sm text-muted-foreground">{t('tasks.calendar.title')}…</div>}
+						>
+							<TaskCalendarView
+								issues={filteredIssues}
+								milestones={milestones}
+								onPatchIssue={(id, patch) => engine.updateIssue(id, patch)}
+							/>
+						</Suspense>
 					) : null}
 
 					{tasksPreset !== 'triage' && tasksLayout === 'my-work' ? (

@@ -4,11 +4,15 @@
 import type {
 	CycleDto,
 	DocPageDto,
+	InitiativeDto,
 	IssueDto,
+	IssueRelationDto,
 	LabelDto,
 	NotificationDto,
 	ProjectDto,
+	ProjectMilestoneDto,
 	ProjectStatusDto,
+	ProjectUpdateDto,
 	SavedViewDto,
 	SyncChangeDto,
 	SyncSnapshotResponse
@@ -123,7 +127,7 @@ function makeManagedCollection<T extends { readonly id: string }>(
 	}
 }
 
-export const REPLICA_SCHEMA_VERSION = 1
+export const REPLICA_SCHEMA_VERSION = 2
 
 /** Tier-2 retention window — must mirror the server's 30d core-snapshot cutoff (§8.1). */
 export const TIER2_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
@@ -150,6 +154,10 @@ export interface PersistedReplicaState {
 	readonly labels: LabelDto[]
 	readonly cycles: CycleDto[]
 	readonly issues: IssueDto[]
+	readonly issueRelations?: IssueRelationDto[] | undefined
+	readonly initiatives?: InitiativeDto[] | undefined
+	readonly projectMilestones?: ProjectMilestoneDto[] | undefined
+	readonly projectUpdates?: ProjectUpdateDto[] | undefined
 	readonly savedViews: SavedViewDto[]
 	readonly notifications: NotificationDto[]
 	readonly docPages?: DocPageDto[] | undefined
@@ -168,6 +176,10 @@ export class HuriroSyncCollections {
 	readonly issuesManaged = makeManagedCollection<IssueDto>('issues', {
 		guardWrite: (incoming, existing) => incoming.version >= existing.version
 	})
+	readonly issueRelationsManaged = makeManagedCollection<IssueRelationDto>('issue_relations')
+	readonly initiativesManaged = makeManagedCollection<InitiativeDto>('initiatives')
+	readonly milestonesManaged = makeManagedCollection<ProjectMilestoneDto>('project_milestones')
+	readonly projectUpdatesManaged = makeManagedCollection<ProjectUpdateDto>('project_updates')
 	readonly viewsManaged = makeManagedCollection<SavedViewDto>('saved_views')
 	readonly notificationsManaged = makeManagedCollection<NotificationDto>('notifications')
 	readonly docPagesManaged = makeManagedCollection<DocPageDto>('doc_pages')
@@ -187,6 +199,18 @@ export class HuriroSyncCollections {
 	get issues(): Collection<IssueDto, string> {
 		return this.issuesManaged.collection
 	}
+	get issueRelations(): Collection<IssueRelationDto, string> {
+		return this.issueRelationsManaged.collection
+	}
+	get initiatives(): Collection<InitiativeDto, string> {
+		return this.initiativesManaged.collection
+	}
+	get projectMilestones(): Collection<ProjectMilestoneDto, string> {
+		return this.milestonesManaged.collection
+	}
+	get projectUpdates(): Collection<ProjectUpdateDto, string> {
+		return this.projectUpdatesManaged.collection
+	}
 	get savedViews(): Collection<SavedViewDto, string> {
 		return this.viewsManaged.collection
 	}
@@ -203,6 +227,10 @@ export class HuriroSyncCollections {
 		this.labelsManaged.markReady()
 		this.cyclesManaged.markReady()
 		this.issuesManaged.markReady()
+		this.issueRelationsManaged.markReady()
+		this.initiativesManaged.markReady()
+		this.milestonesManaged.markReady()
+		this.projectUpdatesManaged.markReady()
 		this.viewsManaged.markReady()
 		this.notificationsManaged.markReady()
 		this.docPagesManaged.markReady()
@@ -227,6 +255,10 @@ export class HuriroSyncCollections {
 			.values()
 			.filter((i) => !snapIssueIds.has(i.id) && isTier2Issue(i, nowMs))
 		this.issuesManaged.replaceAll([...snapIssues, ...preservedTier2])
+		this.issueRelationsManaged.replaceAll((snap.issueRelations ?? []) as unknown as IssueRelationDto[])
+		this.initiativesManaged.replaceAll((snap.initiatives ?? []) as unknown as InitiativeDto[])
+		this.milestonesManaged.replaceAll((snap.projectMilestones ?? []) as unknown as ProjectMilestoneDto[])
+		this.projectUpdatesManaged.replaceAll((snap.projectUpdates ?? []) as unknown as ProjectUpdateDto[])
 		this.viewsManaged.replaceAll(snap.savedViews as unknown as SavedViewDto[])
 		this.notificationsManaged.replaceAll(snap.notifications as unknown as NotificationDto[])
 		this.docPagesManaged.replaceAll((snap.docPages ?? []) as unknown as DocPageDto[])
@@ -238,6 +270,10 @@ export class HuriroSyncCollections {
 		this.labelsManaged.upsertMany(snap.labels as unknown as LabelDto[])
 		this.cyclesManaged.upsertMany(snap.cycles as unknown as CycleDto[])
 		this.issuesManaged.upsertMany(snap.issues as unknown as IssueDto[])
+		this.issueRelationsManaged.upsertMany((snap.issueRelations ?? []) as unknown as IssueRelationDto[])
+		this.initiativesManaged.upsertMany((snap.initiatives ?? []) as unknown as InitiativeDto[])
+		this.milestonesManaged.upsertMany((snap.projectMilestones ?? []) as unknown as ProjectMilestoneDto[])
+		this.projectUpdatesManaged.upsertMany((snap.projectUpdates ?? []) as unknown as ProjectUpdateDto[])
 		this.viewsManaged.upsertMany(snap.savedViews as unknown as SavedViewDto[])
 		this.docPagesManaged.upsertMany((snap.docPages ?? []) as unknown as DocPageDto[])
 	}
@@ -274,6 +310,39 @@ export class HuriroSyncCollections {
 			.map((i) => i.id)
 		this.issuesManaged.deleteMany(issueKeys)
 
+		const relationKeys = this.issueRelationsManaged
+			.values()
+			.filter((r) => issueKeys.includes(r.sourceIssueId) || issueKeys.includes(r.targetIssueId))
+			.map((r) => r.id)
+		this.issueRelationsManaged.deleteMany(relationKeys)
+
+		this.milestonesManaged.deleteMany(
+			this.milestonesManaged
+				.values()
+				.filter((m) => m.projectId === projectId)
+				.map((m) => m.id)
+		)
+		this.projectUpdatesManaged.deleteMany(
+			this.projectUpdatesManaged
+				.values()
+				.filter((u) => u.projectId === projectId)
+				.map((u) => u.id)
+		)
+
+		// Initiative rows are workspace-level, but their embedded edge list is
+		// project visibility-dependent. Strip revoked project edges locally so the
+		// replica cannot retain project references after access is withdrawn; the
+		// next authoritative initiative upsert can still restore visible edges.
+		this.initiativesManaged.upsertMany(
+			this.initiativesManaged
+				.values()
+				.filter((initiative) => initiative.projectIds.includes(projectId))
+				.map((initiative) => ({
+					...initiative,
+					projectIds: initiative.projectIds.filter((id) => id !== projectId)
+				}))
+		)
+
 		const viewKeys = this.viewsManaged
 			.values()
 			.filter((v) => v.projectId === projectId)
@@ -300,6 +369,14 @@ export class HuriroSyncCollections {
 		const cycleDeletes: string[] = []
 		const issueUpserts: IssueDto[] = []
 		const issueDeletes: string[] = []
+		const relationUpserts: IssueRelationDto[] = []
+		const relationDeletes: string[] = []
+		const initiativeUpserts: InitiativeDto[] = []
+		const initiativeDeletes: string[] = []
+		const milestoneUpserts: ProjectMilestoneDto[] = []
+		const milestoneDeletes: string[] = []
+		const projectUpdateUpserts: ProjectUpdateDto[] = []
+		const projectUpdateDeletes: string[] = []
 		const viewUpserts: SavedViewDto[] = []
 		const viewDeletes: string[] = []
 		const notifUpserts: NotificationDto[] = []
@@ -346,6 +423,22 @@ export class HuriroSyncCollections {
 					if (isDel) issueDeletes.push(c.id)
 					else issueUpserts.push(c.data as unknown as IssueDto)
 					break
+				case 'issue_relation':
+					if (isDel) relationDeletes.push(c.id)
+					else relationUpserts.push(c.data as unknown as IssueRelationDto)
+					break
+				case 'initiative':
+					if (isDel) initiativeDeletes.push(c.id)
+					else initiativeUpserts.push(c.data as unknown as InitiativeDto)
+					break
+				case 'project_milestone':
+					if (isDel) milestoneDeletes.push(c.id)
+					else milestoneUpserts.push(c.data as unknown as ProjectMilestoneDto)
+					break
+				case 'project_update':
+					if (isDel) projectUpdateDeletes.push(c.id)
+					else projectUpdateUpserts.push(c.data as unknown as ProjectUpdateDto)
+					break
 				case 'saved_view':
 					if (isDel) viewDeletes.push(c.id)
 					else viewUpserts.push(c.data as unknown as SavedViewDto)
@@ -373,6 +466,14 @@ export class HuriroSyncCollections {
 		this.cyclesManaged.deleteMany(cycleDeletes)
 		this.issuesManaged.upsertMany(issueUpserts)
 		this.issuesManaged.deleteMany(issueDeletes)
+		this.issueRelationsManaged.upsertMany(relationUpserts)
+		this.issueRelationsManaged.deleteMany(relationDeletes)
+		this.initiativesManaged.upsertMany(initiativeUpserts)
+		this.initiativesManaged.deleteMany(initiativeDeletes)
+		this.milestonesManaged.upsertMany(milestoneUpserts)
+		this.milestonesManaged.deleteMany(milestoneDeletes)
+		this.projectUpdatesManaged.upsertMany(projectUpdateUpserts)
+		this.projectUpdatesManaged.deleteMany(projectUpdateDeletes)
 		this.viewsManaged.upsertMany(viewUpserts)
 		this.viewsManaged.deleteMany(viewDeletes)
 		this.notificationsManaged.upsertMany(notifUpserts)
@@ -403,6 +504,10 @@ export class HuriroSyncCollections {
 			labels: this.labelsManaged.values(),
 			cycles: this.cyclesManaged.values(),
 			issues: this.issuesManaged.values(),
+			issueRelations: this.issueRelationsManaged.values(),
+			initiatives: this.initiativesManaged.values(),
+			projectMilestones: this.milestonesManaged.values(),
+			projectUpdates: this.projectUpdatesManaged.values(),
 			savedViews: this.viewsManaged.values(),
 			notifications: this.notificationsManaged.values(),
 			docPages: this.docPagesManaged.values()
@@ -420,6 +525,10 @@ export class HuriroSyncCollections {
 		this.labelsManaged.replaceAll([])
 		this.cyclesManaged.replaceAll([])
 		this.issuesManaged.replaceAll([])
+		this.issueRelationsManaged.replaceAll([])
+		this.initiativesManaged.replaceAll([])
+		this.milestonesManaged.replaceAll([])
+		this.projectUpdatesManaged.replaceAll([])
 		this.viewsManaged.replaceAll([])
 		this.notificationsManaged.replaceAll([])
 		this.docPagesManaged.replaceAll([])

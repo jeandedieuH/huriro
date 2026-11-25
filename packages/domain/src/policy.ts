@@ -95,6 +95,9 @@ const WORKSPACE_ACTIONS = new Set<Action>([
 	'audit.read',
 	'settings.manage',
 	'import.run',
+	// M8 initiatives are cross-project workspace objects; project ACLs must not
+	// accidentally confer administration over the portfolio layer (§3.2).
+	'initiative.manage',
 	// Automation rules act on workspace state; resource ACLs must never grant them.
 	'automation.read',
 	'automation.manage'

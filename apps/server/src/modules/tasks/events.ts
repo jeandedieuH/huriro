@@ -30,5 +30,12 @@ export const TASKS_EVENTS = {
 	IssueTriageMerged: 'tasks.issue.triage_merged.v1',
 	IssueTriageWoken: 'tasks.issue.triage_woken.v1',
 	SavedViewCreated: 'tasks.saved_view.created.v1',
-	SavedViewUpdated: 'tasks.saved_view.updated.v1'
+	SavedViewUpdated: 'tasks.saved_view.updated.v1',
+	InitiativeCreated: 'tasks.initiative.created.v1',
+	InitiativeUpdated: 'tasks.initiative.updated.v1',
+	InitiativeDeleted: 'tasks.initiative.deleted.v1',
+	ProjectMilestoneCreated: 'tasks.project_milestone.created.v1',
+	ProjectMilestoneUpdated: 'tasks.project_milestone.updated.v1',
+	ProjectMilestoneDeleted: 'tasks.project_milestone.deleted.v1',
+	ProjectUpdateCreated: 'tasks.project_update.created.v1'
 } as const

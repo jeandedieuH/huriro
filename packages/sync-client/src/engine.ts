@@ -3,10 +3,14 @@
  */
 import type {
 	CreateDocPageBody,
+	CreateInitiativeBody,
 	CreateIssueBody,
 	CreateProjectBody,
+	CreateProjectMilestoneBody,
+	CreateProjectUpdateBody,
 	CreateSavedViewBody,
 	DocPageDto,
+	InitiativeDto,
 	IssueDto,
 	MoveDocPageBody,
 	MoveIssueBody,
@@ -15,12 +19,16 @@ import type {
 	MutationsBatchResponse,
 	NotificationDto,
 	ProjectDto,
+	ProjectMilestoneDto,
+	ProjectUpdateDto,
 	SavedViewDto,
 	SyncChangesResponse,
 	SyncScopeSnapshotResponse,
 	SyncSnapshotResponse,
 	UpdateDocPageBody,
-	UpdateIssueBody
+	UpdateInitiativeBody,
+	UpdateIssueBody,
+	UpdateProjectMilestoneBody
 } from '@huriro/contracts'
 import { generateKeyBetween } from '@huriro/domain'
 import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
@@ -589,6 +597,84 @@ export class HuriroSyncEngine {
 						])
 					}
 				}
+			} else if (envelope.entity === 'initiative') {
+				if (envelope.op === 'delete') {
+					this.collections.initiativesManaged.deleteMany([envelope.entityId])
+				} else if (envelope.op === 'create') {
+					const nowIso = envelope.queuedAt ?? new Date().toISOString()
+					this.collections.initiativesManaged.upsertMany([
+						{
+							id: envelope.entityId,
+							workspaceId: this.workspaceId,
+							name: String(envelope.patch['name'] ?? 'Untitled initiative'),
+							description: envelope.patch['description'] ?? null,
+							descriptionText: String(envelope.patch['descriptionText'] ?? ''),
+							health: (envelope.patch['health'] as InitiativeDto['health']) ?? 'on_track',
+							ownerId: (envelope.patch['ownerId'] as string | null) ?? null,
+							targetDate: (envelope.patch['targetDate'] as string | null) ?? null,
+							position: String(envelope.patch['position'] ?? 'V'),
+							projectIds: (envelope.patch['projectIds'] as string[]) ?? [],
+							createdAt: nowIso,
+							updatedAt: nowIso,
+							version: 1
+						}
+					])
+				} else {
+					const existing = this.collections.initiatives.get(envelope.entityId)
+					if (existing) {
+						this.collections.initiativesManaged.upsertMany([
+							{ ...existing, ...envelope.patch, updatedAt: new Date().toISOString() }
+						])
+					}
+				}
+			} else if (envelope.entity === 'project_milestone') {
+				if (envelope.op === 'delete') {
+					this.collections.milestonesManaged.deleteMany([envelope.entityId])
+				} else if (envelope.op === 'create') {
+					const nowIso = envelope.queuedAt ?? new Date().toISOString()
+					this.collections.milestonesManaged.upsertMany([
+						{
+							id: envelope.entityId,
+							workspaceId: this.workspaceId,
+							projectId: String(envelope.patch['projectId'] ?? ''),
+							name: String(envelope.patch['name'] ?? 'Milestone'),
+							description: String(envelope.patch['description'] ?? ''),
+							targetDate: (envelope.patch['targetDate'] as string | null) ?? null,
+							status: (envelope.patch['status'] as ProjectMilestoneDto['status']) ?? 'planned',
+							position: String(envelope.patch['position'] ?? 'V'),
+							createdAt: nowIso,
+							updatedAt: nowIso,
+							version: 1
+						}
+					])
+				} else {
+					const existing = this.collections.projectMilestones.get(envelope.entityId)
+					if (existing) {
+						const { projectId: _projectId, ...patch } = envelope.patch
+						this.collections.milestonesManaged.upsertMany([
+							{ ...existing, ...patch, updatedAt: new Date().toISOString() }
+						])
+					}
+				}
+			} else if (envelope.entity === 'project_update' && envelope.op === 'create') {
+				const nowIso = envelope.queuedAt ?? new Date().toISOString()
+				this.collections.projectUpdatesManaged.upsertMany([
+					{
+						id: envelope.entityId,
+						workspaceId: this.workspaceId,
+						projectId: String(envelope.patch['projectId'] ?? ''),
+						health: (envelope.patch['health'] as ProjectUpdateDto['health']) ?? 'on_track',
+						body: envelope.patch['body'] ?? null,
+						bodyText: String(envelope.patch['bodyText'] ?? ''),
+						completedIssues: Number(envelope.patch['completedIssues'] ?? 0),
+						totalIssues: Number(envelope.patch['totalIssues'] ?? 0),
+						scopeChange: Number(envelope.patch['scopeChange'] ?? 0),
+						createdBy: this.currentUserId,
+						createdAt: nowIso,
+						updatedAt: nowIso,
+						version: 1
+					}
+				])
 			} else if (envelope.entity === 'saved_view') {
 				if (envelope.op === 'create') {
 					const nowIso = envelope.queuedAt ?? new Date().toISOString()
@@ -909,6 +995,10 @@ export class HuriroSyncEngine {
 				this.collections.issuesManaged.deleteMany([entityId])
 			} else if (entity === 'doc_page') {
 				this.collections.purgeDocPageScope(entityId)
+			} else if (entity === 'initiative') {
+				this.collections.initiativesManaged.deleteMany([entityId])
+			} else if (entity === 'project_milestone') {
+				this.collections.milestonesManaged.deleteMany([entityId])
 			}
 			return
 		}
@@ -921,6 +1011,12 @@ export class HuriroSyncEngine {
 			this.collections.viewsManaged.upsertMany([result.data as unknown as SavedViewDto])
 		} else if (entity === 'doc_page') {
 			this.collections.docPagesManaged.upsertMany([result.data as unknown as DocPageDto])
+		} else if (entity === 'initiative') {
+			this.collections.initiativesManaged.upsertMany([result.data as unknown as InitiativeDto])
+		} else if (entity === 'project_milestone') {
+			this.collections.milestonesManaged.upsertMany([result.data as unknown as ProjectMilestoneDto])
+		} else if (entity === 'project_update') {
+			this.collections.projectUpdatesManaged.upsertMany([result.data as unknown as ProjectUpdateDto])
 		}
 	}
 
@@ -950,6 +1046,20 @@ export class HuriroSyncEngine {
 			} else if (item.base) {
 				this.collections.docPagesManaged.upsertMany([item.base as unknown as DocPageDto])
 			}
+		} else if (entity === 'initiative') {
+			if (op === 'create') {
+				this.collections.initiativesManaged.deleteMany([entityId])
+			} else if (item.base) {
+				this.collections.initiativesManaged.upsertMany([item.base as unknown as InitiativeDto])
+			}
+		} else if (entity === 'project_milestone') {
+			if (op === 'create') {
+				this.collections.milestonesManaged.deleteMany([entityId])
+			} else if (item.base) {
+				this.collections.milestonesManaged.upsertMany([item.base as unknown as ProjectMilestoneDto])
+			}
+		} else if (entity === 'project_update' && op === 'create') {
+			this.collections.projectUpdatesManaged.deleteMany([entityId])
 		}
 	}
 
@@ -972,6 +1082,25 @@ export class HuriroSyncEngine {
 			} else {
 				this.collections.docPagesManaged.upsertMany([
 					{ ...(conflict.serverValues as unknown as DocPageDto), ...rebased.patch }
+				])
+			}
+		} else if (conflict.entity === 'initiative') {
+			if (rebased === null) {
+				this.collections.initiativesManaged.upsertMany([conflict.serverValues as unknown as InitiativeDto])
+			} else {
+				this.collections.initiativesManaged.upsertMany([
+					{ ...(conflict.serverValues as unknown as InitiativeDto), ...rebased.patch }
+				])
+			}
+		} else if (conflict.entity === 'project_milestone') {
+			const { projectId: _projectId, ...rebasedPatch } = rebased?.patch ?? {}
+			if (rebased === null) {
+				this.collections.milestonesManaged.upsertMany([
+					conflict.serverValues as unknown as ProjectMilestoneDto
+				])
+			} else {
+				this.collections.milestonesManaged.upsertMany([
+					{ ...(conflict.serverValues as unknown as ProjectMilestoneDto), ...rebasedPatch }
 				])
 			}
 		}
@@ -1071,18 +1200,16 @@ export class HuriroSyncEngine {
 
 		const optimistic: IssueDto = {
 			...current,
-			...(patch.title !== undefined ? { title: patch.title } : {}),
-			...(patch.descriptionText !== undefined ? { descriptionText: patch.descriptionText } : {}),
-			...(patch.statusId !== undefined ? { statusId: patch.statusId } : {}),
-			...(patch.priority !== undefined ? { priority: patch.priority } : {}),
+			...patch,
+			projectKey: patch.projectId
+				? (this.collections.projects.get(patch.projectId)?.key ?? current.projectKey)
+				: current.projectKey,
 			...(patch.assigneeId !== undefined
 				? {
 						assigneeId: patch.assigneeId,
 						assigneeType: patch.assigneeId === null ? null : (patch.assigneeType ?? 'user')
 					}
 				: {}),
-			...(patch.position !== undefined ? { position: patch.position } : {}),
-			...(patch.labelIds !== undefined ? { labelIds: patch.labelIds } : {}),
 			updatedAt: new Date().toISOString()
 		}
 
@@ -1196,6 +1323,244 @@ export class HuriroSyncEngine {
 		if (this.online && this.transport) {
 			void this.flushOutbox()
 		}
+	}
+
+	async createInitiative(
+		input: Omit<CreateInitiativeBody, 'id'> & { readonly id?: string }
+	): Promise<InitiativeDto> {
+		const id = input.id ?? generateUuidV7()
+		const tail =
+			this.collections.initiatives.toArray
+				.sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0))
+				.at(-1)?.position ?? null
+		const position = input.position ?? generateKeyBetween(tail, null)
+		const nowIso = new Date().toISOString()
+		const optimistic: InitiativeDto = {
+			id,
+			workspaceId: this.workspaceId,
+			name: input.name,
+			description: input.description ?? null,
+			descriptionText: input.descriptionText ?? '',
+			health: input.health ?? 'on_track',
+			ownerId: input.ownerId ?? null,
+			targetDate: input.targetDate ?? null,
+			position,
+			projectIds: input.projectIds ?? [],
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1
+		}
+		await this.outbox.enqueue({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'initiative',
+				entityId: id,
+				op: 'create',
+				patch: { ...input, position, projectIds: optimistic.projectIds } as Record<string, unknown>,
+				queuedAt: nowIso
+			},
+			title: input.name
+		})
+		this.collections.initiativesManaged.upsertMany([optimistic])
+		await this.persistReplica()
+		this.emit()
+		if (this.online && this.transport) void this.flushOutbox()
+		return optimistic
+	}
+
+	async updateInitiative(initiativeId: string, patch: Omit<UpdateInitiativeBody, 'version'>): Promise<void> {
+		const current = this.collections.initiatives.get(initiativeId)
+		if (!current) throw new Error(`Initiative "${initiativeId}" not found in local replica`)
+		const optimistic: InitiativeDto = {
+			...current,
+			...patch,
+			projectIds: patch.projectIds ?? current.projectIds,
+			updatedAt: new Date().toISOString()
+		}
+		await this.outbox.enqueue({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'initiative',
+				entityId: initiativeId,
+				op: 'update',
+				patch: patch as Record<string, unknown>,
+				baseVersion: current.version,
+				queuedAt: new Date().toISOString()
+			},
+			base: current as unknown as Record<string, unknown>,
+			title: current.name
+		})
+		this.collections.initiativesManaged.upsertMany([optimistic])
+		await this.persistReplica()
+		this.emit()
+		if (this.online && this.transport) void this.flushOutbox()
+	}
+
+	async deleteInitiative(initiativeId: string): Promise<void> {
+		const current = this.collections.initiatives.get(initiativeId)
+		if (!current) return
+		await this.outbox.enqueue({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'initiative',
+				entityId: initiativeId,
+				op: 'delete',
+				patch: {},
+				baseVersion: current.version,
+				queuedAt: new Date().toISOString()
+			},
+			base: current as unknown as Record<string, unknown>,
+			title: current.name
+		})
+		this.collections.initiativesManaged.deleteMany([initiativeId])
+		await this.persistReplica()
+		this.emit()
+		if (this.online && this.transport) void this.flushOutbox()
+	}
+
+	async createProjectMilestone(
+		projectId: string,
+		input: Omit<CreateProjectMilestoneBody, 'id'> & { readonly id?: string }
+	): Promise<ProjectMilestoneDto> {
+		const id = input.id ?? generateUuidV7()
+		const tail =
+			this.collections.projectMilestones.toArray
+				.filter((milestone) => milestone.projectId === projectId)
+				.sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0))
+				.at(-1)?.position ?? null
+		const position = input.position ?? generateKeyBetween(tail, null)
+		const nowIso = new Date().toISOString()
+		const optimistic: ProjectMilestoneDto = {
+			id,
+			workspaceId: this.workspaceId,
+			projectId,
+			name: input.name,
+			description: input.description ?? '',
+			targetDate: input.targetDate ?? null,
+			status: input.status ?? 'planned',
+			position,
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1
+		}
+		await this.outbox.enqueue({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'project_milestone',
+				entityId: id,
+				op: 'create',
+				patch: { ...input, projectId, position } as Record<string, unknown>,
+				queuedAt: nowIso
+			},
+			title: input.name
+		})
+		this.collections.milestonesManaged.upsertMany([optimistic])
+		await this.persistReplica()
+		this.emit()
+		if (this.online && this.transport) void this.flushOutbox()
+		return optimistic
+	}
+
+	async updateProjectMilestone(
+		projectId: string,
+		milestoneId: string,
+		patch: Omit<UpdateProjectMilestoneBody, 'version'>
+	): Promise<void> {
+		const current = this.collections.projectMilestones.get(milestoneId)
+		if (!current || current.projectId !== projectId)
+			throw new Error(`Milestone "${milestoneId}" not found in local replica`)
+		const optimistic: ProjectMilestoneDto = { ...current, ...patch, updatedAt: new Date().toISOString() }
+		await this.outbox.enqueue({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'project_milestone',
+				entityId: milestoneId,
+				op: 'update',
+				patch: { ...patch, projectId } as Record<string, unknown>,
+				baseVersion: current.version,
+				queuedAt: new Date().toISOString()
+			},
+			base: current as unknown as Record<string, unknown>,
+			title: current.name
+		})
+		this.collections.milestonesManaged.upsertMany([optimistic])
+		await this.persistReplica()
+		this.emit()
+		if (this.online && this.transport) void this.flushOutbox()
+	}
+
+	async deleteProjectMilestone(projectId: string, milestoneId: string): Promise<void> {
+		const current = this.collections.projectMilestones.get(milestoneId)
+		if (!current || current.projectId !== projectId) return
+		await this.outbox.enqueue({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'project_milestone',
+				entityId: milestoneId,
+				op: 'delete',
+				patch: { projectId },
+				baseVersion: current.version,
+				queuedAt: new Date().toISOString()
+			},
+			base: current as unknown as Record<string, unknown>,
+			title: current.name
+		})
+		this.collections.milestonesManaged.deleteMany([milestoneId])
+		await this.persistReplica()
+		this.emit()
+		if (this.online && this.transport) void this.flushOutbox()
+	}
+
+	async createProjectUpdate(
+		projectId: string,
+		input: Omit<CreateProjectUpdateBody, 'id'> & { readonly id?: string }
+	): Promise<ProjectUpdateDto> {
+		const id = input.id ?? generateUuidV7()
+		const projectIssues = this.collections.issues.toArray.filter(
+			(issue) => issue.projectId === projectId && issue.deletedAt === null
+		)
+		const completedIssues = projectIssues.filter(
+			(issue) => this.collections.projectStatuses.get(issue.statusId)?.category === 'completed'
+		).length
+		const nowIso = new Date().toISOString()
+		const optimistic: ProjectUpdateDto = {
+			id,
+			workspaceId: this.workspaceId,
+			projectId,
+			health: input.health,
+			body: input.body ?? null,
+			bodyText: input.bodyText ?? '',
+			completedIssues: input.completedIssues ?? completedIssues,
+			totalIssues: input.totalIssues ?? projectIssues.length,
+			scopeChange: input.scopeChange ?? 0,
+			createdBy: this.currentUserId,
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1
+		}
+		await this.outbox.enqueue({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'project_update',
+				entityId: id,
+				op: 'create',
+				patch: { ...input, projectId } as Record<string, unknown>,
+				queuedAt: nowIso
+			},
+			title: optimistic.bodyText || optimistic.health
+		})
+		this.collections.projectUpdatesManaged.upsertMany([optimistic])
+		await this.persistReplica()
+		this.emit()
+		if (this.online && this.transport) void this.flushOutbox()
+		return optimistic
 	}
 
 	async createProject(input: Omit<CreateProjectBody, 'id'> & { readonly id?: string }): Promise<ProjectDto> {

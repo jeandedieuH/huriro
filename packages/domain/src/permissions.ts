@@ -20,6 +20,8 @@ export const ACTIONS = [
 	'issue.read',
 	'issue.write',
 	'issue.delete',
+	// M8 planning: cross-project initiative administration (§3.2, §8.2)
+	'initiative.manage',
 	// docs
 	'doc.read',
 	'doc.comment',

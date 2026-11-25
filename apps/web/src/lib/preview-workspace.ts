@@ -19,6 +19,7 @@ import type {
 	EntityLinkDto,
 	FileDto,
 	GithubInstallationDto,
+	InitiativeDto,
 	IssueCommentDto,
 	IssueGithubLinkDto,
 	IssueRelationDto,
@@ -33,7 +34,9 @@ import type {
 	NotificationDto,
 	NotificationPreferencesDto,
 	ProjectDto,
+	ProjectMilestoneDto,
 	ProjectStatusDto,
+	ProjectUpdateDto,
 	SearchHitDto,
 	SendTestEmailResponse,
 	WebhookDeliveryDto,
@@ -221,8 +224,8 @@ export function createPreviewSeedSnapshot() {
 			assigneeId: PREVIEW_USER_ID,
 			creatorId: PREVIEW_USER_ID,
 			position: 'F',
-			startDate: null,
-			dueDate: '2026-11-23T18:00:00Z',
+			startDate: '2026-11-20',
+			dueDate: '2026-11-23',
 			estimate: 3,
 			closedAt: null,
 			labelIds: ['0190a0b1-0000-7000-8000-000000000301'],
@@ -249,8 +252,8 @@ export function createPreviewSeedSnapshot() {
 			assigneeId: PREVIEW_USER_ID,
 			creatorId: PREVIEW_USER_ID,
 			position: 'V',
-			startDate: null,
-			dueDate: '2026-11-25T18:00:00Z',
+			startDate: '2026-11-24',
+			dueDate: '2026-11-27',
 			estimate: 2,
 			closedAt: null,
 			labelIds: [],
@@ -305,14 +308,78 @@ export function createPreviewSeedSnapshot() {
 			assigneeId: PREVIEW_USER_ID,
 			creatorId: PREVIEW_USER_ID,
 			position: 'F',
-			startDate: null,
-			dueDate: '2026-11-23T18:00:00Z',
+			startDate: '2026-11-22',
+			dueDate: '2026-11-25',
 			estimate: 3,
 			closedAt: null,
 			labelIds: [],
 			createdAt: now,
 			updatedAt: now,
 			deletedAt: null,
+			version: 1
+		}
+	]
+
+	const initiatives: InitiativeDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000701',
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			name: 'Offline-first launch',
+			description: null,
+			descriptionText: 'Ship the local-first workspace foundation.',
+			health: 'on_track',
+			ownerId: PREVIEW_USER_ID,
+			targetDate: '2026-12-04',
+			position: 'F',
+			projectIds: [PREVIEW_PROJECT_ENG_ID],
+			createdAt: now,
+			updatedAt: now,
+			version: 1
+		}
+	]
+
+	const projectMilestones: ProjectMilestoneDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000702',
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			projectId: PREVIEW_PROJECT_ENG_ID,
+			name: 'Sync preview complete',
+			description: 'Timeline and offline mutation demo checkpoint',
+			targetDate: '2026-11-26',
+			status: 'planned',
+			position: 'F',
+			createdAt: now,
+			updatedAt: now,
+			version: 1
+		}
+	]
+
+	const issueRelations: IssueRelationDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000703',
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			sourceIssueId: issues[0]?.id ?? '',
+			targetIssueId: issues[1]?.id ?? '',
+			kind: 'blocks',
+			createdBy: PREVIEW_USER_ID,
+			createdAt: now
+		}
+	]
+
+	const projectUpdates: ProjectUpdateDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000704',
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			projectId: PREVIEW_PROJECT_ENG_ID,
+			health: 'on_track',
+			body: null,
+			bodyText: 'Offline replication is green in preview.',
+			completedIssues: 1,
+			totalIssues: 3,
+			scopeChange: 0,
+			createdBy: PREVIEW_USER_ID,
+			createdAt: now,
+			updatedAt: now,
 			version: 1
 		}
 	]
@@ -420,6 +487,10 @@ export function createPreviewSeedSnapshot() {
 		],
 		cycles: [],
 		issues,
+		issueRelations,
+		initiatives,
+		projectMilestones,
+		projectUpdates,
 		savedViews: [
 			{
 				id: '0190a0b1-0000-7000-8000-000000000501',

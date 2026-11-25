@@ -1,6 +1,16 @@
 import type { ProjectStatusDto } from '@huriro/contracts'
 import { t } from '@huriro/i18n'
-import { BookmarkPlus, ChevronRight, LayoutGrid, List, Plus, Search, UserCheck } from 'lucide-react'
+import {
+	BookmarkPlus,
+	CalendarDays,
+	ChartGantt,
+	ChevronRight,
+	LayoutGrid,
+	List,
+	Plus,
+	Search,
+	UserCheck
+} from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -103,6 +113,36 @@ export function FilterBar({ statuses, members, projectLabel, viewLabel, onSaveVi
 				>
 					<UserCheck className="size-3.5" aria-hidden />
 					<span>{t('tasks.view.my-work')}</span>
+				</button>
+				<button
+					type="button"
+					role="tab"
+					aria-selected={tasksLayout === 'timeline'}
+					onClick={() => setTasksLayout('timeline')}
+					className={cn(
+						'inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-medium transition-colors',
+						tasksLayout === 'timeline'
+							? 'bg-background text-foreground shadow-(--shadow-1)'
+							: 'text-muted-foreground'
+					)}
+				>
+					<ChartGantt className="size-3.5" aria-hidden />
+					<span>{t('tasks.view.timeline')}</span>
+				</button>
+				<button
+					type="button"
+					role="tab"
+					aria-selected={tasksLayout === 'calendar'}
+					onClick={() => setTasksLayout('calendar')}
+					className={cn(
+						'inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-medium transition-colors',
+						tasksLayout === 'calendar'
+							? 'bg-background text-foreground shadow-(--shadow-1)'
+							: 'text-muted-foreground'
+					)}
+				>
+					<CalendarDays className="size-3.5" aria-hidden />
+					<span>{t('tasks.view.calendar')}</span>
 				</button>
 			</div>
 

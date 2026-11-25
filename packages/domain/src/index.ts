@@ -104,3 +104,15 @@ export type {
 export { ACL_RESOURCE_TYPES, aclSatisfies, attributionOf, can, needsAcl, requiredAclLevel } from './policy'
 export type { ParsedSearchQuery, SearchMode } from './search-query'
 export { parseSearchQuery } from './search-query'
+export type { TimelineBarGeometry, TimelineRange, TimelineZoom } from './timeline'
+export {
+	addDaysIso,
+	calendarMonthGrid,
+	diffDaysIso,
+	formatIsoDate,
+	resizeDateSpan,
+	shiftDateSpan,
+	timelineBarGeometry,
+	timelineRangeForZoom,
+	todayIsoFromDate
+} from './timeline'

@@ -18,20 +18,25 @@ import {
 	BulkRestoreBody,
 	CommentPatchParam,
 	CreateCycleBody,
+	CreateInitiativeBody,
 	CreateIssueBody,
 	CreateIssueCommentBody,
 	CreateIssueRelationBody,
 	CreateLabelBody,
 	CreateProjectBody,
+	CreateProjectMilestoneBody,
+	CreateProjectUpdateBody,
 	CreateSavedViewBody,
 	CreateStatusBody,
 	CycleIdParam,
 	IdParam,
+	InitiativeIdParam,
 	IssueGetParam,
 	IssueIdParam,
 	IssueKeyParam,
 	ListCyclesQuery,
 	ListIssuesQuery,
+	MilestoneParam,
 	MoveIssueBody,
 	ProjectIdParam,
 	QueryIssuesBody,
@@ -40,10 +45,12 @@ import {
 	TriageActionBody,
 	TriageQueueQuery,
 	UpdateCycleBody,
+	UpdateInitiativeBody,
 	UpdateIssueBody,
 	UpdateIssueCommentBody,
 	UpdateLabelBody,
 	UpdateProjectBody,
+	UpdateProjectMilestoneBody,
 	UpdateSavedViewBody,
 	UpdateStatusBody
 } from './schema'
@@ -86,27 +93,34 @@ import {
 	updateProjectStatus,
 	updateSavedView
 } from './service'
+import { bulkRestoreIssues, bulkUpdateIssues } from './service-bulk'
+import { createInitiative, deleteInitiative, listInitiatives, updateInitiative } from './service-initiatives'
 import {
-	bulkRestoreIssues,
-	bulkUpdateIssues,
-	getTriageSuggestions,
-	listTriageQueue,
-	queryIssues,
-	runTriageWakeOnce,
-	triageIssue
-} from './service-m7'
+	createProjectMilestone,
+	deleteProjectMilestone,
+	listProjectMilestones,
+	updateProjectMilestone
+} from './service-milestones'
+import { createProjectUpdate, listProjectUpdates } from './service-project-updates'
+import { queryIssues } from './service-query'
+import { getTriageSuggestions, listTriageQueue, runTriageWakeOnce, triageIssue } from './service-triage'
 
 export { runCycleMaintenanceOnce } from './cycle-maintenance'
 export { TASKS_EVENTS } from './events'
 export {
 	bulkRestoreIssues,
 	bulkUpdateIssues,
+	createInitiative,
 	createIssue,
 	createIssueComment,
 	createProject,
+	createProjectMilestone,
+	createProjectUpdate,
 	createSavedView,
+	deleteInitiative,
 	deleteIssue,
 	deleteIssueComment,
+	deleteProjectMilestone,
 	ensureLabelForImport,
 	ensureProjectForImport,
 	getIssueByIdentifier,
@@ -126,9 +140,11 @@ export {
 	requireIssueAccess,
 	runTriageWakeOnce,
 	triageIssue,
+	updateInitiative,
 	updateIssue,
 	updateIssueComment,
 	updateProject,
+	updateProjectMilestone,
 	updateSavedView
 }
 
@@ -191,6 +207,92 @@ export function tasksModule(sql: Sql, auth: Auth | null, pubsub?: RealtimePubSub
 					inWorkspace(async (tx, actor) => ({
 						data: await listTriageQueue(tx, actor, params.id, query.state ?? 'pending')
 					}))
+			)
+			// ---- M8 planning: initiatives, milestones & project updates ----
+			.get('/initiatives', ({ inWorkspace }) =>
+				inWorkspace(async (tx, actor) => ({ data: await listInitiatives(tx, actor) }))
+			)
+			.post(
+				'/initiatives',
+				{ body: CreateInitiativeBody },
+				async ({ body, workspaceCtx, inWorkspace, set }) => {
+					const result = await inWorkspace((tx, actor) => createInitiative(tx, actor, body))
+					set.status = 201
+					if (pubsub) await pubsub.publishCursor(workspaceCtx.workspaceId, result.cursor)
+					return result.data
+				}
+			)
+			.patch(
+				'/initiatives/:initiativeId',
+				{ params: InitiativeIdParam, body: UpdateInitiativeBody },
+				async ({ params, body, workspaceCtx, inWorkspace }) => {
+					const result = await inWorkspace((tx, actor) =>
+						updateInitiative(tx, actor, params.initiativeId, body)
+					)
+					if (pubsub) await pubsub.publishCursor(workspaceCtx.workspaceId, result.cursor)
+					return result.data
+				}
+			)
+			.delete(
+				'/initiatives/:initiativeId',
+				{ params: InitiativeIdParam },
+				async ({ params, workspaceCtx, inWorkspace, set }) => {
+					const result = await inWorkspace((tx, actor) => deleteInitiative(tx, actor, params.initiativeId))
+					set.status = 204
+					if (pubsub) await pubsub.publishCursor(workspaceCtx.workspaceId, result.cursor)
+				}
+			)
+			.get('/projects/:projectId/milestones', { params: ProjectIdParam }, ({ params, inWorkspace }) =>
+				inWorkspace(async (tx, actor) => ({ data: await listProjectMilestones(tx, actor, params.projectId) }))
+			)
+			.post(
+				'/projects/:projectId/milestones',
+				{ params: ProjectIdParam, body: CreateProjectMilestoneBody },
+				async ({ params, body, workspaceCtx, inWorkspace, set }) => {
+					const result = await inWorkspace((tx, actor) =>
+						createProjectMilestone(tx, actor, params.projectId, body)
+					)
+					set.status = 201
+					if (pubsub) await pubsub.publishCursor(workspaceCtx.workspaceId, result.cursor)
+					return result.data
+				}
+			)
+			.patch(
+				'/projects/:projectId/milestones/:milestoneId',
+				{ params: MilestoneParam, body: UpdateProjectMilestoneBody },
+				async ({ params, body, workspaceCtx, inWorkspace }) => {
+					const result = await inWorkspace((tx, actor) =>
+						updateProjectMilestone(tx, actor, params.projectId, params.milestoneId, body)
+					)
+					if (pubsub) await pubsub.publishCursor(workspaceCtx.workspaceId, result.cursor)
+					return result.data
+				}
+			)
+			.delete(
+				'/projects/:projectId/milestones/:milestoneId',
+				{ params: MilestoneParam },
+				async ({ params, workspaceCtx, inWorkspace, set }) => {
+					const result = await inWorkspace((tx, actor) =>
+						deleteProjectMilestone(tx, actor, params.projectId, params.milestoneId)
+					)
+					set.status = 204
+					if (pubsub) await pubsub.publishCursor(workspaceCtx.workspaceId, result.cursor)
+				}
+			)
+			.get('/projects/:projectId/updates', { params: ProjectIdParam }, ({ params, inWorkspace }) =>
+				inWorkspace(async (tx, actor) => ({ data: await listProjectUpdates(tx, actor, params.projectId) }))
+			)
+			.post(
+				'/projects/:projectId/updates',
+				{ params: ProjectIdParam, body: CreateProjectUpdateBody },
+				async ({ params, body, workspaceCtx, inWorkspace, set }) => {
+					const result = await inWorkspace((tx, actor) =>
+						createProjectUpdate(tx, actor, params.projectId, body)
+					)
+					set.status = 201
+					if (pubsub) await pubsub.publishCursor(workspaceCtx.workspaceId, result.cursor)
+					return result.data
+				}
 			)
 			// ---- Project statuses ----
 			.get('/projects/:projectId/statuses', { params: ProjectIdParam }, ({ params, inWorkspace }) =>

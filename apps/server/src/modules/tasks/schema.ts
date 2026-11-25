@@ -4,11 +4,14 @@ export {
 	BulkIssuesBody,
 	BulkRestoreBody,
 	CreateCycleBody,
+	CreateInitiativeBody,
 	CreateIssueBody,
 	CreateIssueCommentBody,
 	CreateIssueRelationBody,
 	CreateLabelBody,
 	CreateProjectBody,
+	CreateProjectMilestoneBody,
+	CreateProjectUpdateBody,
 	CreateSavedViewBody,
 	CreateStatusBody,
 	ListIssuesQuery,
@@ -18,10 +21,12 @@ export {
 	TriageActionBody,
 	TriageQueueQuery,
 	UpdateCycleBody,
+	UpdateInitiativeBody,
 	UpdateIssueBody,
 	UpdateIssueCommentBody,
 	UpdateLabelBody,
 	UpdateProjectBody,
+	UpdateProjectMilestoneBody,
 	UpdateSavedViewBody,
 	UpdateStatusBody
 } from '@huriro/contracts'
@@ -63,4 +68,13 @@ export const IssueKeyParam = Type.Object({
 
 export const ListCyclesQuery = Type.Object({
 	projectId: Type.Optional(Type.String({ format: 'uuid' }))
+})
+
+export const InitiativeIdParam = Type.Object({
+	initiativeId: Type.String({ format: 'uuid' })
+})
+
+export const MilestoneParam = Type.Object({
+	projectId: Type.String({ format: 'uuid' }),
+	milestoneId: Type.String({ format: 'uuid' })
 })

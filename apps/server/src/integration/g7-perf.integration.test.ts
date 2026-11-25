@@ -76,7 +76,7 @@ describe('Gate G7 performance evidence (HURIRO_PERF=1 only)', () => {
 			// 200 issues on every alternating call, the row-level amplification is:
 			//   200 tasks.issue.updated.v1 + 200 tasks.issue.status_changed.v1 = 400 rows.
 			// The insert-statement batching itself is statically enforced by the single
-			// emitTasksEvents() call in service-m7.ts; these assertions catch drift in
+			// emitTasksEvents() call in service-bulk.ts; these assertions catch drift in
 			// the observable row amplification.
 			for (const iteration of result.iterations) {
 				expect(iteration.status).toBe(200)

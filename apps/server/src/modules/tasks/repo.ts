@@ -553,6 +553,7 @@ interface RawIssueRow {
 	readonly number: number
 	readonly parentId: string | null
 	readonly cycleId: string | null
+	readonly milestoneId: string | null
 	readonly title: string
 	readonly description: unknown | null
 	readonly descriptionText: string
@@ -635,6 +636,7 @@ export async function getIssueById(
 			i.number,
 			i.parent_id AS "parentId",
 			i.cycle_id AS "cycleId",
+			i.milestone_id AS "milestoneId",
 			i.title,
 			i.description,
 			i.description_text AS "descriptionText",
@@ -682,6 +684,7 @@ export async function getIssueByKey(
 			i.number,
 			i.parent_id AS "parentId",
 			i.cycle_id AS "cycleId",
+			i.milestone_id AS "milestoneId",
 			i.title,
 			i.description,
 			i.description_text AS "descriptionText",
@@ -750,6 +753,7 @@ export async function listIssuesFiltered(
 			i.number,
 			i.parent_id AS "parentId",
 			i.cycle_id AS "cycleId",
+			i.milestone_id AS "milestoneId",
 			i.title,
 			i.description,
 			i.description_text AS "descriptionText",
@@ -815,6 +819,7 @@ const ISSUE_COLS = `
 		i.number,
 		i.parent_id AS "parentId",
 		i.cycle_id AS "cycleId",
+			i.milestone_id AS "milestoneId",
 		i.title,
 		i.description,
 		i.description_text AS "descriptionText",
@@ -977,6 +982,7 @@ export async function insertIssueRow(
 		readonly number: number
 		readonly parentId: string | null
 		readonly cycleId: string | null
+		readonly milestoneId: string | null
 		readonly title: string
 		readonly description: unknown | null
 		readonly descriptionText: string
@@ -1001,7 +1007,7 @@ export async function insertIssueRow(
 	const rows = args.id
 		? await tx<RawIssueRow[]>`
 			INSERT INTO issues (
-				id, workspace_id, project_id, number, parent_id, cycle_id, title,
+				id, workspace_id, project_id, number, parent_id, cycle_id, milestone_id, title,
 				description, description_text, status_id, priority,
 				assignee_type, assignee_id, creator_id, position,
 				start_date, due_date, estimate, closed_at,
@@ -1009,7 +1015,7 @@ export async function insertIssueRow(
 			)
 			VALUES (
 				${args.id}, ${args.workspaceId}, ${args.projectId}, ${args.number},
-				${args.parentId}, ${args.cycleId}, ${args.title},
+				${args.parentId}, ${args.cycleId}, ${args.milestoneId}, ${args.title},
 				${descJson}, ${args.descriptionText}, ${args.statusId}, ${args.priority},
 				${args.assigneeType}, ${args.assigneeId}, ${args.creatorId}, ${args.position},
 				${args.startDate}::date, ${args.dueDate}::date, ${args.estimate}, ${args.closedAt}::timestamptz,
@@ -1018,7 +1024,7 @@ export async function insertIssueRow(
 			)
 			RETURNING
 				id, workspace_id AS "workspaceId", project_id AS "projectId", ${args.projectKey}::text AS "projectKey",
-				number, parent_id AS "parentId", cycle_id AS "cycleId", title, description,
+				number, parent_id AS "parentId", cycle_id AS "cycleId", milestone_id AS "milestoneId", title, description,
 				description_text AS "descriptionText", status_id AS "statusId", priority,
 				assignee_type AS "assigneeType", assignee_id AS "assigneeId", creator_id AS "creatorId",
 				position, start_date::text AS "startDate", due_date::text AS "dueDate",
@@ -1031,7 +1037,7 @@ export async function insertIssueRow(
 		`
 		: await tx<RawIssueRow[]>`
 			INSERT INTO issues (
-				workspace_id, project_id, number, parent_id, cycle_id, title,
+				workspace_id, project_id, number, parent_id, cycle_id, milestone_id, title,
 				description, description_text, status_id, priority,
 				assignee_type, assignee_id, creator_id, position,
 				start_date, due_date, estimate, closed_at,
@@ -1039,7 +1045,7 @@ export async function insertIssueRow(
 			)
 			VALUES (
 				${args.workspaceId}, ${args.projectId}, ${args.number},
-				${args.parentId}, ${args.cycleId}, ${args.title},
+				${args.parentId}, ${args.cycleId}, ${args.milestoneId}, ${args.title},
 				${descJson}, ${args.descriptionText}, ${args.statusId}, ${args.priority},
 				${args.assigneeType}, ${args.assigneeId}, ${args.creatorId}, ${args.position},
 				${args.startDate}::date, ${args.dueDate}::date, ${args.estimate}, ${args.closedAt}::timestamptz,
@@ -1048,7 +1054,7 @@ export async function insertIssueRow(
 			)
 			RETURNING
 				id, workspace_id AS "workspaceId", project_id AS "projectId", ${args.projectKey}::text AS "projectKey",
-				number, parent_id AS "parentId", cycle_id AS "cycleId", title, description,
+				number, parent_id AS "parentId", cycle_id AS "cycleId", milestone_id AS "milestoneId", title, description,
 				description_text AS "descriptionText", status_id AS "statusId", priority,
 				assignee_type AS "assigneeType", assignee_id AS "assigneeId", creator_id AS "creatorId",
 				position, start_date::text AS "startDate", due_date::text AS "dueDate",
@@ -1098,6 +1104,7 @@ export async function updateIssueRow(
 		readonly projectKey: string
 		readonly parentId: string | null
 		readonly cycleId: string | null
+		readonly milestoneId: string | null
 		readonly title: string
 		readonly description: unknown | null
 		readonly descriptionText: string
@@ -1124,6 +1131,7 @@ export async function updateIssueRow(
 			number = COALESCE(${args.number ?? null}::int, number),
 			parent_id = ${args.parentId},
 			cycle_id = ${args.cycleId},
+			milestone_id = ${args.milestoneId},
 			title = ${args.title},
 			description = ${descJson},
 			description_text = ${args.descriptionText},
@@ -1148,7 +1156,7 @@ export async function updateIssueRow(
 			AND deleted_at IS NULL
 		RETURNING
 			id, workspace_id AS "workspaceId", project_id AS "projectId", ${args.projectKey}::text AS "projectKey",
-			number, parent_id AS "parentId", cycle_id AS "cycleId", title, description,
+			number, parent_id AS "parentId", cycle_id AS "cycleId", milestone_id AS "milestoneId", title, description,
 			description_text AS "descriptionText", status_id AS "statusId", priority,
 			assignee_type AS "assigneeType", assignee_id AS "assigneeId", creator_id AS "creatorId",
 			position, start_date::text AS "startDate", due_date::text AS "dueDate",
@@ -1676,6 +1684,7 @@ export async function queryIssuesExpr(
 			i.number,
 			i.parent_id AS "parentId",
 			i.cycle_id AS "cycleId",
+			i.milestone_id AS "milestoneId",
 			i.title,
 			i.description,
 			i.description_text AS "descriptionText",
@@ -1751,6 +1760,7 @@ export async function listTriageQueueRows(
 			i.number,
 			i.parent_id AS "parentId",
 			i.cycle_id AS "cycleId",
+			i.milestone_id AS "milestoneId",
 			i.title,
 			i.description,
 			i.description_text AS "descriptionText",
@@ -1839,6 +1849,7 @@ export async function wakeSnoozedIssues(
 			i.number,
 			i.parent_id AS "parentId",
 			i.cycle_id AS "cycleId",
+			i.milestone_id AS "milestoneId",
 			i.title,
 			i.description,
 			i.description_text AS "descriptionText",
@@ -1881,6 +1892,7 @@ export async function lockIssuesByIds(
 			i.number,
 			i.parent_id AS "parentId",
 			i.cycle_id AS "cycleId",
+			i.milestone_id AS "milestoneId",
 			i.title,
 			i.description,
 			i.description_text AS "descriptionText",
@@ -1958,6 +1970,7 @@ export async function updateIssuesSetColumns(
 			i.number,
 			i.parent_id AS "parentId",
 			i.cycle_id AS "cycleId",
+			i.milestone_id AS "milestoneId",
 			i.title,
 			i.description,
 			i.description_text AS "descriptionText",
@@ -2056,6 +2069,7 @@ export async function softDeleteIssuesRows(
 			i.number,
 			i.parent_id AS "parentId",
 			i.cycle_id AS "cycleId",
+			i.milestone_id AS "milestoneId",
 			i.title,
 			i.description,
 			i.description_text AS "descriptionText",
@@ -2128,6 +2142,7 @@ export async function restoreIssueRows(
 			i.number,
 			i.parent_id AS "parentId",
 			i.cycle_id AS "cycleId",
+			i.milestone_id AS "milestoneId",
 			i.title,
 			i.description,
 			i.description_text AS "descriptionText",
@@ -2337,6 +2352,7 @@ export async function rolloverCycleIssues(
 			i.number,
 			i.parent_id AS "parentId",
 			i.cycle_id AS "cycleId",
+			i.milestone_id AS "milestoneId",
 			i.title,
 			i.description,
 			i.description_text AS "descriptionText",

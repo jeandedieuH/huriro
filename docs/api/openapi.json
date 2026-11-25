@@ -1353,6 +1353,981 @@
 				"operationId": "getApiV1ProjectsByIdTriage"
 			}
 		},
+		"/api/v1/initiatives": {
+			"get": {
+				"operationId": "getApiV1Initiatives"
+			},
+			"post": {
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"name"
+								],
+								"properties": {
+									"id": {
+										"type": "string",
+										"format": "uuid"
+									},
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"description": {
+										"anyOf": [
+											{},
+											{
+												"type": "null"
+											}
+										]
+									},
+									"descriptionText": {
+										"type": "string",
+										"maxLength": 20000
+									},
+									"health": {
+										"type": "string",
+										"enum": [
+											"on_track",
+											"at_risk",
+											"off_track",
+											"completed"
+										]
+									},
+									"ownerId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"targetDate": {
+										"type": [
+											"string",
+											"null"
+										],
+										"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+									},
+									"projectIds": {
+										"type": "array",
+										"items": {
+											"type": "string",
+											"format": "uuid"
+										},
+										"maxItems": 200,
+										"uniqueItems": true
+									},
+									"position": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"name"
+								],
+								"properties": {
+									"id": {
+										"type": "string",
+										"format": "uuid"
+									},
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"description": {
+										"anyOf": [
+											{},
+											{
+												"type": "null"
+											}
+										]
+									},
+									"descriptionText": {
+										"type": "string",
+										"maxLength": 20000
+									},
+									"health": {
+										"type": "string",
+										"enum": [
+											"on_track",
+											"at_risk",
+											"off_track",
+											"completed"
+										]
+									},
+									"ownerId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"targetDate": {
+										"type": [
+											"string",
+											"null"
+										],
+										"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+									},
+									"projectIds": {
+										"type": "array",
+										"items": {
+											"type": "string",
+											"format": "uuid"
+										},
+										"maxItems": 200,
+										"uniqueItems": true
+									},
+									"position": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"name"
+								],
+								"properties": {
+									"id": {
+										"type": "string",
+										"format": "uuid"
+									},
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"description": {
+										"anyOf": [
+											{},
+											{
+												"type": "null"
+											}
+										]
+									},
+									"descriptionText": {
+										"type": "string",
+										"maxLength": 20000
+									},
+									"health": {
+										"type": "string",
+										"enum": [
+											"on_track",
+											"at_risk",
+											"off_track",
+											"completed"
+										]
+									},
+									"ownerId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"targetDate": {
+										"type": [
+											"string",
+											"null"
+										],
+										"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+									},
+									"projectIds": {
+										"type": "array",
+										"items": {
+											"type": "string",
+											"format": "uuid"
+										},
+										"maxItems": 200,
+										"uniqueItems": true
+									},
+									"position": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1Initiatives"
+			}
+		},
+		"/api/v1/initiatives/{initiativeId}": {
+			"patch": {
+				"parameters": [
+					{
+						"name": "initiativeId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"version"
+								],
+								"properties": {
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"description": {
+										"anyOf": [
+											{},
+											{
+												"type": "null"
+											}
+										]
+									},
+									"descriptionText": {
+										"type": "string",
+										"maxLength": 20000
+									},
+									"health": {
+										"type": "string",
+										"enum": [
+											"on_track",
+											"at_risk",
+											"off_track",
+											"completed"
+										]
+									},
+									"ownerId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"targetDate": {
+										"type": [
+											"string",
+											"null"
+										],
+										"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+									},
+									"projectIds": {
+										"type": "array",
+										"items": {
+											"type": "string",
+											"format": "uuid"
+										},
+										"maxItems": 200,
+										"uniqueItems": true
+									},
+									"position": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									},
+									"version": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"version"
+								],
+								"properties": {
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"description": {
+										"anyOf": [
+											{},
+											{
+												"type": "null"
+											}
+										]
+									},
+									"descriptionText": {
+										"type": "string",
+										"maxLength": 20000
+									},
+									"health": {
+										"type": "string",
+										"enum": [
+											"on_track",
+											"at_risk",
+											"off_track",
+											"completed"
+										]
+									},
+									"ownerId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"targetDate": {
+										"type": [
+											"string",
+											"null"
+										],
+										"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+									},
+									"projectIds": {
+										"type": "array",
+										"items": {
+											"type": "string",
+											"format": "uuid"
+										},
+										"maxItems": 200,
+										"uniqueItems": true
+									},
+									"position": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									},
+									"version": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"version"
+								],
+								"properties": {
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"description": {
+										"anyOf": [
+											{},
+											{
+												"type": "null"
+											}
+										]
+									},
+									"descriptionText": {
+										"type": "string",
+										"maxLength": 20000
+									},
+									"health": {
+										"type": "string",
+										"enum": [
+											"on_track",
+											"at_risk",
+											"off_track",
+											"completed"
+										]
+									},
+									"ownerId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"targetDate": {
+										"type": [
+											"string",
+											"null"
+										],
+										"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+									},
+									"projectIds": {
+										"type": "array",
+										"items": {
+											"type": "string",
+											"format": "uuid"
+										},
+										"maxItems": 200,
+										"uniqueItems": true
+									},
+									"position": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									},
+									"version": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "patchApiV1InitiativesByInitiativeId"
+			},
+			"delete": {
+				"parameters": [
+					{
+						"name": "initiativeId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "deleteApiV1InitiativesByInitiativeId"
+			}
+		},
+		"/api/v1/projects/{projectId}/milestones": {
+			"get": {
+				"parameters": [
+					{
+						"name": "projectId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "getApiV1ProjectsByProjectIdMilestones"
+			},
+			"post": {
+				"parameters": [
+					{
+						"name": "projectId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"name"
+								],
+								"properties": {
+									"id": {
+										"type": "string",
+										"format": "uuid"
+									},
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"description": {
+										"type": "string",
+										"maxLength": 5000
+									},
+									"targetDate": {
+										"type": [
+											"string",
+											"null"
+										],
+										"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+									},
+									"status": {
+										"type": "string",
+										"enum": [
+											"planned",
+											"completed",
+											"missed"
+										]
+									},
+									"position": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"name"
+								],
+								"properties": {
+									"id": {
+										"type": "string",
+										"format": "uuid"
+									},
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"description": {
+										"type": "string",
+										"maxLength": 5000
+									},
+									"targetDate": {
+										"type": [
+											"string",
+											"null"
+										],
+										"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+									},
+									"status": {
+										"type": "string",
+										"enum": [
+											"planned",
+											"completed",
+											"missed"
+										]
+									},
+									"position": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"name"
+								],
+								"properties": {
+									"id": {
+										"type": "string",
+										"format": "uuid"
+									},
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"description": {
+										"type": "string",
+										"maxLength": 5000
+									},
+									"targetDate": {
+										"type": [
+											"string",
+											"null"
+										],
+										"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+									},
+									"status": {
+										"type": "string",
+										"enum": [
+											"planned",
+											"completed",
+											"missed"
+										]
+									},
+									"position": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1ProjectsByProjectIdMilestones"
+			}
+		},
+		"/api/v1/projects/{projectId}/milestones/{milestoneId}": {
+			"patch": {
+				"parameters": [
+					{
+						"name": "projectId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					},
+					{
+						"name": "milestoneId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"version"
+								],
+								"properties": {
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"description": {
+										"type": "string",
+										"maxLength": 5000
+									},
+									"targetDate": {
+										"type": [
+											"string",
+											"null"
+										],
+										"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+									},
+									"status": {
+										"type": "string",
+										"enum": [
+											"planned",
+											"completed",
+											"missed"
+										]
+									},
+									"position": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									},
+									"version": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"version"
+								],
+								"properties": {
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"description": {
+										"type": "string",
+										"maxLength": 5000
+									},
+									"targetDate": {
+										"type": [
+											"string",
+											"null"
+										],
+										"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+									},
+									"status": {
+										"type": "string",
+										"enum": [
+											"planned",
+											"completed",
+											"missed"
+										]
+									},
+									"position": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									},
+									"version": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"version"
+								],
+								"properties": {
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"description": {
+										"type": "string",
+										"maxLength": 5000
+									},
+									"targetDate": {
+										"type": [
+											"string",
+											"null"
+										],
+										"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+									},
+									"status": {
+										"type": "string",
+										"enum": [
+											"planned",
+											"completed",
+											"missed"
+										]
+									},
+									"position": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									},
+									"version": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "patchApiV1ProjectsByProjectIdMilestonesByMilestoneId"
+			},
+			"delete": {
+				"parameters": [
+					{
+						"name": "projectId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					},
+					{
+						"name": "milestoneId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "deleteApiV1ProjectsByProjectIdMilestonesByMilestoneId"
+			}
+		},
+		"/api/v1/projects/{projectId}/updates": {
+			"get": {
+				"parameters": [
+					{
+						"name": "projectId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "getApiV1ProjectsByProjectIdUpdates"
+			},
+			"post": {
+				"parameters": [
+					{
+						"name": "projectId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"health"
+								],
+								"properties": {
+									"id": {
+										"type": "string",
+										"format": "uuid"
+									},
+									"health": {
+										"type": "string",
+										"enum": [
+											"on_track",
+											"at_risk",
+											"off_track",
+											"completed"
+										]
+									},
+									"body": {
+										"anyOf": [
+											{},
+											{
+												"type": "null"
+											}
+										]
+									},
+									"bodyText": {
+										"type": "string",
+										"maxLength": 20000
+									},
+									"completedIssues": {
+										"type": "integer",
+										"minimum": 0
+									},
+									"totalIssues": {
+										"type": "integer",
+										"minimum": 0
+									},
+									"scopeChange": {
+										"type": "integer"
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"health"
+								],
+								"properties": {
+									"id": {
+										"type": "string",
+										"format": "uuid"
+									},
+									"health": {
+										"type": "string",
+										"enum": [
+											"on_track",
+											"at_risk",
+											"off_track",
+											"completed"
+										]
+									},
+									"body": {
+										"anyOf": [
+											{},
+											{
+												"type": "null"
+											}
+										]
+									},
+									"bodyText": {
+										"type": "string",
+										"maxLength": 20000
+									},
+									"completedIssues": {
+										"type": "integer",
+										"minimum": 0
+									},
+									"totalIssues": {
+										"type": "integer",
+										"minimum": 0
+									},
+									"scopeChange": {
+										"type": "integer"
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"health"
+								],
+								"properties": {
+									"id": {
+										"type": "string",
+										"format": "uuid"
+									},
+									"health": {
+										"type": "string",
+										"enum": [
+											"on_track",
+											"at_risk",
+											"off_track",
+											"completed"
+										]
+									},
+									"body": {
+										"anyOf": [
+											{},
+											{
+												"type": "null"
+											}
+										]
+									},
+									"bodyText": {
+										"type": "string",
+										"maxLength": 20000
+									},
+									"completedIssues": {
+										"type": "integer",
+										"minimum": 0
+									},
+									"totalIssues": {
+										"type": "integer",
+										"minimum": 0
+									},
+									"scopeChange": {
+										"type": "integer"
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1ProjectsByProjectIdUpdates"
+			}
+		},
 		"/api/v1/projects/{projectId}/statuses": {
 			"get": {
 				"parameters": [
@@ -2268,6 +3243,13 @@
 										],
 										"format": "uuid"
 									},
+									"milestoneId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
 									"title": {
 										"type": "string",
 										"minLength": 1,
@@ -2394,6 +3376,13 @@
 										],
 										"format": "uuid"
 									},
+									"milestoneId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
 									"title": {
 										"type": "string",
 										"minLength": 1,
@@ -2514,6 +3503,13 @@
 										"format": "uuid"
 									},
 									"cycleId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"milestoneId": {
 										"type": [
 											"string",
 											"null"
@@ -2708,6 +3704,13 @@
 										],
 										"format": "uuid"
 									},
+									"milestoneId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
 									"parentId": {
 										"type": [
 											"string",
@@ -2817,6 +3820,13 @@
 										],
 										"format": "uuid"
 									},
+									"milestoneId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
 									"parentId": {
 										"type": [
 											"string",
@@ -2920,6 +3930,13 @@
 										"format": "uuid"
 									},
 									"cycleId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"milestoneId": {
 										"type": [
 											"string",
 											"null"
@@ -9603,7 +10620,10 @@
 														"issue_comment",
 														"saved_view",
 														"notification",
-														"doc_page"
+														"doc_page",
+														"initiative",
+														"project_milestone",
+														"project_update"
 													]
 												},
 												"entityId": {
@@ -9677,7 +10697,10 @@
 														"issue_comment",
 														"saved_view",
 														"notification",
-														"doc_page"
+														"doc_page",
+														"initiative",
+														"project_milestone",
+														"project_update"
 													]
 												},
 												"entityId": {
@@ -9751,7 +10774,10 @@
 														"issue_comment",
 														"saved_view",
 														"notification",
-														"doc_page"
+														"doc_page",
+														"initiative",
+														"project_milestone",
+														"project_update"
 													]
 												},
 												"entityId": {

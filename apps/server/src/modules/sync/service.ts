@@ -1,9 +1,12 @@
 import { createHash, randomBytes } from 'node:crypto'
 import {
 	CreateDocPageBody,
+	CreateInitiativeBody,
 	CreateIssueBody,
 	CreateIssueCommentBody,
 	CreateProjectBody,
+	CreateProjectMilestoneBody,
+	CreateProjectUpdateBody,
 	CreateSavedViewBody,
 	MoveDocPageBody,
 	MoveIssueBody,
@@ -19,9 +22,11 @@ import {
 	type SyncSnapshotQuery,
 	type SyncSnapshotResponse,
 	UpdateDocPageBody,
+	UpdateInitiativeBody,
 	UpdateIssueBody,
 	UpdateIssueCommentBody,
 	UpdateProjectBody,
+	UpdateProjectMilestoneBody,
 	UpdateSavedViewBody
 } from '@huriro/contracts'
 import { isUuid, type Queryable } from '@huriro/db'
@@ -40,18 +45,25 @@ import {
 } from '../docs'
 import { getNotificationsSnapshot, markNotificationRead } from '../notifications'
 import {
+	createInitiative,
 	createIssue,
 	createIssueComment,
 	createProject,
+	createProjectMilestone,
+	createProjectUpdate,
 	createSavedView,
+	deleteInitiative,
 	deleteIssue,
+	deleteProjectMilestone,
 	getIssueHistoryPage,
 	getTasksSnapshotData,
 	listAccessibleProjectIds,
 	moveIssue,
+	updateInitiative,
 	updateIssue,
 	updateIssueComment,
 	updateProject,
+	updateProjectMilestone,
 	updateSavedView
 } from '../tasks'
 import { assertActiveSyncMember } from './policy'
@@ -222,6 +234,33 @@ function filterRowForActor(
 			action: row.action,
 			scope: row.scope,
 			data: row.payload,
+			changedAt: row.changedAt
+		}
+	}
+
+	if (row.entityType === 'initiative') {
+		if (actor.membership !== 'active') return null
+		let data: Record<string, unknown> | null = null
+		if (row.action !== 'delete' && row.payload) {
+			// Change rows are immutable and shared by every recipient, while
+			// initiative project visibility is recipient-dependent. Filter the edge
+			// ids at read time so an admin author's private-project edge cannot leak
+			// into a member's feed merely because it was present in the stored payload.
+			const storedProjectIds = Array.isArray(row.payload['projectIds']) ? row.payload['projectIds'] : []
+			const visibleProjectIds = storedProjectIds.filter(
+				(id): id is string => typeof id === 'string' && accessibleProjects.has(id)
+			)
+			if (actor.roleKey === 'guest' && visibleProjectIds.length === 0) return null
+			data = { ...row.payload, projectIds: visibleProjectIds }
+		}
+		if (row.action === 'delete' && actor.roleKey === 'guest' && accessibleProjects.size === 0) return null
+		return {
+			cursor: row.cursor,
+			entity: row.entityType,
+			id: row.entityId,
+			action: row.action,
+			scope: row.scope,
+			data,
 			changedAt: row.changedAt
 		}
 	}
@@ -517,6 +556,10 @@ export async function getSyncSnapshot(
 		labels: [],
 		cycles: [],
 		issues: [],
+		issueRelations: [],
+		initiatives: [],
+		projectMilestones: [],
+		projectUpdates: [],
 		savedViews: []
 	}
 	const [tasksSnap, docsSnap, notifSnap] = await Promise.all([
@@ -533,6 +576,10 @@ export async function getSyncSnapshot(
 		labels: tasksSnap.labels as unknown as Record<string, unknown>[],
 		cycles: tasksSnap.cycles as unknown as Record<string, unknown>[],
 		issues: tasksSnap.issues as unknown as Record<string, unknown>[],
+		issueRelations: tasksSnap.issueRelations as unknown as Record<string, unknown>[],
+		initiatives: tasksSnap.initiatives as unknown as Record<string, unknown>[],
+		projectMilestones: tasksSnap.projectMilestones as unknown as Record<string, unknown>[],
+		projectUpdates: tasksSnap.projectUpdates as unknown as Record<string, unknown>[],
 		savedViews: tasksSnap.savedViews as unknown as Record<string, unknown>[],
 		notifications: notifSnap as unknown as Record<string, unknown>[],
 		docPages: docsSnap.docPages as unknown as Record<string, unknown>[]
@@ -660,6 +707,80 @@ async function runSingleMutation(
 				'saved_view.update'
 			)
 			const res = await updateSavedView(tx, actor, m.entityId, input)
+			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+		}
+	}
+
+	if (m.entity === 'initiative') {
+		if (m.op === 'create') {
+			const input = validateMutationPayload<CreateInitiativeBody>(
+				CreateInitiativeBody,
+				{ ...patch, id: m.entityId },
+				'initiative.create'
+			)
+			const res = await createInitiative(tx, actor, input)
+			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+		}
+		if (m.op === 'update') {
+			const version = m.baseVersion ?? Number(patch['version'] ?? 1)
+			const input = validateMutationPayload<UpdateInitiativeBody>(
+				UpdateInitiativeBody,
+				{ ...patch, version },
+				'initiative.update'
+			)
+			const res = await updateInitiative(tx, actor, m.entityId, input)
+			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+		}
+		if (m.op === 'delete') {
+			const res = await deleteInitiative(tx, actor, m.entityId)
+			return { data: { id: m.entityId, deleted: true }, cursor: res.cursor }
+		}
+	}
+
+	if (m.entity === 'project_milestone') {
+		const rawProjectId = typeof patch['projectId'] === 'string' ? patch['projectId'] : ''
+		if (!isUuid(rawProjectId)) {
+			throw new HttpError(422, 'validation_failed', 'Invalid project_milestone: missing or invalid projectId')
+		}
+		const { projectId: _ignoredProjectId, ...milestonePatch } = patch
+		if (m.op === 'create') {
+			const input = validateMutationPayload<CreateProjectMilestoneBody>(
+				CreateProjectMilestoneBody,
+				{ ...milestonePatch, id: m.entityId },
+				'project_milestone.create'
+			)
+			const res = await createProjectMilestone(tx, actor, rawProjectId, input)
+			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+		}
+		if (m.op === 'update') {
+			const version = m.baseVersion ?? Number(patch['version'] ?? 1)
+			const input = validateMutationPayload<UpdateProjectMilestoneBody>(
+				UpdateProjectMilestoneBody,
+				{ ...milestonePatch, version },
+				'project_milestone.update'
+			)
+			const res = await updateProjectMilestone(tx, actor, rawProjectId, m.entityId, input)
+			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+		}
+		if (m.op === 'delete') {
+			const res = await deleteProjectMilestone(tx, actor, rawProjectId, m.entityId)
+			return { data: { id: m.entityId, deleted: true }, cursor: res.cursor }
+		}
+	}
+
+	if (m.entity === 'project_update') {
+		const rawProjectId = typeof patch['projectId'] === 'string' ? patch['projectId'] : ''
+		if (!isUuid(rawProjectId)) {
+			throw new HttpError(422, 'validation_failed', 'Invalid project_update: missing or invalid projectId')
+		}
+		const { projectId: _ignoredProjectId, ...updatePatch } = patch
+		if (m.op === 'create') {
+			const input = validateMutationPayload<CreateProjectUpdateBody>(
+				CreateProjectUpdateBody,
+				{ ...updatePatch, id: m.entityId },
+				'project_update.create'
+			)
+			const res = await createProjectUpdate(tx, actor, rawProjectId, input)
 			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
 		}
 	}

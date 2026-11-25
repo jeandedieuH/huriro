@@ -1451,4 +1451,102 @@ describe('HuriroSyncEngine', () => {
 		expect(restarted.collections.projects.get(PROJ_ID)?.name).toBe('Engineering')
 		restarted.dispose()
 	})
+
+	test('planning mutations survive restart, reapply optimistic rows, and replay with project-scoped patches', async () => {
+		const storage = new MemoryReplicaStorage()
+		const sentBatches: MutationEnvelope[][] = []
+		const serverRows = new Map<string, Record<string, unknown>>()
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				return {
+					cursor: 1,
+					serverTime: new Date().toISOString(),
+					projects: [baseProject()],
+					projectStatuses: [baseStatus()],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: []
+				}
+			},
+			async fetchChanges(since) {
+				return {
+					changes: [],
+					nextCursor: Math.max(since, 1),
+					hasMore: false,
+					serverTime: new Date().toISOString()
+				}
+			},
+			async sendBatch(mutations) {
+				sentBatches.push([...mutations])
+				const results = mutations.map((mutation) => {
+					const key = `${mutation.entity}:${mutation.entityId}`
+					const base = serverRows.get(key) ?? {
+						id: mutation.entityId,
+						workspaceId: WS_ID,
+						createdAt: new Date().toISOString(),
+						updatedAt: new Date().toISOString(),
+						version: 1
+					}
+					const data = {
+						...base,
+						...mutation.patch,
+						...(mutation.entity === 'project_update' ? { createdBy: USER_ID } : {}),
+						version: mutation.op === 'create' ? 1 : 2
+					}
+					serverRows.set(key, data)
+					return {
+						mutationId: mutation.mutationId,
+						status: 200,
+						outcome: 'applied' as const,
+						data
+					}
+				})
+				return { cursor: 2, results }
+			}
+		}
+
+		const first = new HuriroSyncEngine({ workspaceId: WS_ID, currentUserId: USER_ID, storage, transport })
+		await first.bootstrap()
+		first.setOnline(false)
+		const initiative = await first.createInitiative({ name: 'Offline initiative', projectIds: [PROJ_ID] })
+		await first.updateInitiative(initiative.id, { health: 'at_risk' })
+		const milestone = await first.createProjectMilestone(PROJ_ID, { name: 'Offline milestone' })
+		await first.updateProjectMilestone(PROJ_ID, milestone.id, { status: 'completed' })
+		const update = await first.createProjectUpdate(PROJ_ID, {
+			health: 'on_track',
+			bodyText: 'Offline update'
+		})
+		expect(first.getStatus().pendingCount).toBe(5)
+		first.dispose()
+
+		const restarted = new HuriroSyncEngine({ workspaceId: WS_ID, currentUserId: USER_ID, storage, transport })
+		restarted.setOnline(false)
+		await restarted.bootstrap()
+		expect(restarted.collections.initiatives.get(initiative.id)?.health).toBe('at_risk')
+		expect(restarted.collections.projectMilestones.get(milestone.id)?.status).toBe('completed')
+		expect(restarted.collections.projectUpdates.get(update.id)?.bodyText).toBe('Offline update')
+		expect(restarted.getStatus().pendingCount).toBe(5)
+
+		restarted.setOnline(true)
+		await restarted.flushOutbox({ force: true })
+		const envelopes = sentBatches.flat()
+		expect(envelopes.map((envelope) => envelope.entity)).toEqual([
+			'initiative',
+			'initiative',
+			'project_milestone',
+			'project_milestone',
+			'project_update'
+		])
+		expect(envelopes[2]?.patch['projectId']).toBe(PROJ_ID)
+		expect(envelopes[3]?.patch['projectId']).toBe(PROJ_ID)
+		expect(envelopes[4]?.patch['projectId']).toBe(PROJ_ID)
+		expect(restarted.getStatus().pendingCount).toBe(0)
+		expect(restarted.collections.initiatives.get(initiative.id)?.health).toBe('at_risk')
+		expect(restarted.collections.projectMilestones.get(milestone.id)?.status).toBe('completed')
+		expect(restarted.collections.projectUpdates.get(update.id)?.createdBy).toBe(USER_ID)
+		restarted.dispose()
+	})
 })

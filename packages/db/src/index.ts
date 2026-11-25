@@ -93,14 +93,18 @@ export {
 export {
 	cycleDailySnapshots,
 	cycles,
+	initiativeProjects,
+	initiatives,
 	issueComments,
 	issueCounters,
 	issueLabels,
 	issueRelations,
 	issues,
 	labels,
+	projectMilestones,
 	projectStatuses,
 	projects,
+	projectUpdates,
 	savedViews
 } from './schema/tasks'
 export { aclEntries, invitations, memberships, rolePermissions, roles, workspaces } from './schema/tenancy'

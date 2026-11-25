@@ -163,6 +163,120 @@ export const cycleDailySnapshots = pgTable(
 	]
 )
 
+// M8: cross-project strategic initiatives (§3.2). The project edge table is
+// ordered so roadmap rendering can keep a stable manual ordering.
+export const initiatives = pgTable(
+	'initiatives',
+	{
+		id: uuid('id').primaryKey().default(sql`uuidv7()`),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		description: jsonb('description'),
+		descriptionText: text('description_text').notNull().default(''),
+		health: text('health', { enum: ['on_track', 'at_risk', 'off_track', 'completed'] })
+			.notNull()
+			.default('on_track'),
+		ownerId: uuid('owner_id').references(() => users.id, { onDelete: 'set null' }),
+		targetDate: date('target_date'),
+		position: text('position').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		version: integer('version').notNull().default(1)
+	},
+	(t) => [unique('uq_initiatives_ws_id').on(t.workspaceId, t.id)]
+)
+
+export const initiativeProjects = pgTable(
+	'initiative_projects',
+	{
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		initiativeId: uuid('initiative_id').notNull(),
+		projectId: uuid('project_id').notNull(),
+		position: text('position').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		primaryKey({ columns: [t.workspaceId, t.initiativeId, t.projectId] }),
+		foreignKey({
+			columns: [t.workspaceId, t.initiativeId],
+			foreignColumns: [initiatives.workspaceId, initiatives.id],
+			name: 'fk_initiative_projects_initiative'
+		}).onDelete('cascade'),
+		foreignKey({
+			columns: [t.workspaceId, t.projectId],
+			foreignColumns: [projects.workspaceId, projects.id],
+			name: 'fk_initiative_projects_project'
+		}).onDelete('cascade')
+	]
+)
+
+// M8: ordered project checkpoints. The extra (workspace, project, id) unique
+// target lets issues enforce same-project milestone links at the database layer.
+export const projectMilestones = pgTable(
+	'project_milestones',
+	{
+		id: uuid('id').primaryKey().default(sql`uuidv7()`),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		projectId: uuid('project_id').notNull(),
+		name: text('name').notNull(),
+		description: text('description').notNull().default(''),
+		targetDate: date('target_date'),
+		status: text('status', { enum: ['planned', 'completed', 'missed'] })
+			.notNull()
+			.default('planned'),
+		position: text('position').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		version: integer('version').notNull().default(1)
+	},
+	(t) => [
+		unique('uq_project_milestones_ws_id').on(t.workspaceId, t.id),
+		unique('uq_project_milestones_ws_project_id').on(t.workspaceId, t.projectId, t.id),
+		foreignKey({
+			columns: [t.workspaceId, t.projectId],
+			foreignColumns: [projects.workspaceId, projects.id],
+			name: 'fk_project_milestones_project'
+		}).onDelete('cascade')
+	]
+)
+
+// M8: structured weekly project pulse updates with denormalized snapshots for
+// roadmap/health rendering (§3.2).
+export const projectUpdates = pgTable(
+	'project_updates',
+	{
+		id: uuid('id').primaryKey().default(sql`uuidv7()`),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		projectId: uuid('project_id').notNull(),
+		health: text('health', { enum: ['on_track', 'at_risk', 'off_track', 'completed'] }).notNull(),
+		body: jsonb('body'),
+		bodyText: text('body_text').notNull().default(''),
+		completedIssues: integer('completed_issues').notNull().default(0),
+		totalIssues: integer('total_issues').notNull().default(0),
+		scopeChange: integer('scope_change').notNull().default(0),
+		createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		version: integer('version').notNull().default(1)
+	},
+	(t) => [
+		unique('uq_project_updates_ws_id').on(t.workspaceId, t.id),
+		foreignKey({
+			columns: [t.workspaceId, t.projectId],
+			foreignColumns: [projects.workspaceId, projects.id],
+			name: 'fk_project_updates_project'
+		}).onDelete('cascade')
+	]
+)
+
 export const issueCounters = pgTable(
 	'issue_counters',
 	{
@@ -193,6 +307,9 @@ export const issues = pgTable(
 		number: integer('number').notNull(),
 		parentId: uuid('parent_id'),
 		cycleId: uuid('cycle_id'),
+		// M8: optional project milestone link (§3.2); composite FK below enforces
+		// same-project attachment at the database layer.
+		milestoneId: uuid('milestone_id'),
 		title: text('title').notNull(),
 		description: jsonb('description'),
 		descriptionText: text('description_text').notNull().default(''),
@@ -244,6 +361,11 @@ export const issues = pgTable(
 			columns: [t.workspaceId, t.cycleId],
 			foreignColumns: [cycles.workspaceId, cycles.id],
 			name: 'fk_issues_cycle'
+		}).onDelete('set null'),
+		foreignKey({
+			columns: [t.workspaceId, t.projectId, t.milestoneId],
+			foreignColumns: [projectMilestones.workspaceId, projectMilestones.projectId, projectMilestones.id],
+			name: 'fk_issues_milestone'
 		}).onDelete('set null')
 	]
 )

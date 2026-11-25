@@ -93,6 +93,8 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/imports/execute`
 - `/api/v1/imports/redirect/{identifier}`
 - `/api/v1/imports/{id}`
+- `/api/v1/initiatives`
+- `/api/v1/initiatives/{initiativeId}`
 - `/api/v1/integrations/github/installations`
 - `/api/v1/integrations/github/installations/{id}`
 - `/api/v1/integrations/github/links`
@@ -161,7 +163,10 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/projects`
 - `/api/v1/projects/{id}`
 - `/api/v1/projects/{id}/triage`
+- `/api/v1/projects/{projectId}/milestones`
+- `/api/v1/projects/{projectId}/milestones/{milestoneId}`
 - `/api/v1/projects/{projectId}/statuses`
+- `/api/v1/projects/{projectId}/updates`
 - `/api/v1/realtime/ticket`
 - `/api/v1/search`
 - `/api/v1/settings/agents`

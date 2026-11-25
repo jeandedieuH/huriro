@@ -9,6 +9,9 @@ export const SyncEntityType = Type.Union([
 	Type.Literal('issue'),
 	Type.Literal('issue_comment'),
 	Type.Literal('issue_relation'),
+	Type.Literal('initiative'),
+	Type.Literal('project_milestone'),
+	Type.Literal('project_update'),
 	Type.Literal('saved_view'),
 	Type.Literal('notification'),
 	Type.Literal('doc_page'),
@@ -78,6 +81,10 @@ export const SyncSnapshotResponse = Type.Object({
 	labels: Type.Array(Type.Record(Type.String(), Type.Unknown())),
 	cycles: Type.Array(Type.Record(Type.String(), Type.Unknown())),
 	issues: Type.Array(Type.Record(Type.String(), Type.Unknown())),
+	issueRelations: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown()))),
+	initiatives: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown()))),
+	projectMilestones: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown()))),
+	projectUpdates: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown()))),
 	savedViews: Type.Array(Type.Record(Type.String(), Type.Unknown())),
 	notifications: Type.Array(Type.Record(Type.String(), Type.Unknown())),
 	docPages: Type.Array(Type.Record(Type.String(), Type.Unknown()))
@@ -112,7 +119,10 @@ export const MutationEntity = Type.Union([
 	Type.Literal('issue_comment'),
 	Type.Literal('saved_view'),
 	Type.Literal('notification'),
-	Type.Literal('doc_page')
+	Type.Literal('doc_page'),
+	Type.Literal('initiative'),
+	Type.Literal('project_milestone'),
+	Type.Literal('project_update')
 ])
 export type MutationEntity = Static<typeof MutationEntity>
 

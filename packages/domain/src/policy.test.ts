@@ -141,6 +141,20 @@ const CASES: Case[] = [
 		resource: wsResource,
 		expect: { effect: 'allow', via: 'role' }
 	},
+	{
+		name: 'member cannot manage cross-project initiatives',
+		actor: actor(),
+		action: 'initiative.manage',
+		resource: wsResource,
+		expect: { effect: 'deny', reason: 'insufficient_role' }
+	},
+	{
+		name: 'admin can manage cross-project initiatives',
+		actor: adminActor(),
+		action: 'initiative.manage',
+		resource: wsResource,
+		expect: { effect: 'allow', via: 'role' }
+	},
 
 	// --- workspace-visible resources ----------------------------------------
 	{

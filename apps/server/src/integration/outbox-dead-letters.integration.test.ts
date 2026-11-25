@@ -112,6 +112,13 @@ describe('outbox dead letters (PostgreSQL 18)', () => {
 		expect(state.publishedAt).toBeNull()
 
 		await drainOutboxOnce(db.app, undefined, opts)
+		// backoffBaseMs=0 still races the database clock by a few milliseconds under
+		// a loaded full-suite run; make the third attempt explicitly due so this test
+		// verifies the attempt budget rather than scheduler timing noise.
+		await db.owner`
+			UPDATE outbox SET next_attempt_at = NULL
+			WHERE workspace_id = ${fixture.workspaceId} AND event_type = 'files.uploaded.v1'
+		`
 		await drainOutboxOnce(db.app, undefined, opts)
 		state = await outboxState(db.owner, fixture.workspaceId)
 		expect(state.attempts).toBe(3)

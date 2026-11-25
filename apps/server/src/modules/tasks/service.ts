@@ -14,6 +14,7 @@ import type {
 	CreateStatusBody,
 	CycleDailySnapshotDto,
 	CycleDto,
+	InitiativeDto,
 	IssueCommentDto,
 	IssueDto,
 	IssueRelationDto,
@@ -21,7 +22,9 @@ import type {
 	ListIssuesQuery,
 	MoveIssueBody,
 	ProjectDto,
+	ProjectMilestoneDto,
 	ProjectStatusDto,
+	ProjectUpdateDto,
 	SavedViewDto,
 	UpdateCycleBody,
 	UpdateIssueBody,
@@ -99,6 +102,14 @@ import {
 	updateSavedViewRow,
 	updateStatusRow
 } from './repo'
+import {
+	getProjectMilestoneRow,
+	listInitiativeProjectEdges,
+	listInitiativeRows,
+	listIssueRelationsForProjects,
+	listProjectMilestoneRows,
+	listProjectUpdateRows
+} from './repo-planning'
 
 const DEFAULT_STATUS_TEMPLATES = [
 	{ name: 'Backlog', category: 'backlog', color: 'neutral', isDefault: false },
@@ -133,7 +144,7 @@ function validateFilterExprInput(input: unknown): FilterExpr | null {
 	return v.expr
 }
 
-function assertValidClientId(id: string | undefined, label: string): void {
+export function assertValidClientId(id: string | undefined, label: string): void {
 	if (id !== undefined && !isAcceptableClientId(id)) {
 		throw new HttpError(
 			422,
@@ -143,7 +154,7 @@ function assertValidClientId(id: string | undefined, label: string): void {
 	}
 }
 
-function throwStaleVersion(
+export function throwStaleVersion(
 	entityLabel: string,
 	currentVersion: number,
 	yourVersion: number,
@@ -201,6 +212,19 @@ export async function requireProjectRead(
 		userId: actor.userId
 	})
 	await authorizeProject(tx, actor, 'project.read', project, acl)
+	return project
+}
+
+export async function requireProjectWrite(tx: Queryable, actor: ActorContext, projectId: string) {
+	const project = await getProjectById(tx, actor.workspaceId, projectId)
+	if (!project) throw new HttpError(404, 'not_found', 'Project not found')
+	const acl = await resolveResourceAcl(tx, {
+		workspaceId: actor.workspaceId,
+		resourceType: 'project',
+		resourceId: projectId,
+		userId: actor.userId
+	})
+	await authorizeProject(tx, actor, 'project.write', project, acl)
 	return project
 }
 
@@ -999,6 +1023,13 @@ export async function createIssue(
 		}
 	}
 
+	if (input.milestoneId) {
+		const milestone = await getProjectMilestoneRow(tx, actor.workspaceId, input.milestoneId)
+		if (!milestone || milestone.projectId !== project.id) {
+			throw new HttpError(422, 'validation_failed', 'Milestone must exist in the same project')
+		}
+	}
+
 	const assigneeType = input.assigneeId ? (input.assigneeType ?? 'user') : null
 	const assigneeId = input.assigneeId ?? null
 	if (assigneeId === null && input.assigneeType) {
@@ -1024,6 +1055,7 @@ export async function createIssue(
 		number,
 		parentId: input.parentId ?? null,
 		cycleId: input.cycleId ?? null,
+		milestoneId: input.milestoneId ?? null,
 		title: input.title.trim(),
 		description: input.description ?? null,
 		descriptionText: input.descriptionText ?? '',
@@ -1166,6 +1198,19 @@ export async function updateIssue(
 		scopeMovedFromProjectId = current.projectId
 	}
 
+	const nextMilestoneId =
+		input.milestoneId !== undefined
+			? input.milestoneId
+			: targetProject.id === current.projectId
+				? current.milestoneId
+				: null
+	if (nextMilestoneId) {
+		const milestone = await getProjectMilestoneRow(tx, actor.workspaceId, nextMilestoneId)
+		if (!milestone || milestone.projectId !== targetProject.id) {
+			throw new HttpError(422, 'validation_failed', 'Milestone must exist in the target project')
+		}
+	}
+
 	let nextStatusId = input.statusId ?? current.statusId
 	let nextClosedAt = current.closedAt
 	if (scopeMovedFromProjectId && input.statusId === undefined) {
@@ -1201,6 +1246,7 @@ export async function updateIssue(
 		projectKey: targetProject.key,
 		parentId: input.parentId === undefined ? current.parentId : input.parentId,
 		cycleId: input.cycleId === undefined ? current.cycleId : input.cycleId,
+		milestoneId: nextMilestoneId ?? null,
 		title: input.title !== undefined ? input.title.trim() : current.title,
 		description: input.description === undefined ? current.description : input.description,
 		descriptionText: input.descriptionText ?? current.descriptionText,
@@ -1402,6 +1448,7 @@ export async function moveIssue(
 		projectKey: project.key,
 		parentId: current.parentId,
 		cycleId: current.cycleId,
+		milestoneId: current.milestoneId ?? null,
 		title: current.title,
 		description: current.description,
 		descriptionText: current.descriptionText,
@@ -2035,6 +2082,10 @@ export async function getTasksSnapshotData(
 	readonly labels: LabelDto[]
 	readonly cycles: CycleDto[]
 	readonly issues: IssueDto[]
+	readonly issueRelations: IssueRelationDto[]
+	readonly initiatives: InitiativeDto[]
+	readonly projectMilestones: ProjectMilestoneDto[]
+	readonly projectUpdates: ProjectUpdateDto[]
 	readonly savedViews: SavedViewDto[]
 }> {
 	if (actor.membership !== 'active') {
@@ -2044,6 +2095,10 @@ export async function getTasksSnapshotData(
 			labels: [],
 			cycles: [],
 			issues: [],
+			issueRelations: [],
+			initiatives: [],
+			projectMilestones: [],
+			projectUpdates: [],
 			savedViews: []
 		}
 	}
@@ -2052,7 +2107,18 @@ export async function getTasksSnapshotData(
 	const scopedProjects = scopeProjectId ? allProjects.filter((p) => p.id === scopeProjectId) : allProjects
 	const projectIds = scopedProjects.map((p) => p.id)
 
-	const [projectStatuses, labelRows, cycleRows, issueRows, savedViews] = await Promise.all([
+	const [
+		projectStatuses,
+		labelRows,
+		cycleRows,
+		issueRows,
+		issueRelations,
+		initiativeRows,
+		initiativeEdges,
+		projectMilestones,
+		projectUpdates,
+		savedViews
+	] = await Promise.all([
 		listVisibleStatuses(tx, actor.workspaceId, projectIds),
 		actor.roleKey === 'guest' && projectIds.length === 0
 			? Promise.resolve([])
@@ -2066,8 +2132,23 @@ export async function getTasksSnapshotData(
 			workspaceId: actor.workspaceId,
 			visibleProjectIds: projectIds
 		}),
+		listIssueRelationsForProjects(tx, actor.workspaceId, projectIds),
+		listInitiativeRows(tx, actor.workspaceId),
+		listInitiativeProjectEdges(tx, actor.workspaceId),
+		listProjectMilestoneRows(tx, actor.workspaceId, projectIds),
+		listProjectUpdateRows(tx, actor.workspaceId, projectIds),
 		listSavedViewsForUser(tx, actor.workspaceId, actor.principalId, projectIds)
 	])
+
+	const visibleProjectIds = new Set(projectIds)
+	const initiatives = initiativeRows
+		.map((row) => ({
+			...row,
+			projectIds: initiativeEdges
+				.filter((edge) => edge.initiativeId === row.id && visibleProjectIds.has(edge.projectId))
+				.map((edge) => edge.projectId)
+		}))
+		.filter((initiative) => actor.roleKey !== 'guest' || initiative.projectIds.length > 0)
 
 	return {
 		projects: scopedProjects,
@@ -2075,6 +2156,10 @@ export async function getTasksSnapshotData(
 		labels: labelRows,
 		cycles: cycleRows,
 		issues: issueRows,
+		issueRelations,
+		initiatives,
+		projectMilestones,
+		projectUpdates,
 		savedViews
 	}
 }

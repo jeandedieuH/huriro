@@ -409,6 +409,145 @@ describe('rls coverage', () => {
 		}
 	}, 30_000)
 
+	test('M8 planning tables: cross-tenant deny, CHECK constraints, and milestone FK semantics', async () => {
+		if (skip()) return
+		const { wsA, wsB, userA, userB } = await seedTwoTenants(db!.owner)
+		const projA = await aProject(db!.owner, { workspaceId: wsA.id, createdBy: userA.id })
+		const projA2 = await aProject(db!.owner, { workspaceId: wsA.id, createdBy: userA.id })
+
+		const [initiative] = await db!.owner<{ id: string }[]>`
+			INSERT INTO initiatives (workspace_id, name, health, owner_id, target_date, position)
+			VALUES (${wsA.id}, 'rls-initiative', 'on_track', ${userA.id}, '2027-03-31', 'V')
+			RETURNING id
+		`
+		await db!.owner`
+			INSERT INTO initiative_projects (workspace_id, initiative_id, project_id, position)
+			VALUES (${wsA.id}, ${initiative!.id}, ${projA.id}, 'V')
+		`
+		const [milestone] = await db!.owner<{ id: string }[]>`
+			INSERT INTO project_milestones (workspace_id, project_id, name, target_date, position)
+			VALUES (${wsA.id}, ${projA.id}, 'rls-milestone', '2027-02-15', 'V')
+			RETURNING id
+		`
+		await db!.owner`
+			INSERT INTO project_updates (workspace_id, project_id, health, completed_issues, total_issues, created_by)
+			VALUES (${wsA.id}, ${projA.id}, 'at_risk', 1, 3, ${userA.id})
+		`
+
+		const linkedIssue = await anIssue(db!.owner, {
+			workspaceId: wsA.id,
+			projectId: projA.id,
+			statusId: projA.statusIds['Todo']!,
+			creatorId: userA.id
+		})
+		await db!.owner`
+			UPDATE issues SET milestone_id = ${milestone!.id}
+			WHERE workspace_id = ${wsA.id} AND id = ${linkedIssue.id}
+		`
+
+		const M8_TABLES = ['initiatives', 'initiative_projects', 'project_milestones', 'project_updates'] as const
+		await withWorkspace(db!.app, { workspaceId: wsB.id, userId: userB.id }, async (tx) => {
+			for (const t of M8_TABLES) {
+				const [r] = await tx.unsafe<{ n: number }[]>(
+					`SELECT count(*)::int AS n FROM ${t} WHERE workspace_id = '${wsA.id}'`
+				)
+				expect(r!.n, `${t} leaked wsA rows into wsB context`).toBe(0)
+				const upd = await tx.unsafe<unknown[]>(
+					`UPDATE ${t} SET workspace_id = workspace_id WHERE workspace_id = '${wsA.id}' RETURNING workspace_id`
+				)
+				expect(upd.length, `${t} allowed UPDATE of wsA rows from wsB`).toBe(0)
+				const del = await tx.unsafe<unknown[]>(
+					`DELETE FROM ${t} WHERE workspace_id = '${wsA.id}' RETURNING workspace_id`
+				)
+				expect(del.length, `${t} allowed DELETE of wsA rows from wsB`).toBe(0)
+			}
+		})
+
+		// WITH CHECK denial: valid wsA-shaped rows are still rejected from wsB context.
+		const crossInsert = async (table: (typeof M8_TABLES)[number]) => {
+			const inserts: Record<(typeof M8_TABLES)[number], string> = {
+				initiatives: `INSERT INTO initiatives (workspace_id, name, health, position)
+					VALUES ('${wsA.id}', 'cross-x', 'on_track', 'X')`,
+				initiative_projects: `INSERT INTO initiative_projects (workspace_id, initiative_id, project_id, position)
+					VALUES ('${wsA.id}', '${initiative!.id}', '${projA.id}', 'X')`,
+				project_milestones: `INSERT INTO project_milestones (workspace_id, project_id, name, position)
+					VALUES ('${wsA.id}', '${projA.id}', 'cross-x', 'X')`,
+				project_updates: `INSERT INTO project_updates (workspace_id, project_id, health)
+					VALUES ('${wsA.id}', '${projA.id}', 'on_track')`
+			}
+			try {
+				await withWorkspace(db!.app, { workspaceId: wsB.id, userId: userB.id }, async (tx) => {
+					await tx.unsafe(inserts[table])
+				})
+				return null
+			} catch (e) {
+				return e as { code?: string }
+			}
+		}
+		for (const t of M8_TABLES) {
+			const err = await crossInsert(t)
+			expect(err, `${t} accepted a wsA row inside wsB context`).not.toBeNull()
+		}
+
+		const denied = async (q: PromiseLike<unknown>) => {
+			try {
+				await q
+				return null
+			} catch (e) {
+				return e as { code?: string }
+			}
+		}
+
+		// Enum and count CHECK constraints are database invariants, not service conveniences.
+		expect(
+			(await denied(db!.owner`UPDATE initiatives SET health = 'bogus' WHERE id = ${initiative!.id}`))?.code
+		).toBe('23514')
+		expect(
+			(
+				await denied(
+					db!.owner`INSERT INTO project_milestones (workspace_id, project_id, name, status, position)
+						VALUES (${wsA.id}, ${projA.id}, 'bad-status', 'bogus', 'X')`
+				)
+			)?.code
+		).toBe('23514')
+		expect(
+			(
+				await denied(
+					db!
+						.owner`INSERT INTO project_updates (workspace_id, project_id, health, completed_issues, total_issues)
+						VALUES (${wsA.id}, ${projA.id}, 'on_track', 4, 3)`
+				)
+			)?.code
+		).toBe('23514')
+
+		// The composite issue FK enforces same-project milestone ownership even for owner SQL.
+		const otherProjectIssue = await anIssue(db!.owner, {
+			workspaceId: wsA.id,
+			projectId: projA2.id,
+			statusId: projA2.statusIds['Todo']!,
+			creatorId: userA.id
+		})
+		expect(
+			(
+				await denied(db!.owner`
+					UPDATE issues SET milestone_id = ${milestone!.id}
+					WHERE workspace_id = ${wsA.id} AND id = ${otherProjectIssue.id}
+				`)
+			)?.code
+		).toBe('23503')
+
+		// Regression for migration 0026: milestone deletion must null ONLY milestone_id,
+		// preserving workspace_id/project_id on the issue row.
+		await db!.owner`DELETE FROM project_milestones WHERE workspace_id = ${wsA.id} AND id = ${milestone!.id}`
+		const [after] = await db!.owner<{ workspaceId: string; projectId: string; milestoneId: string | null }[]>`
+			SELECT workspace_id AS "workspaceId", project_id AS "projectId", milestone_id AS "milestoneId"
+			FROM issues WHERE workspace_id = ${wsA.id} AND id = ${linkedIssue.id}
+		`
+		expect(after?.workspaceId).toBe(wsA.id)
+		expect(after?.projectId).toBe(projA.id)
+		expect(after?.milestoneId).toBeNull()
+	}, 30_000)
+
 	test('M7 CHECK constraints reject bad values', async () => {
 		if (skip()) return
 		const { wsA, userA } = await seedTwoTenants(db!.owner)
