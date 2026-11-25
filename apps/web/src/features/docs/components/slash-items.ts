@@ -16,15 +16,19 @@ import {
 import type { ComponentType } from 'react'
 
 /**
- * One insertable block entry shared by the toolbar "Insert block" popover and
- * the in-editor "/" suggestion menu. `apply` runs a normal TipTap chain, so
+ * One insertable block entry shared by the flat editor toolbar and the
+ * in-editor "/" suggestion menu. `apply` runs a normal TipTap chain, so
  * inserts flow through the existing Yjs collaboration binding unchanged.
+ * `isActive` is set only for toggle-type blocks (headings, lists, code block)
+ * so the toolbar can highlight the active block type and expose aria-pressed;
+ * pure inserts (callout, toggle, table, divider) leave it undefined.
  */
 export interface SlashItem {
 	readonly id: string
 	readonly label: string
 	readonly keywords: readonly string[]
 	readonly icon: ComponentType<{ readonly className?: string }>
+	readonly isActive?: (editor: Editor) => boolean
 	readonly apply: (editor: Editor, range?: Range) => void
 }
 
@@ -43,6 +47,7 @@ export function getSlashItems(): SlashItem[] {
 			label: t('docs.slash.h1'),
 			keywords: ['h1', 'heading', 'title'],
 			icon: Heading1,
+			isActive: (editor) => editor.isActive('heading', { level: 1 }),
 			apply: (editor, range) => applyBlock(editor, range, (chain) => chain.toggleHeading({ level: 1 }))
 		},
 		{
@@ -50,6 +55,7 @@ export function getSlashItems(): SlashItem[] {
 			label: t('docs.slash.h2'),
 			keywords: ['h2', 'heading', 'subtitle'],
 			icon: Heading2,
+			isActive: (editor) => editor.isActive('heading', { level: 2 }),
 			apply: (editor, range) => applyBlock(editor, range, (chain) => chain.toggleHeading({ level: 2 }))
 		},
 		{
@@ -57,6 +63,7 @@ export function getSlashItems(): SlashItem[] {
 			label: t('docs.slash.h3'),
 			keywords: ['h3', 'heading', 'subheading'],
 			icon: Heading3,
+			isActive: (editor) => editor.isActive('heading', { level: 3 }),
 			apply: (editor, range) => applyBlock(editor, range, (chain) => chain.toggleHeading({ level: 3 }))
 		},
 		{
@@ -64,6 +71,7 @@ export function getSlashItems(): SlashItem[] {
 			label: t('docs.slash.bullet'),
 			keywords: ['list', 'ul', 'unordered'],
 			icon: List,
+			isActive: (editor) => editor.isActive('bulletList'),
 			apply: (editor, range) => applyBlock(editor, range, (chain) => chain.toggleBulletList())
 		},
 		{
@@ -71,6 +79,7 @@ export function getSlashItems(): SlashItem[] {
 			label: t('docs.slash.ordered'),
 			keywords: ['list', 'ol', 'numbered'],
 			icon: ListOrdered,
+			isActive: (editor) => editor.isActive('orderedList'),
 			apply: (editor, range) => applyBlock(editor, range, (chain) => chain.toggleOrderedList())
 		},
 		{
@@ -78,6 +87,7 @@ export function getSlashItems(): SlashItem[] {
 			label: t('docs.slash.task'),
 			keywords: ['todo', 'checkbox', 'task'],
 			icon: CheckSquare,
+			isActive: (editor) => editor.isActive('taskList'),
 			apply: (editor, range) => applyBlock(editor, range, (chain) => chain.toggleTaskList())
 		},
 		{
@@ -85,6 +95,7 @@ export function getSlashItems(): SlashItem[] {
 			label: t('docs.slash.code'),
 			keywords: ['code', 'snippet', 'pre'],
 			icon: Code2,
+			isActive: (editor) => editor.isActive('codeBlock'),
 			apply: (editor, range) => applyBlock(editor, range, (chain) => chain.toggleCodeBlock())
 		},
 		{

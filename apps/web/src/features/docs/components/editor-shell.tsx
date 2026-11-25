@@ -28,8 +28,8 @@ import { Input } from '@/components/ui/input'
 import type { TaskApiBridge } from '@/lib/sync-bootstrap'
 import { type DocSidePanel, useUiStore } from '@/stores/ui-store'
 import { FloatingToolbar } from './floating-toolbar'
+import { LinkPreviewCard } from './link-preview-card'
 import { createSlashCommandExtension } from './slash-command-menu'
-import { SlashMenu } from './slash-menu'
 
 export interface EditorShellProps {
 	readonly detail: DocPageDetailDto
@@ -309,7 +309,6 @@ export function EditorShell({
 					canComment={true}
 					onAddComment={handleStartComment}
 				/>
-				<SlashMenu editor={editor} canWrite={detail.canWrite} />
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
@@ -317,6 +316,8 @@ export function EditorShell({
 					<EditorContent editor={editor} />
 				</div>
 			</div>
+
+			<LinkPreviewCard editor={editor} />
 		</div>
 	)
 }
