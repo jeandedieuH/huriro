@@ -76,7 +76,10 @@ export async function getTestDb(): Promise<TestDb | null> {
 	if (cached) return cached
 	cached = (async () => {
 		if (process.env['HURIRO_TESTCONTAINERS']) {
-			const container = await new PostgreSqlContainer('postgres:18-alpine')
+			// Migrations require pgvector (halfvec, §11) which stock postgres images don't ship —
+			// default to the pgvector build and allow the local infra image as an override.
+			const image = process.env['HURIRO_TEST_PG_IMAGE'] ?? 'pgvector/pgvector:0.8.7-pg18'
+			const container = await new PostgreSqlContainer(image)
 				.withDatabase('huriro_test')
 				.withUsername('postgres')
 				.withPassword('postgres')

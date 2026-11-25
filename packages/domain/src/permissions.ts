@@ -46,7 +46,10 @@ export const ACTIONS = [
 	'audit.read',
 	'settings.manage',
 	// imports
-	'import.run'
+	'import.run',
+	// workflow automations (§7.2): inspect rules/runs vs create & manage them
+	'automation.read',
+	'automation.manage'
 ] as const
 
 export type Action = (typeof ACTIONS)[number]
@@ -108,7 +111,8 @@ export const SYSTEM_ROLES: readonly SystemRole[] = [
 			'file.read',
 			'file.write',
 			'approval.decide',
-			'ai.use'
+			'ai.use',
+			'automation.read'
 		]
 	},
 	{ key: 'guest', name: 'Guest', rank: ROLE_RANKS.guest, permissions: [] }

@@ -12,6 +12,7 @@ import type {
 	AiSettingsResponse,
 	BillingPortalDto,
 	BillingSummaryResponse,
+	BulkIssuesResponse,
 	ChannelChangesResponse,
 	ChatChannelDto,
 	ChatChannelMemberDto,
@@ -20,6 +21,7 @@ import type {
 	CheckoutSessionDto,
 	CollabTicketResponse,
 	CreateWebhookResponse,
+	CycleDailySnapshotDto,
 	DocCommentDto,
 	DocExportMarkdownResponse,
 	DocPageDetailDto,
@@ -27,12 +29,14 @@ import type {
 	DocVersionDetailDto,
 	DocVersionDto,
 	EmailPipelineStatusDto,
+	EntityLinkDto,
 	EraseAccountResponse,
 	FileDto,
 	GithubInstallationDto,
 	ImportDryRunPreviewDto,
 	ImportJobDto,
 	IssueCommentDto,
+	IssueDto,
 	IssueGithubLinkDto,
 	IssueRelationDto,
 	ListMessagesResponse,
@@ -44,8 +48,10 @@ import type {
 	MailNoteDto,
 	MailTimelineDto,
 	NotificationPreferencesDto,
+	PeekCardDto,
 	SearchResponse,
 	SendTestEmailResponse,
+	TriageSuggestionsDto,
 	WebhookDeliveryDto,
 	WebhookEndpointDto,
 	WebPushSubscriptionDto,
@@ -782,6 +788,78 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 				method: 'POST',
 				body: JSON.stringify(body)
 			})
+		},
+		async listTriageQueue(projectId, state) {
+			const suffix = state ? `?state=${encodeURIComponent(state)}` : ''
+			const res = await apiFetch<{ data: IssueDto[] }>(
+				`/api/v1/projects/${encodeURIComponent(projectId)}/triage${suffix}`
+			)
+			return res.data
+		},
+		async triageIssue(issueId, body) {
+			return apiFetch<IssueDto>(`/api/v1/issues/${encodeURIComponent(issueId)}/triage`, {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async getTriageSuggestions(issueId) {
+			return apiFetch<TriageSuggestionsDto>(
+				`/api/v1/issues/${encodeURIComponent(issueId)}/triage-suggestions`
+			)
+		},
+		async bulkUpdateIssues(body) {
+			return apiFetch<BulkIssuesResponse>('/api/v1/issues/bulk', {
+				method: 'POST',
+				headers: { 'idempotency-key': generateUuidV7() },
+				body: JSON.stringify(body)
+			})
+		},
+		async bulkRestoreIssues(body) {
+			return apiFetch<{ restored: number }>('/api/v1/issues/bulk/restore', {
+				method: 'POST',
+				headers: { 'idempotency-key': generateUuidV7() },
+				body: JSON.stringify(body)
+			})
+		},
+		async queryIssues(body) {
+			return apiFetch<{ data: IssueDto[]; nextCursor: string | null; hasMore: boolean }>(
+				'/api/v1/issues/query',
+				{ method: 'POST', body: JSON.stringify(body) }
+			)
+		},
+		async listCycleSnapshots(cycleId) {
+			const res = await apiFetch<{ data: CycleDailySnapshotDto[] }>(
+				`/api/v1/cycles/${encodeURIComponent(cycleId)}/snapshots`
+			)
+			return res.data
+		},
+		async listEntityLinks(type, id) {
+			const res = await apiFetch<{ data: EntityLinkDto[] }>(
+				`/api/v1/graph/links?type=${encodeURIComponent(type)}&id=${encodeURIComponent(id)}`
+			)
+			return res.data
+		},
+		async createEntityLink(body) {
+			return apiFetch<EntityLinkDto>('/api/v1/graph/links', {
+				method: 'POST',
+				headers: { 'idempotency-key': generateUuidV7() },
+				body: JSON.stringify(body)
+			})
+		},
+		async deleteEntityLink(linkId) {
+			await apiFetch<unknown>(`/api/v1/graph/links/${encodeURIComponent(linkId)}`, { method: 'DELETE' })
+		},
+		async peekEntity(type, id) {
+			try {
+				return await apiFetch<PeekCardDto>(
+					`/api/v1/graph/peek?type=${encodeURIComponent(type)}&id=${encodeURIComponent(id)}`
+				)
+			} catch (err) {
+				// Hidden entities (visibility-scoped) surface as 404 — the peek card
+				// renders a privacy-safe "no access" tile instead of an error.
+				if ((err as { status?: number }).status === 404) return null
+				throw err
+			}
 		}
 	}
 }

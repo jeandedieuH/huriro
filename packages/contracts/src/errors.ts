@@ -20,6 +20,7 @@ export const ERROR_CODES = [
 	'sync_cursor_expired',
 	'idempotency_conflict',
 	'idempotency_in_flight',
+	'bulk_restore_conflict',
 	// tenancy & authz
 	'workspace_required',
 	'not_workspace_member',
@@ -31,6 +32,9 @@ export const ERROR_CODES = [
 	'mfa_required',
 	'setup_required',
 	'setup_completed',
+	// workflow automation (ADR-0028)
+	'automation_invalid_cron',
+	'automation_invalid_yaml',
 	// agents & MCP
 	'agent_scope_exceeded',
 	'agent_not_connected',

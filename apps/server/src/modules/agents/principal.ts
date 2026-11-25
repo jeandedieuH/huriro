@@ -128,3 +128,42 @@ async function ownerDisplayName(tx: Queryable, userId: string): Promise<string> 
 	>`SELECT COALESCE(NULLIF(display_name,''), email::text) AS n FROM users WHERE id = ${userId}`
 	return String(rows[0]?.['n'] ?? 'agent')
 }
+
+/**
+ * Resolve a stored automation principal at execution time. Unlike a bearer-token
+ * agent call there is no token scope set, so the token half of the effective
+ * intersection is exactly the stored ceiling: ceiling ∩ owner role permissions.
+ * Owner membership is re-resolved live — demoting or removing the owner degrades
+ * every automation without touching stored rule rows.
+ */
+export async function resolveAutomationActor(
+	tx: Queryable,
+	workspaceId: string,
+	principalId: string,
+	requestId?: string
+): Promise<ActorContext | undefined> {
+	const principal = await getPrincipalById(tx, workspaceId, principalId)
+	if (principal?.kind !== 'automation' || principal.status !== 'active') return undefined
+
+	const ownerActor = await resolveOwnerActor(tx, workspaceId, principal.ownerUserId, requestId)
+	if (ownerActor.membership !== 'active') return undefined
+
+	const ceilingActions = actionsForScopes(
+		principal.scopeCeiling,
+		principal.scopeCeiling
+	) as ReadonlySet<Action>
+	await touchLastActive(tx, workspaceId, principal.id)
+	return {
+		principalId: principal.id,
+		userId: principal.ownerUserId,
+		agentId: principal.id,
+		workspaceId,
+		kind: 'agent',
+		membership: ownerActor.membership,
+		roleKey: ownerActor.roleKey,
+		roleRank: ownerActor.roleRank,
+		permissions: ownerActor.permissions,
+		agentScopeCeiling: ceilingActions,
+		requestId
+	}
+}

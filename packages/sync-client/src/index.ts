@@ -1,5 +1,12 @@
-export { HuriroSyncCollections, type PersistedReplicaState, REPLICA_SCHEMA_VERSION } from './collections'
 export {
+	HuriroSyncCollections,
+	isTier2Issue,
+	type PersistedReplicaState,
+	REPLICA_SCHEMA_VERSION,
+	TIER2_RETENTION_MS
+} from './collections'
+export {
+	DEFAULT_SCOPE_QUOTA_BYTES,
 	HttpSyncTransport,
 	HuriroSyncEngine,
 	type HuriroSyncEngineOptions,
@@ -23,12 +30,22 @@ export {
 	eq,
 	SyncProvider,
 	type SyncProviderProps,
+	type UseSyncScopeResult,
 	useCollectionItems,
 	useLiveQuery,
 	useSyncConflicts,
 	useSyncEngine,
+	useSyncScope,
 	useSyncStatus
 } from './react'
+export {
+	type PersistedScopeEntry,
+	ScopedSyncManager,
+	type ScopedSyncManagerOptions,
+	type ScopePage,
+	type ScopeRegistryEntry,
+	type ScopeSyncState
+} from './scoped-sync'
 export {
 	createBestReplicaStorage,
 	IndexedDbReplicaStorage,

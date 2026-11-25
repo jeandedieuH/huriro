@@ -31,6 +31,7 @@ import {
 	getChannelChanges,
 	getChannelDetail,
 	getChannelNotificationContext,
+	getChatMessageEndpoint,
 	importChatMessage,
 	incrementChannelMentionCount,
 	listChannels,
@@ -53,10 +54,12 @@ export {
 	canUserAccessChannel,
 	ensureChannelForImport,
 	getChannelNotificationContext,
+	getChatMessageEndpoint,
 	importChatMessage,
 	incrementChannelMentionCount,
 	listThread,
-	processChatLinkPreviewOutboxEvent
+	processChatLinkPreviewOutboxEvent,
+	sendMessage
 }
 
 export function chatModule(sql: Sql, auth: Auth | null, pubsub?: RealtimePubSub) {

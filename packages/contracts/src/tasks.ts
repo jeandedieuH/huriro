@@ -29,8 +29,134 @@ export const RelationKind = Type.Union([
 ])
 export type RelationKind = Static<typeof RelationKind>
 
-export const ViewLayout = Type.Union([Type.Literal('list'), Type.Literal('board')])
+export const ViewLayout = Type.Union([
+	Type.Literal('list'),
+	Type.Literal('board'),
+	Type.Literal('timeline'),
+	Type.Literal('calendar'),
+	Type.Literal('table')
+])
 export type ViewLayout = Static<typeof ViewLayout>
+
+export const TriageStatus = Type.Union([
+	Type.Literal('none'),
+	Type.Literal('pending'),
+	Type.Literal('accepted'),
+	Type.Literal('snoozed'),
+	Type.Literal('declined'),
+	Type.Literal('merged')
+])
+export type TriageStatus = Static<typeof TriageStatus>
+
+export const SourceKind = Type.Union([
+	Type.Literal('manual'),
+	Type.Literal('mail'),
+	Type.Literal('chat'),
+	Type.Literal('form'),
+	Type.Literal('github'),
+	Type.Literal('gitlab'),
+	Type.Literal('api'),
+	Type.Literal('agent')
+])
+export type SourceKind = Static<typeof SourceKind>
+
+export const CycleAutoRolloverMode = Type.Union([
+	Type.Literal('next_cycle'),
+	Type.Literal('backlog'),
+	Type.Literal('none')
+])
+export type CycleAutoRolloverMode = Static<typeof CycleAutoRolloverMode>
+
+/**
+ * Compound filter AST (§3.4) — structural mirror of the domain FilterExpr in
+ * packages/domain/src/filter-ast.ts (the authority; the server re-validates
+ * every incoming expression with validateFilter before use). The field/op
+ * unions are literal copies of the domain registry keys — the compile-time
+ * assignability test in apps/server pins them against the domain types.
+ */
+const FilterOp = Type.Union([
+	Type.Literal('eq'),
+	Type.Literal('neq'),
+	Type.Literal('in'),
+	Type.Literal('nin'),
+	Type.Literal('lt'),
+	Type.Literal('lte'),
+	Type.Literal('gt'),
+	Type.Literal('gte'),
+	Type.Literal('contains'),
+	Type.Literal('is_null'),
+	Type.Literal('is_not_null')
+])
+
+const FilterField = Type.Union([
+	Type.Literal('status_category'),
+	Type.Literal('status_id'),
+	Type.Literal('priority'),
+	Type.Literal('assignee_id'),
+	Type.Literal('assignee_type'),
+	Type.Literal('label_id'),
+	Type.Literal('cycle_id'),
+	Type.Literal('project_id'),
+	Type.Literal('parent_id'),
+	Type.Literal('title'),
+	Type.Literal('estimate'),
+	Type.Literal('due_date'),
+	Type.Literal('start_date'),
+	Type.Literal('created_at'),
+	Type.Literal('updated_at'),
+	Type.Literal('closed_at'),
+	Type.Literal('triage_status'),
+	Type.Literal('source_kind')
+])
+
+const FilterScalar = Type.Union([Type.String(), Type.Number(), Type.Boolean()])
+const FilterRelativeDate = Type.Object({
+	relative: Type.String({ pattern: '^[+-]\\d{1,4}[mhdw]$' })
+})
+const FilterValue = Type.Union([FilterScalar, Type.Array(FilterScalar), FilterRelativeDate, Type.Null()])
+
+const FilterPredicate = Type.Object({
+	kind: Type.Literal('pred'),
+	field: FilterField,
+	op: FilterOp,
+	value: Type.Optional(FilterValue)
+})
+
+// Named defs + Type.Ref: Type.This() resolves to the enclosing object's props
+// in typebox 1.x, so recursive union members must reference the root by name.
+export const FilterExprSchema = Type.Cyclic(
+	{
+		FilterExpr: Type.Union([
+			Type.Ref('FilterAnd'),
+			Type.Ref('FilterOr'),
+			Type.Ref('FilterNot'),
+			FilterPredicate
+		]),
+		FilterAnd: Type.Object({
+			kind: Type.Literal('and'),
+			args: Type.Array(Type.Ref('FilterExpr'))
+		}),
+		FilterOr: Type.Object({
+			kind: Type.Literal('or'),
+			args: Type.Array(Type.Ref('FilterExpr'))
+		}),
+		FilterNot: Type.Object({ kind: Type.Literal('not'), arg: Type.Ref('FilterExpr') })
+	},
+	'FilterExpr'
+)
+
+export type FilterExprSchema = Static<typeof FilterExprSchema>
+
+/** Saved-view display options (§3.4) — all optional; renderer defaults apply. */
+export const ViewDisplayOptions = Type.Object({
+	groupBy: Type.Optional(Type.String({ maxLength: 64 })),
+	subGroupBy: Type.Optional(Type.Union([Type.String({ maxLength: 64 }), Type.Null()])),
+	sortBy: Type.Optional(Type.String({ maxLength: 64 })),
+	sortDirection: Type.Optional(Type.Union([Type.Literal('asc'), Type.Literal('desc')])),
+	visibleProperties: Type.Optional(Type.Array(Type.String({ maxLength: 64 }), { maxItems: 64 })),
+	showSubIssues: Type.Optional(Type.Boolean())
+})
+export type ViewDisplayOptions = Static<typeof ViewDisplayOptions>
 
 export const ProjectDto = Type.Object({
 	id: Type.String({ format: 'uuid' }),
@@ -41,6 +167,12 @@ export const ProjectDto = Type.Object({
 	visibility: ProjectVisibility,
 	position: Type.String(),
 	archivedAt: Type.Union([Type.String(), Type.Null()]),
+	triageEnabled: Type.Boolean(),
+	cycleEnabled: Type.Boolean(),
+	cycleDurationDays: Type.Integer({ minimum: 1, maximum: 90 }),
+	cycleCooldownDays: Type.Integer({ minimum: 0, maximum: 30 }),
+	cycleAutoRolloverMode: CycleAutoRolloverMode,
+	cycleStartWeekday: Type.Integer({ minimum: 0, maximum: 6 }),
 	createdBy: Type.Union([Type.String({ format: 'uuid' }), Type.Null()]),
 	createdAt: Type.String(),
 	updatedAt: Type.String(),
@@ -54,7 +186,13 @@ export const CreateProjectBody = Type.Object({
 	name: Type.String({ minLength: 1, maxLength: 120 }),
 	description: Type.Optional(Type.String({ maxLength: 2000 })),
 	visibility: Type.Optional(ProjectVisibility),
-	position: Type.Optional(Type.String({ minLength: 1, maxLength: 128 }))
+	position: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
+	triageEnabled: Type.Optional(Type.Boolean()),
+	cycleEnabled: Type.Optional(Type.Boolean()),
+	cycleDurationDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 90 })),
+	cycleCooldownDays: Type.Optional(Type.Integer({ minimum: 0, maximum: 30 })),
+	cycleAutoRolloverMode: Type.Optional(CycleAutoRolloverMode),
+	cycleStartWeekday: Type.Optional(Type.Integer({ minimum: 0, maximum: 6 }))
 })
 export type CreateProjectBody = Static<typeof CreateProjectBody>
 
@@ -63,6 +201,12 @@ export const UpdateProjectBody = Type.Object({
 	description: Type.Optional(Type.String({ maxLength: 2000 })),
 	visibility: Type.Optional(ProjectVisibility),
 	archived: Type.Optional(Type.Boolean()),
+	triageEnabled: Type.Optional(Type.Boolean()),
+	cycleEnabled: Type.Optional(Type.Boolean()),
+	cycleDurationDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 90 })),
+	cycleCooldownDays: Type.Optional(Type.Integer({ minimum: 0, maximum: 30 })),
+	cycleAutoRolloverMode: Type.Optional(CycleAutoRolloverMode),
+	cycleStartWeekday: Type.Optional(Type.Integer({ minimum: 0, maximum: 6 })),
 	version: Type.Integer({ minimum: 1 })
 })
 export type UpdateProjectBody = Static<typeof UpdateProjectBody>
@@ -160,6 +304,29 @@ export const UpdateCycleBody = Type.Object({
 })
 export type UpdateCycleBody = Static<typeof UpdateCycleBody>
 
+/**
+ * Nightly burnup snapshot of one active cycle (§3.3) — composite key
+ * (workspaceId, cycleId, snapshotDate), no surrogate id. Estimates serialize
+ * as numbers, matching `IssueDto.estimate` (numeric → float8 on read).
+ * scopeAdded/Removed are the NET total-issue delta vs the prior snapshot —
+ * exact membership tracking arrives with issue_activity in M8.
+ */
+export const CycleDailySnapshotDto = Type.Object({
+	workspaceId: Type.String({ format: 'uuid' }),
+	cycleId: Type.String({ format: 'uuid' }),
+	snapshotDate: Type.String(),
+	totalIssues: Type.Integer(),
+	completedIssues: Type.Integer(),
+	startedIssues: Type.Integer(),
+	cancelledIssues: Type.Integer(),
+	totalEstimate: Type.Number(),
+	completedEstimate: Type.Number(),
+	scopeAddedCount: Type.Integer(),
+	scopeRemovedCount: Type.Integer(),
+	createdAt: Type.String()
+})
+export type CycleDailySnapshotDto = Static<typeof CycleDailySnapshotDto>
+
 export const IssueDto = Type.Object({
 	id: Type.String({ format: 'uuid' }),
 	workspaceId: Type.String({ format: 'uuid' }),
@@ -181,6 +348,10 @@ export const IssueDto = Type.Object({
 	startDate: Type.Union([Type.String(), Type.Null()]),
 	dueDate: Type.Union([Type.String(), Type.Null()]),
 	estimate: Type.Union([Type.Number(), Type.Null()]),
+	triageStatus: TriageStatus,
+	triageSnoozedUntil: Type.Union([Type.String(), Type.Null()]),
+	triageDeclinedReason: Type.Union([Type.String(), Type.Null()]),
+	sourceKind: SourceKind,
 	closedAt: Type.Union([Type.String(), Type.Null()]),
 	labelIds: Type.Array(Type.String({ format: 'uuid' })),
 	createdAt: Type.String(),
@@ -206,7 +377,10 @@ export const CreateIssueBody = Type.Object({
 	startDate: Type.Optional(Type.Union([Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }), Type.Null()])),
 	dueDate: Type.Optional(Type.Union([Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }), Type.Null()])),
 	estimate: Type.Optional(Type.Union([Type.Number({ minimum: 0, maximum: 9999 }), Type.Null()])),
-	labelIds: Type.Optional(Type.Array(Type.String({ format: 'uuid' })))
+	labelIds: Type.Optional(Type.Array(Type.String({ format: 'uuid' }))),
+	sourceKind: Type.Optional(SourceKind),
+	/** Force the issue into the project's triage queue (§3.1). */
+	triage: Type.Optional(Type.Boolean())
 })
 export type CreateIssueBody = Static<typeof CreateIssueBody>
 
@@ -310,6 +484,9 @@ export const SavedViewDto = Type.Object({
 	name: Type.String(),
 	layout: ViewLayout,
 	filters: SavedViewFilters,
+	/** Domain FilterExpr AST — when non-null it wins over `filters` (§3.4). */
+	filterExpr: Type.Union([FilterExprSchema, Type.Null()]),
+	displayOptions: ViewDisplayOptions,
 	sort: Type.Record(Type.String(), Type.Unknown()),
 	isShared: Type.Boolean(),
 	position: Type.String(),
@@ -325,6 +502,8 @@ export const CreateSavedViewBody = Type.Object({
 	name: Type.String({ minLength: 1, maxLength: 100 }),
 	layout: Type.Optional(ViewLayout),
 	filters: Type.Optional(SavedViewFilters),
+	filterExpr: Type.Optional(Type.Union([FilterExprSchema, Type.Null()])),
+	displayOptions: Type.Optional(ViewDisplayOptions),
 	sort: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 	isShared: Type.Optional(Type.Boolean()),
 	position: Type.Optional(Type.String({ minLength: 1, maxLength: 128 }))
@@ -335,6 +514,8 @@ export const UpdateSavedViewBody = Type.Object({
 	name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
 	layout: Type.Optional(ViewLayout),
 	filters: Type.Optional(SavedViewFilters),
+	filterExpr: Type.Optional(Type.Union([FilterExprSchema, Type.Null()])),
+	displayOptions: Type.Optional(ViewDisplayOptions),
 	sort: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 	isShared: Type.Optional(Type.Boolean()),
 	version: Type.Integer({ minimum: 1 })
@@ -350,7 +531,148 @@ export const ListIssuesQuery = Type.Object({
 	priority: Type.Optional(Type.Integer({ minimum: 0, maximum: 4 })),
 	mine: Type.Optional(Type.Boolean()),
 	q: Type.Optional(Type.String()),
+	/** Explicit opt-in: without it, pending/snoozed triage issues are excluded (§3.1). */
+	triageStatus: Type.Optional(TriageStatus),
 	limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200, default: 50 })),
 	cursor: Type.Optional(Type.String())
 })
 export type ListIssuesQuery = Static<typeof ListIssuesQuery>
+
+export const QueryIssuesBody = Type.Object({
+	filter: Type.Optional(FilterExprSchema),
+	sortBy: Type.Optional(
+		Type.Union([
+			Type.Literal('manual'),
+			Type.Literal('priority'),
+			Type.Literal('due_date'),
+			Type.Literal('updated_at'),
+			Type.Literal('created_at'),
+			Type.Literal('estimate')
+		])
+	),
+	sortDirection: Type.Optional(Type.Union([Type.Literal('asc'), Type.Literal('desc')])),
+	limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200, default: 50 })),
+	cursor: Type.Optional(Type.String())
+})
+export type QueryIssuesBody = Static<typeof QueryIssuesBody>
+
+// ---------- Bulk actions (§3.4) ----------
+
+export const BULK_UNDO_WINDOW_MS = 10_000
+
+export const BulkIssuePatch = Type.Object(
+	{
+		statusId: Type.Optional(Type.String({ format: 'uuid' })),
+		priority: Type.Optional(Type.Integer({ minimum: 0, maximum: 4 })),
+		assigneeType: Type.Optional(AssigneeType),
+		assigneeId: Type.Optional(Type.Union([Type.String({ format: 'uuid' }), Type.Null()])),
+		cycleId: Type.Optional(Type.Union([Type.String({ format: 'uuid' }), Type.Null()])),
+		projectId: Type.Optional(Type.String({ format: 'uuid' })),
+		addLabelIds: Type.Optional(Type.Array(Type.String({ format: 'uuid' }), { maxItems: 20 })),
+		removeLabelIds: Type.Optional(Type.Array(Type.String({ format: 'uuid' }), { maxItems: 20 })),
+		delete: Type.Optional(Type.Literal(true))
+	},
+	{ minProperties: 1 }
+)
+export type BulkIssuePatch = Static<typeof BulkIssuePatch>
+
+export const BulkIssuesBody = Type.Object({
+	issueIds: Type.Array(Type.String({ format: 'uuid' }), {
+		minItems: 1,
+		maxItems: 200,
+		uniqueItems: true
+	}),
+	patch: BulkIssuePatch
+})
+export type BulkIssuesBody = Static<typeof BulkIssuesBody>
+
+/** Pre-write snapshot per issue; `version` is the version AFTER the bulk write. */
+export const BulkBeforeFields = Type.Object({
+	statusId: Type.String({ format: 'uuid' }),
+	priority: Type.Integer(),
+	assigneeType: Type.Union([AssigneeType, Type.Null()]),
+	assigneeId: Type.Union([Type.String({ format: 'uuid' }), Type.Null()]),
+	cycleId: Type.Union([Type.String({ format: 'uuid' }), Type.Null()]),
+	labelIds: Type.Array(Type.String({ format: 'uuid' })),
+	deleted: Type.Boolean()
+})
+export type BulkBeforeFields = Static<typeof BulkBeforeFields>
+
+export const BulkBeforeDto = Type.Object({
+	issueId: Type.String({ format: 'uuid' }),
+	version: Type.Integer(),
+	fields: BulkBeforeFields
+})
+export type BulkBeforeDto = Static<typeof BulkBeforeDto>
+
+export const BulkIssuesResponse = Type.Object({
+	data: Type.Array(IssueDto),
+	before: Type.Array(BulkBeforeDto),
+	cursor: Type.Integer(),
+	undoWindowMs: Type.Integer()
+})
+export type BulkIssuesResponse = Static<typeof BulkIssuesResponse>
+
+export const BulkRestoreBody = Type.Object({
+	items: Type.Array(
+		Type.Object({
+			issueId: Type.String({ format: 'uuid' }),
+			expectedVersion: Type.Integer({ minimum: 1 }),
+			fields: BulkBeforeFields
+		}),
+		{ minItems: 1, maxItems: 200 }
+	)
+})
+export type BulkRestoreBody = Static<typeof BulkRestoreBody>
+
+// ---------- Triage (§3.1) ----------
+
+export const TriageActionBody = Type.Union([
+	Type.Object({
+		action: Type.Literal('accept'),
+		statusId: Type.Optional(Type.String({ format: 'uuid' })),
+		assigneeId: Type.Optional(Type.Union([Type.String({ format: 'uuid' }), Type.Null()])),
+		priority: Type.Optional(Type.Integer({ minimum: 0, maximum: 4 })),
+		labelIds: Type.Optional(Type.Array(Type.String({ format: 'uuid' }), { maxItems: 20 })),
+		version: Type.Integer({ minimum: 1 })
+	}),
+	Type.Object({
+		action: Type.Literal('snooze'),
+		until: Type.String({ format: 'date-time' }),
+		version: Type.Integer({ minimum: 1 })
+	}),
+	Type.Object({
+		action: Type.Literal('decline'),
+		reason: Type.String({ minLength: 1, maxLength: 500 }),
+		version: Type.Integer({ minimum: 1 })
+	}),
+	Type.Object({
+		action: Type.Literal('merge'),
+		duplicateOfIssueId: Type.String({ format: 'uuid' }),
+		version: Type.Integer({ minimum: 1 })
+	})
+])
+export type TriageActionBody = Static<typeof TriageActionBody>
+
+export const TriageSuggestionsDto = Type.Object({
+	duplicates: Type.Array(
+		Type.Object({
+			issueId: Type.String({ format: 'uuid' }),
+			identifier: Type.String(),
+			title: Type.String(),
+			statusCategory: StatusCategory,
+			score: Type.Number()
+		})
+	),
+	suggestedPriority: Type.Union([Type.Integer(), Type.Null()]),
+	suggestedLabelIds: Type.Array(Type.String({ format: 'uuid' })),
+	suggestedAssigneeId: Type.Union([Type.String({ format: 'uuid' }), Type.Null()])
+})
+export type TriageSuggestionsDto = Static<typeof TriageSuggestionsDto>
+
+export const TriageQueueQuery = Type.Object({
+	state: Type.Optional(
+		Type.Union([Type.Literal('pending'), Type.Literal('snoozed'), Type.Literal('resolved')])
+	)
+})
+export type TriageQueueQuery = Static<typeof TriageQueueQuery>

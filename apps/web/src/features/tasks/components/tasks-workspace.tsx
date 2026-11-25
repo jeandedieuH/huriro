@@ -1,15 +1,20 @@
+import { evaluateFilter, type FilterExpr } from '@huriro/domain'
 import { t } from '@huriro/i18n'
-import { useCollectionItems, useSyncEngine, useSyncStatus } from '@huriro/sync-client'
+import { isTier2Issue, useCollectionItems, useSyncEngine, useSyncStatus } from '@huriro/sync-client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useKeyboardShortcuts } from '@/features/keyboard/use-keyboard-shortcuts'
 import type { TaskApiBridge, WorkspaceMemberSummary } from '@/lib/sync-bootstrap'
 import { type TasksPreset, useUiStore } from '@/stores/ui-store'
+import { BulkActionBar } from './bulk-action-bar'
+import { ClosedHistorySection } from './closed-history-section'
 import { CreateProjectDialog } from './create-project-dialog'
 import { CreateTaskDialog } from './create-task-dialog'
+import { CycleStrip } from './cycle-strip'
 import { FilterBar } from './filter-bar'
 import { IssueBoardView } from './task-board-view'
 import { IssueDetailPanel } from './task-detail-panel'
 import { IssueListView } from './task-list-view'
+import { TriageInbox } from './triage-inbox'
 
 export interface TasksWorkspaceProps {
 	readonly api: TaskApiBridge
@@ -29,6 +34,7 @@ const PRESET_LABELS: Record<
 	| 'tasks.sidebar.overdue'
 	| 'tasks.sidebar.due-soon'
 	| 'tasks.sidebar.trash'
+	| 'tasks.triage.title'
 > = {
 	all: 'tasks.all-issues',
 	'my-tasks': 'tasks.sidebar.my-tasks',
@@ -36,7 +42,8 @@ const PRESET_LABELS: Record<
 	'my-week': 'tasks.sidebar.my-week',
 	overdue: 'tasks.sidebar.overdue',
 	'due-soon': 'tasks.sidebar.due-soon',
-	trash: 'tasks.sidebar.trash'
+	trash: 'tasks.sidebar.trash',
+	triage: 'tasks.triage.title'
 }
 
 export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
@@ -48,11 +55,14 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 	const labels = useCollectionItems(engine.collections.labels)
 	const issues = useCollectionItems(engine.collections.issues)
 	const savedViews = useCollectionItems(engine.collections.savedViews)
+	const cycles = useCollectionItems(engine.collections.cycles)
 
 	const activeProjectId = useUiStore((s) => s.activeProjectId)
 	const tasksPreset = useUiStore((s) => s.tasksPreset)
 	const tasksLayout = useUiStore((s) => s.tasksLayout)
 	const filters = useUiStore((s) => s.filters)
+	const filterExpr = useUiStore((s) => s.filterExpr)
+	const tasksDisplay = useUiStore((s) => s.tasksDisplay)
 	const setActiveProjectId = useUiStore((s) => s.setActiveProjectId)
 	const selectedIssueId = useUiStore((s) => s.selectedIssueId)
 	const detailPanelOpen = useUiStore((s) => s.detailPanelOpen)
@@ -101,13 +111,31 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 		const weekEndMs = nowMs + 7 * 86_400_000
 		const soonEndMs = startOfTodayMs + 3 * 86_400_000
 
+		const statusCategoryOf = (statusId: string) => statusesById.get(statusId)?.category
+		const exprCtx = { now: new Date(), statusCategoryOf }
+
 		return issues
 			.filter((issue) => {
+				if (filterExpr) {
+					// M7 compound filter — the AST is the wire format AND the local
+					// query language; labelIds come from the replica row shape.
+					try {
+						if (!evaluateFilter(filterExpr as FilterExpr, issue as never, exprCtx)) return false
+					} catch {
+						// A malformed expr must never blank the list — fail open.
+					}
+				}
 				if (tasksPreset === 'trash') {
 					if (issue.deletedAt === null) return false
 				} else if (issue.deletedAt !== null) {
 					return false
 				}
+
+				// Tier-2 history rows (closed/deleted > 30d, §8.1) never belong in the
+				// working list: they only reach the replica through the lazy
+				// `issue_hist` scope and render in the closed-history section instead.
+				// Trash keeps them — age does not undelete a row.
+				if (tasksPreset !== 'trash' && isTier2Issue(issue, nowMs)) return false
 
 				if (tasksPreset === 'my-tasks' && issue.assigneeId !== currentUserId) return false
 				if (tasksPreset === 'this-week' || tasksPreset === 'my-week') {
@@ -128,6 +156,7 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 				}
 
 				if (activeProjectId && issue.projectId !== activeProjectId) return false
+				if (filterExpr) return true
 				if (filters.statusId !== 'all' && issue.statusId !== filters.statusId) return false
 				if (filters.priority !== 'all' && issue.priority !== filters.priority) return false
 				if (filters.assigneeId === 'me' && issue.assigneeId !== currentUserId) return false
@@ -150,10 +179,11 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 				return true
 			})
 			.sort((a, b) => comparePos(a.position, b.position))
-	}, [activeProjectId, currentUserId, filters, issues, tasksPreset])
+	}, [activeProjectId, currentUserId, filterExpr, filters, issues, statusesById, tasksPreset])
 
 	const pendingEntityIds = engine.getPendingMutationIds()
 	const hasActiveFilters =
+		filterExpr !== null ||
 		filters.query.length > 0 ||
 		filters.statusId !== 'all' ||
 		filters.priority !== 'all' ||
@@ -235,6 +265,28 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 		return projects.find((p) => p.id === activeProjectId)?.name ?? t('tasks.sidebar.all-projects')
 	}, [activeProjectId, projects])
 
+	const triageProjectId = useMemo(() => {
+		if (activeProjectId) {
+			const proj = projects.find((p) => p.id === activeProjectId)
+			if (proj?.triageEnabled) return proj.id
+		}
+		return projects.find((p) => p.triageEnabled)?.id ?? null
+	}, [activeProjectId, projects])
+
+	// Active cycle for the header strip (§3.3): only when a cycle-enabled
+	// project is selected — cross-project presets have no single cycle to show.
+	const activeCycle = useMemo(() => {
+		if (!activeProjectId || tasksPreset === 'triage') return null
+		const proj = projects.find((p) => p.id === activeProjectId)
+		if (!proj?.cycleEnabled) return null
+		return cycles.find((c) => c.projectId === activeProjectId && c.status === 'active') ?? null
+	}, [activeProjectId, cycles, projects, tasksPreset])
+
+	const cycleIssues = useMemo(
+		() => (activeCycle ? issues.filter((i) => i.cycleId === activeCycle.id && i.deletedAt === null) : []),
+		[activeCycle, issues]
+	)
+
 	const viewLabel = useMemo(() => {
 		if (filters.activeViewId) {
 			const activeView = savedViews.find((v) => v.id === filters.activeViewId)
@@ -261,6 +313,9 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 					projectLabel={projectLabel}
 					viewLabel={viewLabel}
 					onSaveView={async (name) => {
+						// Saved views v2 (§3.4): persist the compound filter AST and the
+						// display options alongside the legacy flat filters — a non-null
+						// filterExpr wins over `filters` when the view loads again.
 						await engine.createSavedView({
 							name,
 							projectId: activeProjectId,
@@ -271,33 +326,62 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 								...(filters.assigneeId === 'me' ? { mine: true } : {}),
 								...(filters.query.trim().length > 0 ? { search: filters.query.trim() } : {})
 							},
+							// The ui-store expr is `unknown` by design (user-authored JSON);
+							// the builder produces exactly the wire AST shape.
+							filterExpr: filterExpr === null ? null : (filterExpr as never),
+							displayOptions: {
+								groupBy: tasksDisplay.groupBy,
+								subGroupBy: tasksDisplay.subGroupBy === 'none' ? null : tasksDisplay.subGroupBy,
+								sortBy: tasksDisplay.sortBy,
+								sortDirection: tasksDisplay.sortDirection,
+								showSubIssues: tasksDisplay.showSubIssues
+							},
 							isShared: false
 						})
 					}}
 				/>
 
+				{activeCycle ? <CycleStrip cycle={activeCycle} cycleIssues={cycleIssues} /> : null}
+
 				<div className="min-h-0 flex-1 overflow-y-auto">
-					{tasksLayout === 'list' ? (
-						<IssueListView
-							issues={filteredIssues}
-							statusesById={statusesById}
-							membersById={membersById}
-							pendingEntityIds={pendingEntityIds}
-							hasActiveFilters={hasActiveFilters}
-						/>
+					{tasksPreset === 'triage' && triageProjectId ? (
+						<TriageInbox key={triageProjectId} projectId={triageProjectId} />
 					) : null}
 
-					{tasksLayout === 'board' ? (
+					{tasksPreset !== 'triage' && tasksLayout === 'list' ? (
+						<>
+							<IssueListView
+								issues={filteredIssues}
+								statusesById={statusesById}
+								membersById={membersById}
+								pendingEntityIds={pendingEntityIds}
+								hasActiveFilters={hasActiveFilters}
+							/>
+							{activeProjectId && tasksPreset !== 'trash' ? (
+								<ClosedHistorySection
+									projectId={activeProjectId}
+									issues={issues}
+									statusesById={statusesById}
+									membersById={membersById}
+									pendingEntityIds={pendingEntityIds}
+								/>
+							) : null}
+						</>
+					) : null}
+
+					{tasksPreset !== 'triage' && tasksLayout === 'board' ? (
 						<IssueBoardView
 							statuses={visibleStatuses}
 							issues={filteredIssues}
+							members={members}
 							pendingEntityIds={pendingEntityIds}
 							announcement={boardAnnouncement}
 							onMoveIssue={handleMoveIssue}
+							onPatchIssue={async (id, patch) => engine.updateIssue(id, patch)}
 						/>
 					) : null}
 
-					{tasksLayout === 'my-work' ? (
+					{tasksPreset !== 'triage' && tasksLayout === 'my-work' ? (
 						<div className="space-y-6 p-4">
 							<section aria-label={t('tasks.my-work.assigned')} className="space-y-2">
 								<h2 className="text-sm font-semibold">
@@ -364,6 +448,8 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 					}}
 				/>
 			) : null}
+
+			<BulkActionBar statuses={statuses} labels={labels} cycles={cycles} />
 
 			<CreateTaskDialog
 				projects={projects}

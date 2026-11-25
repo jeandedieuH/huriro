@@ -73,6 +73,15 @@ export function withSystem<T>(sql: Sql, fn: (tx: Queryable) => Promise<T>): Prom
 	})
 }
 
+/**
+ * Set the transaction-local automation depth consumed by the outbox trigger
+ * from migration 0024. This helper is the sanctioned exception to the "no raw
+ * set_config outside context.ts" rule; callers must pass an already-open tx.
+ */
+export async function setAutomationDepth(tx: Queryable, depth: number): Promise<void> {
+	await tx`SELECT set_config('app.automation_depth', ${String(Math.max(0, Math.floor(depth)))}, true)`
+}
+
 /** Read the tenant context of the current transaction (diagnostics/tests). */
 export async function currentContext(
 	tx: Queryable

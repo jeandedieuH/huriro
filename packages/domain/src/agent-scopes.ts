@@ -20,7 +20,9 @@ export const AGENT_SCOPES = [
 	'docs.read',
 	'docs.write',
 	'chat.read',
+	'chat.write',
 	'mail.read',
+	'mail.write',
 	'mail.draft',
 	'search.read',
 	'members.read'
@@ -45,7 +47,9 @@ export const SCOPE_ACTIONS: Record<AgentScope, readonly Action[]> = {
 	'docs.read': ['doc.read'],
 	'docs.write': ['doc.read', 'doc.comment', 'doc.write'],
 	'chat.read': ['channel.read'],
+	'chat.write': ['channel.read', 'channel.post'],
 	'mail.read': ['mail.read'],
+	'mail.write': ['mail.read', 'mail.assign'],
 	'mail.draft': [],
 	'search.read': [],
 	'members.read': ['member.read']

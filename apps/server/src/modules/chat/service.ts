@@ -1084,7 +1084,38 @@ export async function listSubscribedThreads(
 	return out
 }
 
-// ---------- Cross-Module Helpers (Realtime, Notifications, Imports) ----------
+// ---------- Cross-Module Helpers (Realtime, Notifications, Imports, Graph) ----------
+
+export interface ChatMessageEndpoint {
+	readonly id: string
+	readonly channelId: string
+	readonly channelName: string
+	readonly bodyText: string
+	readonly excerpt: string
+	readonly updatedAt: string
+}
+
+/** One message after normal channel-membership authorization — the graph's peek/visibility seam. */
+export async function getChatMessageEndpoint(
+	tx: Queryable,
+	actor: ActorContext,
+	messageId: string
+): Promise<ChatMessageEndpoint> {
+	const message = await getRawMessageById(tx, actor.workspaceId, messageId)
+	if (!message || message.deletedAt !== null) {
+		throw new HttpError(404, 'not_found', 'Message not found')
+	}
+	const channel = await loadAndAuthorizeChannel(tx, actor, message.channelId, 'channel.read')
+	const excerpt = message.bodyText.slice(0, 140)
+	return {
+		id: message.id,
+		channelId: channel.id,
+		channelName: channel.name ?? 'Direct message',
+		bodyText: message.bodyText,
+		excerpt,
+		updatedAt: message.updatedAt
+	}
+}
 
 export async function canUserAccessChannel(
 	tx: Queryable,

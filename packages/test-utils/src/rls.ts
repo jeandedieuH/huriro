@@ -39,6 +39,7 @@ export const TENANT_TABLES = [
 	'issue_relations',
 	'issue_comments',
 	'saved_views',
+	'cycle_daily_snapshots',
 	'search_documents',
 	'notifications',
 	'import_jobs',
@@ -80,7 +81,11 @@ export const TENANT_TABLES = [
 	'mobile_push_tokens',
 	'billing_subscriptions',
 	'billing_usage_snapshots',
-	'workspace_exports'
+	'workspace_exports',
+	'entity_links',
+	'automation_rules',
+	'automation_runs',
+	'automation_run_steps'
 ] as const
 
 /**

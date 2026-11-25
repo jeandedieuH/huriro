@@ -14,6 +14,11 @@ import { log, outboxDeadLetters, outboxDeadLettersTotal, outboxLag } from '../ap
 import type { EmailPipeline } from '../email'
 import { sweepExpiredApprovals } from '../modules/agents'
 import { processEmbeddingOutboxEvent } from '../modules/ai'
+import {
+	executeDueAutomationRuns,
+	processAutomationOutboxEvent,
+	runAutomationCronOnce
+} from '../modules/automations'
 import { captureDailyBillingUsageOnce } from '../modules/billing'
 import { processChatLinkPreviewOutboxEvent } from '../modules/chat'
 import { runDocMaintenanceOnce } from '../modules/docs'
@@ -41,6 +46,7 @@ import {
 	type VapidConfig
 } from '../modules/notifications'
 import { processSearchOutboxEvent } from '../modules/search'
+import { runCycleMaintenanceOnce, runTriageWakeOnce } from '../modules/tasks'
 import { enqueueWebhookDeliveriesForOutboxEvent, processDueWebhookDeliveriesOnce } from '../modules/webhooks'
 import type { RealtimePubSub } from '../realtime/pubsub'
 import { processEmailLifecycleOutboxEvent } from './email-lifecycle'
@@ -107,6 +113,7 @@ interface PendingOutboxRow {
 	readonly eventType: string
 	readonly payload: Record<string, unknown>
 	readonly attempts: number
+	readonly changedAt: string
 }
 
 /**
@@ -125,7 +132,8 @@ export async function drainOutboxOnce(
 	const rows = await app.begin(async (tx) => {
 		const picked = opts?.onlyWorkspaceId
 			? await tx<PendingOutboxRow[]>`
-				SELECT id, workspace_id AS "workspaceId", event_type AS "eventType", payload, attempts
+				SELECT id, workspace_id AS "workspaceId", event_type AS "eventType", payload, attempts,
+					created_at::text AS "changedAt"
 				FROM outbox
 				WHERE published_at IS NULL
 					AND dead_lettered_at IS NULL
@@ -136,7 +144,8 @@ export async function drainOutboxOnce(
 				FOR UPDATE SKIP LOCKED
 			`
 			: await tx<PendingOutboxRow[]>`
-				SELECT id, workspace_id AS "workspaceId", event_type AS "eventType", payload, attempts
+				SELECT id, workspace_id AS "workspaceId", event_type AS "eventType", payload, attempts,
+					created_at::text AS "changedAt"
 				FROM outbox
 				WHERE published_at IS NULL
 					AND dead_lettered_at IS NULL
@@ -188,6 +197,7 @@ export async function drainOutboxOnce(
 					actorId ? { workspaceId: row.workspaceId, userId: actorId } : { workspaceId: row.workspaceId },
 					async (tx) => {
 						await processSearchOutboxEvent(tx, row)
+						const automationRunRefs = await processAutomationOutboxEvent(tx, row)
 						const notifRes = await processNotificationOutboxEvent(tx, row)
 						await enqueueWebhookDeliveriesForOutboxEvent(tx, row)
 						if (opts?.blobStorage) {
@@ -202,7 +212,7 @@ export async function drainOutboxOnce(
 						ON CONFLICT (consumer, event_id) DO NOTHING
 					`
 						await tx`UPDATE outbox SET published_at = now() WHERE id = ${row.id}`
-						return notifRes
+						return { ...notifRes, automationRunRefs }
 					}
 				)
 				if (txResult.cursor !== null) {
@@ -211,6 +221,13 @@ export async function drainOutboxOnce(
 						row.workspaceId,
 						prev === undefined ? txResult.cursor : Math.max(prev, txResult.cursor)
 					)
+				}
+
+				if (txResult.automationRunRefs.length > 0) {
+					await executeDueAutomationRuns(app, {
+						runIds: txResult.automationRunRefs,
+						batchSize: txResult.automationRunRefs.length
+					}).catch((err) => log.warn({ err, outboxId: row.id }, 'automation executor failed'))
 				}
 
 				if (txResult.pendingWebPush.length > 0 && opts?.vapid) {
@@ -379,6 +396,20 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 		await updateLagMetric(deps.app)
 	})
 
+	// Spillover/crash recovery for automation runs left status='running'; normal
+	// execution happens immediately after each outbox row commits.
+	await boss.createQueue('automation-runs')
+	await boss.schedule('automation-runs', '*/30 * * * * *', {}, { tz: 'UTC' })
+	await boss.work('automation-runs', async () => {
+		await executeDueAutomationRuns(deps.app)
+	})
+
+	await boss.createQueue('automation-cron')
+	await boss.schedule('automation-cron', '0 * * * * *', {}, { tz: 'UTC' })
+	await boss.work('automation-cron', async () => {
+		await runAutomationCronOnce(deps.app)
+	})
+
 	await boss.createQueue('doc-versions-thin')
 	await boss.schedule('doc-versions-thin', '0 * * * *', {}, { tz: 'UTC' })
 	await boss.work('doc-versions-thin', async () => {
@@ -405,6 +436,25 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 			rootSecret,
 			pubsub: deps.pubsub
 		})
+	})
+
+	// Snoozed triage issues past triage_snoozed_until flip back to pending (§3.1).
+	await boss.createQueue('tasks-triage-wake')
+	await boss.schedule('tasks-triage-wake', '* * * * *', {}, { tz: 'UTC' })
+	await boss.work('tasks-triage-wake', async () => {
+		const res = await runTriageWakeOnce(deps.app)
+		if (res.woken > 0) log.info({ woken: res.woken }, 'triage snooze wake')
+	})
+
+	// Nightly cycle engine (§3.3): activate due cycles, complete expired ones
+	// with rollover, pre-create upcoming windows, snapshot active-cycle burnup.
+	await boss.createQueue('tasks-cycle-maintenance')
+	await boss.schedule('tasks-cycle-maintenance', '0 2 * * *', {}, { tz: 'UTC' })
+	await boss.work('tasks-cycle-maintenance', async () => {
+		const res = await runCycleMaintenanceOnce(deps.app)
+		if (res.activated + res.completed + res.created + res.snapshotted > 0) {
+			log.info(res, 'cycle maintenance completed')
+		}
 	})
 
 	// Pending agent approvals past expires_at flip to 'expired' (§13.5).

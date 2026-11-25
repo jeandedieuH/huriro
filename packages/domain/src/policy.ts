@@ -94,7 +94,10 @@ const WORKSPACE_ACTIONS = new Set<Action>([
 	'approval.decide',
 	'audit.read',
 	'settings.manage',
-	'import.run'
+	'import.run',
+	// Automation rules act on workspace state; resource ACLs must never grant them.
+	'automation.read',
+	'automation.manage'
 ])
 
 /** resource_type → the workspace-level permission that manages it (admin bypass key). */

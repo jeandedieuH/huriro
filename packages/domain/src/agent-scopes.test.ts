@@ -73,6 +73,14 @@ describe('actionsForScopes', () => {
 		expect(actionsForScopes(['openid'], ['openid'])).toEqual(new Set())
 	})
 
+	test('automation write scopes unlock only their pillar write actions', () => {
+		expect(actionsForScopes(['chat.write'], ['chat.write'])).toEqual(
+			new Set(['channel.read', 'channel.post'])
+		)
+		expect(actionsForScopes(['mail.write'], ['mail.write'])).toEqual(new Set(['mail.read', 'mail.assign']))
+		expect(actionsForScopes(['mail.write'], ['mail.read'])).toEqual(new Set())
+	})
+
 	test('marker scopes map to no actions', () => {
 		expect(actionsForScopes(['mail.draft', 'search.read'], ['mail.draft', 'search.read'])).toEqual(new Set())
 	})

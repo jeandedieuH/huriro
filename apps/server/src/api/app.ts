@@ -12,11 +12,13 @@ import type { EmailPipeline } from '../email'
 import { agentsModule } from '../modules/agents'
 import { mcpEndpoint } from '../modules/agents/mcp'
 import { aiModule } from '../modules/ai'
+import { automationsModule } from '../modules/automations'
 import { type BillingModuleConfig, billingModule, billingWebhookPublicModule } from '../modules/billing'
 import { chatModule } from '../modules/chat'
 import { type CollabDirectBridge, docsModule } from '../modules/docs'
 import { type BlobStorage, filesModule, MemoryBlobStorage } from '../modules/files'
 import { governanceModule } from '../modules/governance'
+import { graphModule } from '../modules/graph'
 import { type Auth, identityModule } from '../modules/identity'
 import { importsModule } from '../modules/imports'
 import { type GithubApiClient, githubWebhookPublicModule, integrationsModule } from '../modules/integrations'
@@ -197,6 +199,10 @@ export function createApp(deps: AppDeps) {
 						{ name: 'tenancy', description: 'Workspaces, membership, bootstrap, ACLs' },
 						{ name: 'tasks', description: 'Projects, statuses, labels, cycles, issues, views' },
 						{
+							name: 'automations',
+							description: 'Workflow automation rules, runs, simulation, YAML portability'
+						},
+						{
 							name: 'docs',
 							description: 'Collaborative doc tree, CRDT tickets, versions, anchored comments'
 						},
@@ -214,7 +220,11 @@ export function createApp(deps: AppDeps) {
 						{ name: 'ai', description: 'AI gateway — provider config, summaries, semantic search (§11)' },
 						{ name: 'mail', description: 'Shared inbox — accounts, conversations, drafts (§14)' },
 						{ name: 'governance', description: 'GDPR workspace exports and self-service erasure (§22.2)' },
-						{ name: 'billing', description: 'Cloud workspace subscriptions and metering (§2.5, §23 M6)' }
+						{ name: 'billing', description: 'Cloud workspace subscriptions and metering (§2.5, §23 M6)' },
+						{
+							name: 'graph',
+							description: 'Unified cross-entity links, traversal, and hover peek cards (§7.1)'
+						}
 					]
 				}
 			})
@@ -291,7 +301,9 @@ export function createApp(deps: AppDeps) {
 				.use(identityModule(auth))
 				.use(tenancyModule(sql, mode, auth, pubsub, { email: deps.email }))
 				.use(tasksModule(sql, auth, pubsub))
+				.use(automationsModule(sql, auth))
 				.use(docsModule(sql, auth, pubsub, collabBridge, collabTicketSecret))
+				.use(graphModule(sql, auth, pubsub))
 				.use(syncModule(sql, auth, pubsub))
 				.use(searchModule(sql, auth))
 				.use(filesModule(sql, auth, blobStorage, scanOpts))

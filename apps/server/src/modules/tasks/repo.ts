@@ -3,6 +3,7 @@
  * composite workspace scopes, and SQL-enforced visibility/ACL predicates.
  */
 import type {
+	CycleDailySnapshotDto,
 	CycleDto,
 	IssueCommentDto,
 	IssueDto,
@@ -22,7 +23,11 @@ const PROJECT_COLS = `
 	description,
 	visibility,
 	position,
-	archived_at::text AS "archivedAt",
+	archived_at::text AS "archivedAt", triage_enabled AS "triageEnabled",
+			cycle_enabled AS "cycleEnabled", cycle_duration_days AS "cycleDurationDays",
+			cycle_cooldown_days AS "cycleCooldownDays",
+			cycle_auto_rollover_mode AS "cycleAutoRolloverMode",
+			cycle_start_weekday AS "cycleStartWeekday",
 	created_by AS "createdBy",
 	created_at::text AS "createdAt",
 	updated_at::text AS "updatedAt",
@@ -42,7 +47,11 @@ export async function listVisibleProjects(
 		return tx<ProjectDto[]>`
 			SELECT
 				id, workspace_id AS "workspaceId", key, name, description, visibility, position,
-				archived_at::text AS "archivedAt", created_by AS "createdBy",
+				archived_at::text AS "archivedAt", triage_enabled AS "triageEnabled",
+			cycle_enabled AS "cycleEnabled", cycle_duration_days AS "cycleDurationDays",
+			cycle_cooldown_days AS "cycleCooldownDays",
+			cycle_auto_rollover_mode AS "cycleAutoRolloverMode",
+			cycle_start_weekday AS "cycleStartWeekday", created_by AS "createdBy",
 				created_at::text AS "createdAt", updated_at::text AS "updatedAt", version
 			FROM projects
 			WHERE workspace_id = ${args.workspaceId} AND archived_at IS NULL
@@ -53,7 +62,11 @@ export async function listVisibleProjects(
 		return tx<ProjectDto[]>`
 			SELECT
 				id, workspace_id AS "workspaceId", key, name, description, visibility, position,
-				archived_at::text AS "archivedAt", created_by AS "createdBy",
+				archived_at::text AS "archivedAt", triage_enabled AS "triageEnabled",
+			cycle_enabled AS "cycleEnabled", cycle_duration_days AS "cycleDurationDays",
+			cycle_cooldown_days AS "cycleCooldownDays",
+			cycle_auto_rollover_mode AS "cycleAutoRolloverMode",
+			cycle_start_weekday AS "cycleStartWeekday", created_by AS "createdBy",
 				created_at::text AS "createdAt", updated_at::text AS "updatedAt", version
 			FROM projects
 			WHERE workspace_id = ${args.workspaceId}
@@ -65,7 +78,11 @@ export async function listVisibleProjects(
 	return tx<ProjectDto[]>`
 		SELECT
 			id, workspace_id AS "workspaceId", key, name, description, visibility, position,
-			archived_at::text AS "archivedAt", created_by AS "createdBy",
+			archived_at::text AS "archivedAt", triage_enabled AS "triageEnabled",
+			cycle_enabled AS "cycleEnabled", cycle_duration_days AS "cycleDurationDays",
+			cycle_cooldown_days AS "cycleCooldownDays",
+			cycle_auto_rollover_mode AS "cycleAutoRolloverMode",
+			cycle_start_weekday AS "cycleStartWeekday", created_by AS "createdBy",
 			created_at::text AS "createdAt", updated_at::text AS "updatedAt", version
 		FROM projects
 		WHERE workspace_id = ${args.workspaceId}
@@ -83,7 +100,11 @@ export async function getProjectById(
 	const [row] = await tx<ProjectDto[]>`
 		SELECT
 			id, workspace_id AS "workspaceId", key, name, description, visibility, position,
-			archived_at::text AS "archivedAt", created_by AS "createdBy",
+			archived_at::text AS "archivedAt", triage_enabled AS "triageEnabled",
+			cycle_enabled AS "cycleEnabled", cycle_duration_days AS "cycleDurationDays",
+			cycle_cooldown_days AS "cycleCooldownDays",
+			cycle_auto_rollover_mode AS "cycleAutoRolloverMode",
+			cycle_start_weekday AS "cycleStartWeekday", created_by AS "createdBy",
 			created_at::text AS "createdAt", updated_at::text AS "updatedAt", version
 		FROM projects
 		WHERE workspace_id = ${workspaceId} AND id = ${projectId}
@@ -99,7 +120,11 @@ export async function getProjectByKey(
 	const [row] = await tx<ProjectDto[]>`
 		SELECT
 			id, workspace_id AS "workspaceId", key, name, description, visibility, position,
-			archived_at::text AS "archivedAt", created_by AS "createdBy",
+			archived_at::text AS "archivedAt", triage_enabled AS "triageEnabled",
+			cycle_enabled AS "cycleEnabled", cycle_duration_days AS "cycleDurationDays",
+			cycle_cooldown_days AS "cycleCooldownDays",
+			cycle_auto_rollover_mode AS "cycleAutoRolloverMode",
+			cycle_start_weekday AS "cycleStartWeekday", created_by AS "createdBy",
 			created_at::text AS "createdAt", updated_at::text AS "updatedAt", version
 		FROM projects
 		WHERE workspace_id = ${workspaceId} AND key = ${key}
@@ -128,23 +153,45 @@ export async function insertProject(
 		readonly visibility: 'workspace' | 'private'
 		readonly position: string
 		readonly createdBy: string
+		readonly triageEnabled?: boolean | undefined
+		readonly cycleEnabled?: boolean | undefined
+		readonly cycleDurationDays?: number | undefined
+		readonly cycleCooldownDays?: number | undefined
+		readonly cycleAutoRolloverMode?: string | undefined
+		readonly cycleStartWeekday?: number | undefined
 	}
 ): Promise<ProjectDto> {
 	const rows = args.id
 		? await tx<ProjectDto[]>`
-			INSERT INTO projects (id, workspace_id, key, name, description, visibility, position, created_by)
-			VALUES (${args.id}, ${args.workspaceId}, ${args.key}, ${args.name}, ${args.description}, ${args.visibility}, ${args.position}, ${args.createdBy})
+			INSERT INTO projects (id, workspace_id, key, name, description, visibility, position, created_by,
+				triage_enabled, cycle_enabled, cycle_duration_days, cycle_cooldown_days,
+				cycle_auto_rollover_mode, cycle_start_weekday)
+			VALUES (${args.id}, ${args.workspaceId}, ${args.key}, ${args.name}, ${args.description}, ${args.visibility}, ${args.position}, ${args.createdBy},
+				${args.triageEnabled ?? false}, ${args.cycleEnabled ?? false}, ${args.cycleDurationDays ?? 14},
+				${args.cycleCooldownDays ?? 0}, ${args.cycleAutoRolloverMode ?? 'next_cycle'}, ${args.cycleStartWeekday ?? 1})
 			RETURNING
 				id, workspace_id AS "workspaceId", key, name, description, visibility, position,
-				archived_at::text AS "archivedAt", created_by AS "createdBy",
+				archived_at::text AS "archivedAt", triage_enabled AS "triageEnabled",
+			cycle_enabled AS "cycleEnabled", cycle_duration_days AS "cycleDurationDays",
+			cycle_cooldown_days AS "cycleCooldownDays",
+			cycle_auto_rollover_mode AS "cycleAutoRolloverMode",
+			cycle_start_weekday AS "cycleStartWeekday", created_by AS "createdBy",
 				created_at::text AS "createdAt", updated_at::text AS "updatedAt", version
 		`
 		: await tx<ProjectDto[]>`
-			INSERT INTO projects (workspace_id, key, name, description, visibility, position, created_by)
-			VALUES (${args.workspaceId}, ${args.key}, ${args.name}, ${args.description}, ${args.visibility}, ${args.position}, ${args.createdBy})
+			INSERT INTO projects (workspace_id, key, name, description, visibility, position, created_by,
+				triage_enabled, cycle_enabled, cycle_duration_days, cycle_cooldown_days,
+				cycle_auto_rollover_mode, cycle_start_weekday)
+			VALUES (${args.workspaceId}, ${args.key}, ${args.name}, ${args.description}, ${args.visibility}, ${args.position}, ${args.createdBy},
+				${args.triageEnabled ?? false}, ${args.cycleEnabled ?? false}, ${args.cycleDurationDays ?? 14},
+				${args.cycleCooldownDays ?? 0}, ${args.cycleAutoRolloverMode ?? 'next_cycle'}, ${args.cycleStartWeekday ?? 1})
 			RETURNING
 				id, workspace_id AS "workspaceId", key, name, description, visibility, position,
-				archived_at::text AS "archivedAt", created_by AS "createdBy",
+				archived_at::text AS "archivedAt", triage_enabled AS "triageEnabled",
+			cycle_enabled AS "cycleEnabled", cycle_duration_days AS "cycleDurationDays",
+			cycle_cooldown_days AS "cycleCooldownDays",
+			cycle_auto_rollover_mode AS "cycleAutoRolloverMode",
+			cycle_start_weekday AS "cycleStartWeekday", created_by AS "createdBy",
 				created_at::text AS "createdAt", updated_at::text AS "updatedAt", version
 		`
 	const row = rows[0]
@@ -166,6 +213,12 @@ export async function updateProjectRow(
 		readonly description: string
 		readonly visibility: 'workspace' | 'private'
 		readonly archivedAt: string | null
+		readonly triageEnabled?: boolean | undefined
+		readonly cycleEnabled?: boolean | undefined
+		readonly cycleDurationDays?: number | undefined
+		readonly cycleCooldownDays?: number | undefined
+		readonly cycleAutoRolloverMode?: string | undefined
+		readonly cycleStartWeekday?: number | undefined
 	}
 ): Promise<ProjectDto | null> {
 	const [row] = await tx<ProjectDto[]>`
@@ -174,13 +227,23 @@ export async function updateProjectRow(
 			description = ${args.description},
 			visibility = ${args.visibility},
 			archived_at = ${args.archivedAt}::timestamptz,
+			triage_enabled = COALESCE(${args.triageEnabled ?? null}::boolean, triage_enabled),
+			cycle_enabled = COALESCE(${args.cycleEnabled ?? null}::boolean, cycle_enabled),
+			cycle_duration_days = COALESCE(${args.cycleDurationDays ?? null}::int, cycle_duration_days),
+			cycle_cooldown_days = COALESCE(${args.cycleCooldownDays ?? null}::int, cycle_cooldown_days),
+			cycle_auto_rollover_mode = COALESCE(${args.cycleAutoRolloverMode ?? null}::text, cycle_auto_rollover_mode),
+			cycle_start_weekday = COALESCE(${args.cycleStartWeekday ?? null}::smallint, cycle_start_weekday),
 			version = version + 1
 		WHERE workspace_id = ${args.workspaceId}
 			AND id = ${args.projectId}
 			AND version = ${args.expectedVersion}
 		RETURNING
 			id, workspace_id AS "workspaceId", key, name, description, visibility, position,
-			archived_at::text AS "archivedAt", created_by AS "createdBy",
+			archived_at::text AS "archivedAt", triage_enabled AS "triageEnabled",
+			cycle_enabled AS "cycleEnabled", cycle_duration_days AS "cycleDurationDays",
+			cycle_cooldown_days AS "cycleCooldownDays",
+			cycle_auto_rollover_mode AS "cycleAutoRolloverMode",
+			cycle_start_weekday AS "cycleStartWeekday", created_by AS "createdBy",
 			created_at::text AS "createdAt", updated_at::text AS "updatedAt", version
 	`
 	return row ?? null
@@ -502,6 +565,10 @@ interface RawIssueRow {
 	readonly startDate: string | null
 	readonly dueDate: string | null
 	readonly estimate: number | null
+	readonly triageStatus: 'none' | 'pending' | 'accepted' | 'snoozed' | 'declined' | 'merged'
+	readonly triageSnoozedUntil: string | null
+	readonly triageDeclinedReason: string | null
+	readonly sourceKind: 'manual' | 'mail' | 'chat' | 'form' | 'github' | 'gitlab' | 'api' | 'agent'
 	readonly closedAt: string | null
 	readonly createdAt: string
 	readonly updatedAt: string
@@ -580,6 +647,10 @@ export async function getIssueById(
 			i.start_date::text AS "startDate",
 			i.due_date::text AS "dueDate",
 			i.estimate::float8 AS estimate,
+			i.triage_status AS "triageStatus",
+			i.triage_snoozed_until::text AS "triageSnoozedUntil",
+			i.triage_declined_reason AS "triageDeclinedReason",
+			i.source_kind AS "sourceKind",
 			i.closed_at::text AS "closedAt",
 			i.created_at::text AS "createdAt",
 			i.updated_at::text AS "updatedAt",
@@ -623,6 +694,10 @@ export async function getIssueByKey(
 			i.start_date::text AS "startDate",
 			i.due_date::text AS "dueDate",
 			i.estimate::float8 AS estimate,
+			i.triage_status AS "triageStatus",
+			i.triage_snoozed_until::text AS "triageSnoozedUntil",
+			i.triage_declined_reason AS "triageDeclinedReason",
+			i.source_kind AS "sourceKind",
 			i.closed_at::text AS "closedAt",
 			i.created_at::text AS "createdAt",
 			i.updated_at::text AS "updatedAt",
@@ -652,6 +727,7 @@ export async function listIssuesFiltered(
 		readonly parentId?: string | undefined
 		readonly priority?: number | undefined
 		readonly mineUserId?: string | undefined
+		readonly triageStatus?: readonly string[] | undefined
 		readonly q?: string | undefined
 		readonly cursorPos?: { readonly position: string; readonly id: string } | undefined
 		readonly limit: number
@@ -686,6 +762,10 @@ export async function listIssuesFiltered(
 			i.start_date::text AS "startDate",
 			i.due_date::text AS "dueDate",
 			i.estimate::float8 AS estimate,
+			i.triage_status AS "triageStatus",
+			i.triage_snoozed_until::text AS "triageSnoozedUntil",
+			i.triage_declined_reason AS "triageDeclinedReason",
+			i.source_kind AS "sourceKind",
 			i.closed_at::text AS "closedAt",
 			i.created_at::text AS "createdAt",
 			i.updated_at::text AS "updatedAt",
@@ -702,6 +782,7 @@ export async function listIssuesFiltered(
 			${args.parentId ? tx`AND i.parent_id = ${args.parentId}` : tx``}
 			${args.priority !== undefined ? tx`AND i.priority = ${args.priority}` : tx``}
 			${args.mineUserId ? tx`AND i.assignee_type = 'user' AND i.assignee_id = ${args.mineUserId}` : tx``}
+			${args.triageStatus === undefined ? tx`AND i.triage_status NOT IN ('pending', 'snoozed')` : tx`AND i.triage_status = ANY(${[...args.triageStatus]}::text[])`}
 			${args.q ? tx`AND (i.title ILIKE ${`%${args.q}%`} OR i.description_text ILIKE ${`%${args.q}%`})` : tx``}
 			${
 				args.cursorPos
@@ -712,6 +793,133 @@ export async function listIssuesFiltered(
 		LIMIT ${args.limit + 1}
 	`
 
+	const hasMore = rows.length > args.limit
+	const sliced = hasMore ? rows.slice(0, args.limit) : rows
+	const labelMap = await getLabelMapForIssues(
+		tx,
+		args.workspaceId,
+		sliced.map((r) => r.id)
+	)
+	return {
+		items: sliced.map((r) => toIssueDto(r, labelMap.get(r.id) ?? [])),
+		hasMore
+	}
+}
+
+// Shared SELECT list for issue rows (same projection as listIssuesFiltered).
+const ISSUE_COLS = `
+		i.id,
+		i.workspace_id AS "workspaceId",
+		i.project_id AS "projectId",
+		p.key AS "projectKey",
+		i.number,
+		i.parent_id AS "parentId",
+		i.cycle_id AS "cycleId",
+		i.title,
+		i.description,
+		i.description_text AS "descriptionText",
+		i.status_id AS "statusId",
+		i.priority,
+		i.assignee_type AS "assigneeType",
+		i.assignee_id AS "assigneeId",
+		i.creator_id AS "creatorId",
+		i.position,
+		i.start_date::text AS "startDate",
+		i.due_date::text AS "dueDate",
+		i.estimate::float8 AS estimate,
+		i.triage_status AS "triageStatus",
+		i.triage_snoozed_until::text AS "triageSnoozedUntil",
+		i.triage_declined_reason AS "triageDeclinedReason",
+		i.source_kind AS "sourceKind",
+		i.closed_at::text AS "closedAt",
+		i.created_at::text AS "createdAt",
+		i.updated_at::text AS "updatedAt",
+		i.deleted_at::text AS "deletedAt",
+		i.version
+`
+
+/**
+ * Sync Engine v2 tier-1 core issue set (§8.1, ADR-0031): every NON-deleted
+ * issue in the given projects except those closed more than 30 days ago —
+ * closed-over-30d rows are the tier-2 `issue_hist` lazy scope instead. No
+ * row cap and NO triage filter: sync feeds ship all rows and clients filter
+ * (unlike `listIssues`, which hides pending/snoozed triage by default).
+ *
+ * Index note: per-project scans ride `idx_issues_board (workspace_id,
+ * project_id, status_id, position) WHERE deleted_at IS NULL` — workspace +
+ * project + the partial deleted_at predicate all match. The closed_at cutoff
+ * is applied as a heap filter inside those per-project scans (no closed_at
+ * index exists yet; acceptable at M7 scale because only active-project rows
+ * are scanned — see slice S6 report).
+ */
+export async function listCoreSnapshotIssues(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly visibleProjectIds: readonly string[]
+	}
+): Promise<IssueDto[]> {
+	if (args.visibleProjectIds.length === 0) return []
+	const rows = await tx<RawIssueRow[]>`
+		SELECT ${tx.unsafe(ISSUE_COLS)}
+		FROM issues i
+		JOIN projects p ON p.workspace_id = i.workspace_id AND p.id = i.project_id
+		WHERE i.workspace_id = ${args.workspaceId}
+			AND i.deleted_at IS NULL
+			AND i.project_id = ANY(${[...args.visibleProjectIds]}::uuid[])
+			AND (i.closed_at IS NULL OR i.closed_at >= now() - interval '30 days')
+		ORDER BY i.project_id ASC, i.position COLLATE "C" ASC, i.id ASC
+	`
+	const labelMap = await getLabelMapForIssues(
+		tx,
+		args.workspaceId,
+		rows.map((r) => r.id)
+	)
+	return rows.map((r) => toIssueDto(r, labelMap.get(r.id) ?? []))
+}
+
+/**
+ * Tier-2 `issue_hist:<projectId>` page (§8.1): issues that are tier-2 eligible —
+ * closed more than 30 days ago OR soft-deleted more than 30 days ago — keyset-
+ * paginated by (closed_at DESC NULLS LAST, id ASC). NULLS LAST because rows
+ * deleted without ever being closed carry `closed_at IS NULL`; the keyset
+ * predicate mirrors that ordering exactly so pages never overlap or gap:
+ * given a non-null key (c0, i0), everything after it is either a NULL row, a
+ * strictly older closed_at, or the same closed_at at a larger id; given a NULL
+ * key, only NULL rows at larger ids follow.
+ */
+export async function listIssueHistoryPage(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly projectId: string
+		readonly after: { readonly closedAt: string | null; readonly id: string } | null
+		readonly limit: number
+	}
+): Promise<{ readonly items: IssueDto[]; readonly hasMore: boolean }> {
+	const keyset = args.after
+		? args.after.closedAt !== null
+			? tx`AND (
+					i.closed_at IS NULL
+					OR i.closed_at < ${args.after.closedAt}::timestamptz
+					OR (i.closed_at = ${args.after.closedAt}::timestamptz AND i.id > ${args.after.id}::uuid)
+				)`
+			: tx`AND (i.closed_at IS NULL AND i.id > ${args.after.id}::uuid)`
+		: tx``
+	const rows = await tx<RawIssueRow[]>`
+		SELECT ${tx.unsafe(ISSUE_COLS)}
+		FROM issues i
+		JOIN projects p ON p.workspace_id = i.workspace_id AND p.id = i.project_id
+		WHERE i.workspace_id = ${args.workspaceId}
+			AND i.project_id = ${args.projectId}
+			AND (
+				(i.closed_at IS NOT NULL AND i.closed_at < now() - interval '30 days')
+				OR (i.deleted_at IS NOT NULL AND i.deleted_at < now() - interval '30 days')
+			)
+			${keyset}
+		ORDER BY i.closed_at DESC NULLS LAST, i.id ASC
+		LIMIT ${args.limit + 1}
+	`
 	const hasMore = rows.length > args.limit
 	const sliced = hasMore ? rows.slice(0, args.limit) : rows
 	const labelMap = await getLabelMapForIssues(
@@ -783,6 +991,10 @@ export async function insertIssueRow(
 		readonly estimate: number | null
 		readonly closedAt: string | null
 		readonly labelIds: readonly string[]
+		readonly triageStatus?: string | undefined
+		readonly triageSnoozedUntil?: string | null | undefined
+		readonly triageDeclinedReason?: string | null | undefined
+		readonly sourceKind?: string | undefined
 	}
 ): Promise<IssueDto> {
 	const descJson = args.description === null ? null : tx.json(args.description as never)
@@ -792,14 +1004,17 @@ export async function insertIssueRow(
 				id, workspace_id, project_id, number, parent_id, cycle_id, title,
 				description, description_text, status_id, priority,
 				assignee_type, assignee_id, creator_id, position,
-				start_date, due_date, estimate, closed_at
+				start_date, due_date, estimate, closed_at,
+				source_kind, triage_status, triage_snoozed_until, triage_declined_reason
 			)
 			VALUES (
 				${args.id}, ${args.workspaceId}, ${args.projectId}, ${args.number},
 				${args.parentId}, ${args.cycleId}, ${args.title},
 				${descJson}, ${args.descriptionText}, ${args.statusId}, ${args.priority},
 				${args.assigneeType}, ${args.assigneeId}, ${args.creatorId}, ${args.position},
-				${args.startDate}::date, ${args.dueDate}::date, ${args.estimate}, ${args.closedAt}::timestamptz
+				${args.startDate}::date, ${args.dueDate}::date, ${args.estimate}, ${args.closedAt}::timestamptz,
+				${args.sourceKind ?? 'manual'}, ${args.triageStatus ?? 'none'},
+				${args.triageSnoozedUntil ?? null}::timestamptz, ${args.triageDeclinedReason ?? null}
 			)
 			RETURNING
 				id, workspace_id AS "workspaceId", project_id AS "projectId", ${args.projectKey}::text AS "projectKey",
@@ -807,7 +1022,10 @@ export async function insertIssueRow(
 				description_text AS "descriptionText", status_id AS "statusId", priority,
 				assignee_type AS "assigneeType", assignee_id AS "assigneeId", creator_id AS "creatorId",
 				position, start_date::text AS "startDate", due_date::text AS "dueDate",
-				estimate::float8 AS estimate, closed_at::text AS "closedAt",
+				estimate::float8 AS estimate, triage_status AS "triageStatus",
+			triage_snoozed_until::text AS "triageSnoozedUntil",
+			triage_declined_reason AS "triageDeclinedReason",
+			source_kind AS "sourceKind", closed_at::text AS "closedAt",
 				created_at::text AS "createdAt", updated_at::text AS "updatedAt",
 				deleted_at::text AS "deletedAt", version
 		`
@@ -816,14 +1034,17 @@ export async function insertIssueRow(
 				workspace_id, project_id, number, parent_id, cycle_id, title,
 				description, description_text, status_id, priority,
 				assignee_type, assignee_id, creator_id, position,
-				start_date, due_date, estimate, closed_at
+				start_date, due_date, estimate, closed_at,
+				source_kind, triage_status, triage_snoozed_until, triage_declined_reason
 			)
 			VALUES (
 				${args.workspaceId}, ${args.projectId}, ${args.number},
 				${args.parentId}, ${args.cycleId}, ${args.title},
 				${descJson}, ${args.descriptionText}, ${args.statusId}, ${args.priority},
 				${args.assigneeType}, ${args.assigneeId}, ${args.creatorId}, ${args.position},
-				${args.startDate}::date, ${args.dueDate}::date, ${args.estimate}, ${args.closedAt}::timestamptz
+				${args.startDate}::date, ${args.dueDate}::date, ${args.estimate}, ${args.closedAt}::timestamptz,
+				${args.sourceKind ?? 'manual'}, ${args.triageStatus ?? 'none'},
+				${args.triageSnoozedUntil ?? null}::timestamptz, ${args.triageDeclinedReason ?? null}
 			)
 			RETURNING
 				id, workspace_id AS "workspaceId", project_id AS "projectId", ${args.projectKey}::text AS "projectKey",
@@ -831,7 +1052,10 @@ export async function insertIssueRow(
 				description_text AS "descriptionText", status_id AS "statusId", priority,
 				assignee_type AS "assigneeType", assignee_id AS "assigneeId", creator_id AS "creatorId",
 				position, start_date::text AS "startDate", due_date::text AS "dueDate",
-				estimate::float8 AS estimate, closed_at::text AS "closedAt",
+				estimate::float8 AS estimate, triage_status AS "triageStatus",
+			triage_snoozed_until::text AS "triageSnoozedUntil",
+			triage_declined_reason AS "triageDeclinedReason",
+			source_kind AS "sourceKind", closed_at::text AS "closedAt",
 				created_at::text AS "createdAt", updated_at::text AS "updatedAt",
 				deleted_at::text AS "deletedAt", version
 		`
@@ -887,6 +1111,10 @@ export async function updateIssueRow(
 		readonly estimate: number | null
 		readonly closedAt: string | null
 		readonly labelIds: readonly string[]
+		readonly sourceKind?: string
+		readonly triageStatus?: string
+		readonly triageSnoozedUntil?: string | null
+		readonly triageDeclinedReason?: string | null
 	}
 ): Promise<IssueDto | null> {
 	const descJson = args.description === null ? null : tx.json(args.description as never)
@@ -908,6 +1136,11 @@ export async function updateIssueRow(
 			due_date = ${args.dueDate}::date,
 			estimate = ${args.estimate},
 			closed_at = ${args.closedAt}::timestamptz,
+			triage_status = COALESCE(${args.triageStatus ?? null}::text, triage_status),
+			triage_snoozed_until = CASE WHEN ${args.triageSnoozedUntil !== undefined}
+				THEN ${args.triageSnoozedUntil ?? null}::timestamptz ELSE triage_snoozed_until END,
+			triage_declined_reason = CASE WHEN ${args.triageDeclinedReason !== undefined}
+				THEN ${args.triageDeclinedReason ?? null}::text ELSE triage_declined_reason END,
 			version = version + 1
 		WHERE workspace_id = ${args.workspaceId}
 			AND id = ${args.issueId}
@@ -919,7 +1152,10 @@ export async function updateIssueRow(
 			description_text AS "descriptionText", status_id AS "statusId", priority,
 			assignee_type AS "assigneeType", assignee_id AS "assigneeId", creator_id AS "creatorId",
 			position, start_date::text AS "startDate", due_date::text AS "dueDate",
-			estimate::float8 AS estimate, closed_at::text AS "closedAt",
+			estimate::float8 AS estimate, triage_status AS "triageStatus",
+			triage_snoozed_until::text AS "triageSnoozedUntil",
+			triage_declined_reason AS "triageDeclinedReason",
+			source_kind AS "sourceKind", closed_at::text AS "closedAt",
 			created_at::text AS "createdAt", updated_at::text AS "updatedAt",
 			deleted_at::text AS "deletedAt", version
 	`
@@ -948,7 +1184,10 @@ export async function updateIssuePositionOnly(
 			i.description_text AS "descriptionText", i.status_id AS "statusId", i.priority,
 			i.assignee_type AS "assigneeType", i.assignee_id AS "assigneeId", i.creator_id AS "creatorId",
 			i.position, i.start_date::text AS "startDate", i.due_date::text AS "dueDate",
-			i.estimate::float8 AS estimate, i.closed_at::text AS "closedAt",
+			i.estimate::float8 AS estimate, i.triage_status AS "triageStatus",
+			i.triage_snoozed_until::text AS "triageSnoozedUntil",
+			i.triage_declined_reason AS "triageDeclinedReason",
+			i.source_kind AS "sourceKind", i.closed_at::text AS "closedAt",
 			i.created_at::text AS "createdAt", i.updated_at::text AS "updatedAt",
 			i.deleted_at::text AS "deletedAt", i.version
 	`
@@ -1163,7 +1402,8 @@ export async function listSavedViewsForUser(
 	return tx<SavedViewDto[]>`
 		SELECT
 			id, workspace_id AS "workspaceId", project_id AS "projectId",
-			owner_user_id AS "ownerUserId", name, layout, filters, sort,
+			owner_user_id AS "ownerUserId", name, layout, filters,
+			filter_expr AS "filterExpr", display_options AS "displayOptions", sort,
 			is_shared AS "isShared", position,
 			created_at::text AS "createdAt", updated_at::text AS "updatedAt", version
 		FROM saved_views
@@ -1182,7 +1422,8 @@ export async function getSavedViewById(
 	const [row] = await tx<SavedViewDto[]>`
 		SELECT
 			id, workspace_id AS "workspaceId", project_id AS "projectId",
-			owner_user_id AS "ownerUserId", name, layout, filters, sort,
+			owner_user_id AS "ownerUserId", name, layout, filters,
+			filter_expr AS "filterExpr", display_options AS "displayOptions", sort,
 			is_shared AS "isShared", position,
 			created_at::text AS "createdAt", updated_at::text AS "updatedAt", version
 		FROM saved_views
@@ -1199,8 +1440,10 @@ export async function insertSavedViewRow(
 		readonly projectId: string | null
 		readonly ownerUserId: string
 		readonly name: string
-		readonly layout: 'list' | 'board'
+		readonly layout: 'list' | 'board' | 'timeline' | 'calendar' | 'table'
 		readonly filters: Record<string, unknown>
+		readonly filterExpr: unknown | null
+		readonly displayOptions: Record<string, unknown>
 		readonly sort: Record<string, unknown>
 		readonly isShared: boolean
 		readonly position: string
@@ -1208,28 +1451,34 @@ export async function insertSavedViewRow(
 ): Promise<SavedViewDto> {
 	const rows = args.id
 		? await tx<SavedViewDto[]>`
-			INSERT INTO saved_views (id, workspace_id, project_id, owner_user_id, name, layout, filters, sort, is_shared, position)
+			INSERT INTO saved_views (id, workspace_id, project_id, owner_user_id, name, layout, filters, filter_expr, display_options, sort, is_shared, position)
 			VALUES (
 				${args.id}, ${args.workspaceId}, ${args.projectId}, ${args.ownerUserId},
-				${args.name}, ${args.layout}, ${tx.json(args.filters as never)}, ${tx.json(args.sort as never)},
+				${args.name}, ${args.layout}, ${tx.json(args.filters as never)},
+				${args.filterExpr === null ? null : tx.json(args.filterExpr as never)},
+				${tx.json(args.displayOptions as never)}, ${tx.json(args.sort as never)},
 				${args.isShared}, ${args.position}
 			)
 			RETURNING
 				id, workspace_id AS "workspaceId", project_id AS "projectId",
-				owner_user_id AS "ownerUserId", name, layout, filters, sort,
+				owner_user_id AS "ownerUserId", name, layout, filters,
+			filter_expr AS "filterExpr", display_options AS "displayOptions", sort,
 				is_shared AS "isShared", position,
 				created_at::text AS "createdAt", updated_at::text AS "updatedAt", version
 		`
 		: await tx<SavedViewDto[]>`
-			INSERT INTO saved_views (workspace_id, project_id, owner_user_id, name, layout, filters, sort, is_shared, position)
+			INSERT INTO saved_views (workspace_id, project_id, owner_user_id, name, layout, filters, filter_expr, display_options, sort, is_shared, position)
 			VALUES (
 				${args.workspaceId}, ${args.projectId}, ${args.ownerUserId},
-				${args.name}, ${args.layout}, ${tx.json(args.filters as never)}, ${tx.json(args.sort as never)},
+				${args.name}, ${args.layout}, ${tx.json(args.filters as never)},
+				${args.filterExpr === null ? null : tx.json(args.filterExpr as never)},
+				${tx.json(args.displayOptions as never)}, ${tx.json(args.sort as never)},
 				${args.isShared}, ${args.position}
 			)
 			RETURNING
 				id, workspace_id AS "workspaceId", project_id AS "projectId",
-				owner_user_id AS "ownerUserId", name, layout, filters, sort,
+				owner_user_id AS "ownerUserId", name, layout, filters,
+			filter_expr AS "filterExpr", display_options AS "displayOptions", sort,
 				is_shared AS "isShared", position,
 				created_at::text AS "createdAt", updated_at::text AS "updatedAt", version
 		`
@@ -1245,8 +1494,10 @@ export async function updateSavedViewRow(
 		readonly viewId: string
 		readonly expectedVersion: number
 		readonly name: string
-		readonly layout: 'list' | 'board'
+		readonly layout: 'list' | 'board' | 'timeline' | 'calendar' | 'table'
 		readonly filters: Record<string, unknown>
+		readonly filterExpr: unknown | null
+		readonly displayOptions: Record<string, unknown>
 		readonly sort: Record<string, unknown>
 		readonly isShared: boolean
 	}
@@ -1256,13 +1507,16 @@ export async function updateSavedViewRow(
 		SET name = ${args.name},
 			layout = ${args.layout},
 			filters = ${tx.json(args.filters as never)},
+			filter_expr = ${args.filterExpr === null ? null : tx.json(args.filterExpr as never)},
+			display_options = ${tx.json(args.displayOptions as never)},
 			sort = ${tx.json(args.sort as never)},
 			is_shared = ${args.isShared},
 			version = version + 1
 		WHERE workspace_id = ${args.workspaceId} AND id = ${args.viewId} AND version = ${args.expectedVersion}
 		RETURNING
 			id, workspace_id AS "workspaceId", project_id AS "projectId",
-			owner_user_id AS "ownerUserId", name, layout, filters, sort,
+			owner_user_id AS "ownerUserId", name, layout, filters,
+			filter_expr AS "filterExpr", display_options AS "displayOptions", sort,
 			is_shared AS "isShared", position,
 			created_at::text AS "createdAt", updated_at::text AS "updatedAt", version
 	`
@@ -1320,3 +1574,943 @@ export async function auditTasksAction(
 }
 
 export { PROJECT_COLS }
+
+// ---------- M7: FilterExpr query, triage queue, bulk ----------
+
+type SqlFrag = ReturnType<Queryable>
+
+export interface IssueFilterFragment {
+	readonly where: SqlFrag
+	readonly needsStatusJoin: boolean
+}
+
+export type IssueSortBy = 'position' | 'priority' | 'due_date' | 'updated_at' | 'created_at' | 'estimate'
+export type IssueSortDir = 'asc' | 'desc'
+
+function sortExpr(tx: Queryable, sortBy: IssueSortBy): SqlFrag {
+	switch (sortBy) {
+		case 'position':
+			return tx`i.position COLLATE "C"`
+		case 'priority':
+			return tx`i.priority`
+		case 'due_date':
+			return tx`i.due_date`
+		case 'updated_at':
+			return tx`i.updated_at`
+		case 'created_at':
+			return tx`i.created_at`
+		case 'estimate':
+			return tx`i.estimate`
+	}
+}
+
+function sortKeyExpr(tx: Queryable, sortBy: IssueSortBy): SqlFrag {
+	switch (sortBy) {
+		case 'position':
+			return tx`i.position`
+		case 'priority':
+			return tx`i.priority`
+		case 'due_date':
+			return tx`i.due_date::text`
+		case 'updated_at':
+			return tx`i.updated_at::text`
+		case 'created_at':
+			return tx`i.created_at::text`
+		case 'estimate':
+			return tx`i.estimate::float8`
+	}
+}
+
+function cursorVal(tx: Queryable, sortBy: IssueSortBy, k: string | number): SqlFrag {
+	switch (sortBy) {
+		case 'priority':
+			return tx`${k}::int`
+		case 'due_date':
+			return tx`${k}::date`
+		case 'updated_at':
+		case 'created_at':
+			return tx`${k}::timestamptz`
+		case 'estimate':
+			return tx`${k}::float8`
+		default:
+			return tx`${k}`
+	}
+}
+
+/**
+ * FilterExpr-driven issue listing for POST /issues/query. Keyset-paginates on
+ * (sortExpr, id) with explicit NULLS LAST/FIRST so the cursor stays stable.
+ */
+export async function queryIssuesExpr(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly visibleProjectIds: readonly string[]
+		readonly filter?: IssueFilterFragment | undefined
+		readonly sortBy: IssueSortBy
+		readonly sortDir: IssueSortDir
+		readonly cursor?: { readonly k: string | number | null; readonly id: string } | undefined
+		readonly limit: number
+	}
+): Promise<{ readonly items: IssueDto[]; readonly hasMore: boolean }> {
+	if (args.visibleProjectIds.length === 0) return { items: [], hasMore: false }
+	const expr = sortExpr(tx, args.sortBy)
+	const keyExpr = sortKeyExpr(tx, args.sortBy)
+	const cur = args.cursor
+	const cursorFrag = !cur
+		? tx``
+		: args.sortDir === 'asc'
+			? cur.k === null
+				? tx`AND ${expr} IS NULL AND i.id > ${cur.id}::uuid`
+				: tx`AND (${expr} > ${cursorVal(tx, args.sortBy, cur.k)} OR ${expr} IS NULL OR (${expr} = ${cursorVal(tx, args.sortBy, cur.k)} AND i.id > ${cur.id}::uuid))`
+			: cur.k === null
+				? tx`AND ${expr} IS NOT NULL`
+				: tx`AND ((${expr} < ${cursorVal(tx, args.sortBy, cur.k)} AND ${expr} IS NOT NULL) OR (${expr} = ${cursorVal(tx, args.sortBy, cur.k)} AND i.id > ${cur.id}::uuid))`
+
+	const rows = await tx<(RawIssueRow & { sortKey: string | number | null })[]>`
+		SELECT
+			i.id,
+			i.workspace_id AS "workspaceId",
+			i.project_id AS "projectId",
+			p.key AS "projectKey",
+			i.number,
+			i.parent_id AS "parentId",
+			i.cycle_id AS "cycleId",
+			i.title,
+			i.description,
+			i.description_text AS "descriptionText",
+			i.status_id AS "statusId",
+			i.priority,
+			i.assignee_type AS "assigneeType",
+			i.assignee_id AS "assigneeId",
+			i.creator_id AS "creatorId",
+			i.position,
+			i.start_date::text AS "startDate",
+			i.due_date::text AS "dueDate",
+			i.estimate::float8 AS estimate,
+			i.triage_status AS "triageStatus",
+			i.triage_snoozed_until::text AS "triageSnoozedUntil",
+			i.triage_declined_reason AS "triageDeclinedReason",
+			i.source_kind AS "sourceKind",
+			i.closed_at::text AS "closedAt",
+			i.created_at::text AS "createdAt",
+			i.updated_at::text AS "updatedAt",
+			i.deleted_at::text AS "deletedAt",
+			i.version,
+			${keyExpr} AS "sortKey"
+		FROM issues i
+		JOIN projects p ON p.workspace_id = i.workspace_id AND p.id = i.project_id
+		${args.filter?.needsStatusJoin ? tx`LEFT JOIN project_statuses s ON s.workspace_id = i.workspace_id AND s.id = i.status_id` : tx``}
+		WHERE i.workspace_id = ${args.workspaceId}
+			AND i.deleted_at IS NULL
+			AND i.project_id = ANY(${[...args.visibleProjectIds]}::uuid[])
+			${args.filter ? tx`AND (${args.filter.where})` : tx``}
+			${cursorFrag}
+		ORDER BY ${expr} ${args.sortDir === 'asc' ? tx`ASC NULLS LAST` : tx`DESC NULLS FIRST`}, i.id ASC
+		LIMIT ${args.limit + 1}
+	`
+	const hasMore = rows.length > args.limit
+	const sliced = hasMore ? rows.slice(0, args.limit) : rows
+	const labelMap = await getLabelMapForIssues(
+		tx,
+		args.workspaceId,
+		sliced.map((r) => r.id)
+	)
+	return {
+		items: sliced.map((r) => ({
+			...toIssueDto(r, labelMap.get(r.id) ?? []),
+			// sortKey is stashed on the DTO so the service can build the cursor.
+			sortKey: r.sortKey
+		})),
+		hasMore
+	}
+}
+
+export async function listTriageQueueRows(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly projectId: string
+		readonly state: 'pending' | 'snoozed' | 'resolved'
+		readonly limit: number
+	}
+): Promise<IssueDto[]> {
+	const stateFrag =
+		args.state === 'resolved'
+			? tx`i.triage_status IN ('accepted', 'declined', 'merged')
+				AND i.updated_at > now() - interval '30 days'`
+			: args.state === 'snoozed'
+				? tx`i.triage_status = 'snoozed'`
+				: tx`i.triage_status = 'pending'`
+	const rows = await tx<RawIssueRow[]>`
+		SELECT
+			i.id,
+			i.workspace_id AS "workspaceId",
+			i.project_id AS "projectId",
+			p.key AS "projectKey",
+			i.number,
+			i.parent_id AS "parentId",
+			i.cycle_id AS "cycleId",
+			i.title,
+			i.description,
+			i.description_text AS "descriptionText",
+			i.status_id AS "statusId",
+			i.priority,
+			i.assignee_type AS "assigneeType",
+			i.assignee_id AS "assigneeId",
+			i.creator_id AS "creatorId",
+			i.position,
+			i.start_date::text AS "startDate",
+			i.due_date::text AS "dueDate",
+			i.estimate::float8 AS estimate,
+			i.triage_status AS "triageStatus",
+			i.triage_snoozed_until::text AS "triageSnoozedUntil",
+			i.triage_declined_reason AS "triageDeclinedReason",
+			i.source_kind AS "sourceKind",
+			i.closed_at::text AS "closedAt",
+			i.created_at::text AS "createdAt",
+			i.updated_at::text AS "updatedAt",
+			i.deleted_at::text AS "deletedAt",
+			i.version
+		FROM issues i
+		JOIN projects p ON p.workspace_id = i.workspace_id AND p.id = i.project_id
+		WHERE i.workspace_id = ${args.workspaceId}
+			AND i.project_id = ${args.projectId}
+			AND i.deleted_at IS NULL
+			AND ${stateFrag}
+		ORDER BY i.created_at ASC, i.id ASC
+		LIMIT ${args.limit}
+	`
+	const labelMap = await getLabelMapForIssues(
+		tx,
+		args.workspaceId,
+		rows.map((r) => r.id)
+	)
+	return rows.map((r) => toIssueDto(r, labelMap.get(r.id) ?? []))
+}
+
+/**
+ * Workspaces with snoozed issues past their wake time — for the 60s sweep.
+ * Called under `withSystem`, so it goes through the SECURITY DEFINER
+ * function (0021) rather than a tenant-scoped query.
+ */
+export async function listWorkspacesWithSnoozedDue(
+	tx: Queryable,
+	now: string
+): Promise<{ readonly workspaceId: string }[]> {
+	return tx<{ workspaceId: string }[]>`
+		SELECT workspace_id AS "workspaceId"
+		FROM list_workspaces_with_snoozed_triage(${now}::timestamptz)
+	`
+}
+
+/** Flips due snoozed issues back to pending; idempotent, capped batch. */
+export async function wakeSnoozedIssues(
+	tx: Queryable,
+	workspaceId: string,
+	now: string,
+	limit = 500
+): Promise<RawIssueRow[]> {
+	return tx<RawIssueRow[]>`
+		WITH due AS (
+			SELECT i.id, p.key AS project_key
+			FROM issues i
+			JOIN projects p ON p.workspace_id = i.workspace_id AND p.id = i.project_id
+			WHERE i.workspace_id = ${workspaceId}
+				AND i.triage_status = 'snoozed'
+				AND i.triage_snoozed_until IS NOT NULL
+				AND i.triage_snoozed_until <= ${now}::timestamptz
+				AND i.deleted_at IS NULL
+			ORDER BY i.triage_snoozed_until ASC, i.id ASC
+			LIMIT ${limit}
+			FOR UPDATE OF i SKIP LOCKED
+		)
+		UPDATE issues i
+		SET triage_status = 'pending',
+			triage_snoozed_until = NULL,
+			version = i.version + 1
+		FROM due
+		WHERE i.workspace_id = ${workspaceId} AND i.id = due.id
+		RETURNING
+			i.id,
+			i.workspace_id AS "workspaceId",
+			i.project_id AS "projectId",
+			due.project_key AS "projectKey",
+			i.number,
+			i.parent_id AS "parentId",
+			i.cycle_id AS "cycleId",
+			i.title,
+			i.description,
+			i.description_text AS "descriptionText",
+			i.status_id AS "statusId",
+			i.priority,
+			i.assignee_type AS "assigneeType",
+			i.assignee_id AS "assigneeId",
+			i.creator_id AS "creatorId",
+			i.position,
+			i.start_date::text AS "startDate",
+			i.due_date::text AS "dueDate",
+			i.estimate::float8 AS estimate,
+			i.triage_status AS "triageStatus",
+			i.triage_snoozed_until::text AS "triageSnoozedUntil",
+			i.triage_declined_reason AS "triageDeclinedReason",
+			i.source_kind AS "sourceKind",
+			i.closed_at::text AS "closedAt",
+			i.created_at::text AS "createdAt",
+			i.updated_at::text AS "updatedAt",
+			i.deleted_at::text AS "deletedAt",
+			i.version
+	`
+}
+
+/** Locks the requested issues (id-ordered to avoid deadlocks). */
+export async function lockIssuesByIds(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly issueIds: readonly string[]
+		readonly includeDeleted?: boolean
+	}
+): Promise<RawIssueRow[]> {
+	return tx<RawIssueRow[]>`
+		SELECT
+			i.id,
+			i.workspace_id AS "workspaceId",
+			i.project_id AS "projectId",
+			p.key AS "projectKey",
+			i.number,
+			i.parent_id AS "parentId",
+			i.cycle_id AS "cycleId",
+			i.title,
+			i.description,
+			i.description_text AS "descriptionText",
+			i.status_id AS "statusId",
+			i.priority,
+			i.assignee_type AS "assigneeType",
+			i.assignee_id AS "assigneeId",
+			i.creator_id AS "creatorId",
+			i.position,
+			i.start_date::text AS "startDate",
+			i.due_date::text AS "dueDate",
+			i.estimate::float8 AS estimate,
+			i.triage_status AS "triageStatus",
+			i.triage_snoozed_until::text AS "triageSnoozedUntil",
+			i.triage_declined_reason AS "triageDeclinedReason",
+			i.source_kind AS "sourceKind",
+			i.closed_at::text AS "closedAt",
+			i.created_at::text AS "createdAt",
+			i.updated_at::text AS "updatedAt",
+			i.deleted_at::text AS "deletedAt",
+			i.version
+		FROM issues i
+		JOIN projects p ON p.workspace_id = i.workspace_id AND p.id = i.project_id
+		WHERE i.workspace_id = ${args.workspaceId}
+			AND i.id = ANY(${[...args.issueIds]}::uuid[])
+			${args.includeDeleted ? tx`` : tx`AND i.deleted_at IS NULL`}
+		ORDER BY i.id ASC
+		FOR UPDATE OF i
+	`
+}
+
+/**
+ * One set-based UPDATE for the uniform bulk patch (status / priority /
+ * assignee / cycle). All patched issues must share the project when statusId
+ * or cycleId is set — enforced by the service.
+ */
+export async function updateIssuesSetColumns(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly issueIds: readonly string[]
+		readonly statusId?: string | undefined
+		readonly closedAt?: string | null | undefined
+		readonly priority?: number | undefined
+		readonly setAssignee?: boolean | undefined
+		readonly assigneeType?: string | null | undefined
+		readonly assigneeId?: string | null | undefined
+		readonly setCycle?: boolean | undefined
+		readonly cycleId?: string | null | undefined
+	}
+): Promise<RawIssueRow[]> {
+	return tx<RawIssueRow[]>`
+		UPDATE issues i
+		SET status_id = COALESCE(${args.statusId ?? null}::uuid, i.status_id),
+			closed_at = CASE WHEN ${args.statusId !== undefined}
+				THEN ${args.closedAt ?? null}::timestamptz ELSE i.closed_at END,
+			priority = COALESCE(${args.priority ?? null}::int, i.priority),
+			assignee_type = CASE WHEN ${args.setAssignee === true}
+				THEN ${args.assigneeType ?? null}::text ELSE i.assignee_type END,
+			assignee_id = CASE WHEN ${args.setAssignee === true}
+				THEN ${args.assigneeId ?? null}::uuid ELSE i.assignee_id END,
+			cycle_id = CASE WHEN ${args.setCycle === true}
+				THEN ${args.cycleId ?? null}::uuid ELSE i.cycle_id END,
+			version = i.version + 1
+		FROM projects p
+		WHERE i.workspace_id = ${args.workspaceId}
+			AND i.id = ANY(${[...args.issueIds]}::uuid[])
+			AND i.deleted_at IS NULL
+			AND p.workspace_id = i.workspace_id AND p.id = i.project_id
+		RETURNING
+			i.id,
+			i.workspace_id AS "workspaceId",
+			i.project_id AS "projectId",
+			p.key AS "projectKey",
+			i.number,
+			i.parent_id AS "parentId",
+			i.cycle_id AS "cycleId",
+			i.title,
+			i.description,
+			i.description_text AS "descriptionText",
+			i.status_id AS "statusId",
+			i.priority,
+			i.assignee_type AS "assigneeType",
+			i.assignee_id AS "assigneeId",
+			i.creator_id AS "creatorId",
+			i.position,
+			i.start_date::text AS "startDate",
+			i.due_date::text AS "dueDate",
+			i.estimate::float8 AS estimate,
+			i.triage_status AS "triageStatus",
+			i.triage_snoozed_until::text AS "triageSnoozedUntil",
+			i.triage_declined_reason AS "triageDeclinedReason",
+			i.source_kind AS "sourceKind",
+			i.closed_at::text AS "closedAt",
+			i.created_at::text AS "createdAt",
+			i.updated_at::text AS "updatedAt",
+			i.deleted_at::text AS "deletedAt",
+			i.version
+	`
+}
+
+export async function addIssueLabelsToMany(
+	tx: Queryable,
+	workspaceId: string,
+	issueIds: readonly string[],
+	labelIds: readonly string[]
+): Promise<void> {
+	if (labelIds.length === 0) return
+	await tx`
+		INSERT INTO issue_labels (workspace_id, issue_id, label_id)
+		SELECT ${workspaceId}, ii, ll
+		FROM unnest(${[...issueIds]}::uuid[]) ii
+		CROSS JOIN unnest(${[...labelIds]}::uuid[]) ll
+		ON CONFLICT (workspace_id, issue_id, label_id) DO NOTHING
+	`
+}
+
+export async function removeIssueLabelsFromMany(
+	tx: Queryable,
+	workspaceId: string,
+	issueIds: readonly string[],
+	labelIds: readonly string[]
+): Promise<void> {
+	if (labelIds.length === 0) return
+	await tx`
+		DELETE FROM issue_labels
+		WHERE workspace_id = ${workspaceId}
+			AND issue_id = ANY(${[...issueIds]}::uuid[])
+			AND label_id = ANY(${[...labelIds]}::uuid[])
+	`
+}
+
+/** Replaces the label set for each issue in one delete + one multi-row insert. */
+export async function replaceIssueLabelsForMany(
+	tx: Queryable,
+	workspaceId: string,
+	pairs: readonly { readonly issueId: string; readonly labelId: string }[]
+): Promise<void> {
+	const issueIds = [...new Set(pairs.map((p) => p.issueId))]
+	if (issueIds.length === 0) return
+	await tx`
+		DELETE FROM issue_labels
+		WHERE workspace_id = ${workspaceId} AND issue_id = ANY(${issueIds}::uuid[])
+	`
+	if (pairs.length === 0) return
+	await tx`
+		INSERT INTO issue_labels (workspace_id, issue_id, label_id)
+		SELECT ${workspaceId}, p.iid, p.lid
+		FROM unnest(${pairs.map((p) => p.issueId)}::uuid[], ${pairs.map((p) => p.labelId)}::uuid[]) AS p(iid, lid)
+		ON CONFLICT (workspace_id, issue_id, label_id) DO NOTHING
+	`
+}
+
+/** Soft-deletes a set of issues in one UPDATE; used by bulk delete. */
+export async function softDeleteIssuesRows(
+	tx: Queryable,
+	workspaceId: string,
+	issueIds: readonly string[]
+): Promise<RawIssueRow[]> {
+	return tx<RawIssueRow[]>`
+		UPDATE issues i
+		SET deleted_at = now(), version = i.version + 1
+		FROM projects p
+		WHERE i.workspace_id = ${workspaceId}
+			AND i.id = ANY(${[...issueIds]}::uuid[])
+			AND i.deleted_at IS NULL
+			AND p.workspace_id = i.workspace_id AND p.id = i.project_id
+		RETURNING
+			i.id,
+			i.workspace_id AS "workspaceId",
+			i.project_id AS "projectId",
+			p.key AS "projectKey",
+			i.number,
+			i.parent_id AS "parentId",
+			i.cycle_id AS "cycleId",
+			i.title,
+			i.description,
+			i.description_text AS "descriptionText",
+			i.status_id AS "statusId",
+			i.priority,
+			i.assignee_type AS "assigneeType",
+			i.assignee_id AS "assigneeId",
+			i.creator_id AS "creatorId",
+			i.position,
+			i.start_date::text AS "startDate",
+			i.due_date::text AS "dueDate",
+			i.estimate::float8 AS estimate,
+			i.triage_status AS "triageStatus",
+			i.triage_snoozed_until::text AS "triageSnoozedUntil",
+			i.triage_declined_reason AS "triageDeclinedReason",
+			i.source_kind AS "sourceKind",
+			i.closed_at::text AS "closedAt",
+			i.created_at::text AS "createdAt",
+			i.updated_at::text AS "updatedAt",
+			i.deleted_at::text AS "deletedAt",
+			i.version
+	`
+}
+
+/** Restore-applies per-issue snapshots in one UPDATE ... FROM unnest. */
+export async function restoreIssueRows(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly items: readonly {
+			readonly id: string
+			readonly statusId: string
+			readonly priority: number
+			readonly assigneeType: string | null
+			readonly assigneeId: string | null
+			readonly cycleId: string | null
+			readonly projectKey: string
+		}[]
+	}
+): Promise<RawIssueRow[]> {
+	const { items, workspaceId } = args
+	if (items.length === 0) return []
+	return tx<RawIssueRow[]>`
+		UPDATE issues i
+		SET status_id = v.status_id,
+			priority = v.priority,
+			assignee_type = v.assignee_type,
+			assignee_id = v.assignee_id,
+			cycle_id = v.cycle_id,
+			deleted_at = NULL,
+			closed_at = CASE WHEN s.category IN ('completed', 'cancelled')
+				THEN COALESCE(i.closed_at, now()) ELSE NULL END,
+			version = i.version + 1
+		FROM unnest(
+			${items.map((it) => it.id)}::uuid[],
+			${items.map((it) => it.statusId)}::uuid[],
+			${items.map((it) => it.priority)}::int[],
+			${items.map((it) => it.assigneeType)}::text[],
+			${items.map((it) => it.assigneeId)}::uuid[],
+			${items.map((it) => it.cycleId)}::uuid[],
+			${items.map((it) => it.projectKey)}::text[]
+		) AS v(id, status_id, priority, assignee_type, assignee_id, cycle_id, project_key)
+		JOIN project_statuses s ON s.workspace_id = ${workspaceId} AND s.id = v.status_id
+		WHERE i.workspace_id = ${workspaceId} AND i.id = v.id
+		RETURNING
+			i.id,
+			i.workspace_id AS "workspaceId",
+			i.project_id AS "projectId",
+			v.project_key AS "projectKey",
+			i.number,
+			i.parent_id AS "parentId",
+			i.cycle_id AS "cycleId",
+			i.title,
+			i.description,
+			i.description_text AS "descriptionText",
+			i.status_id AS "statusId",
+			i.priority,
+			i.assignee_type AS "assigneeType",
+			i.assignee_id AS "assigneeId",
+			i.creator_id AS "creatorId",
+			i.position,
+			i.start_date::text AS "startDate",
+			i.due_date::text AS "dueDate",
+			i.estimate::float8 AS estimate,
+			i.triage_status AS "triageStatus",
+			i.triage_snoozed_until::text AS "triageSnoozedUntil",
+			i.triage_declined_reason AS "triageDeclinedReason",
+			i.source_kind AS "sourceKind",
+			i.closed_at::text AS "closedAt",
+			i.created_at::text AS "createdAt",
+			i.updated_at::text AS "updatedAt",
+			i.deleted_at::text AS "deletedAt",
+			i.version
+	`
+}
+
+/** Batched outbox insert — one multi-row INSERT for all per-issue events. */
+export async function emitTasksEvents(
+	tx: Queryable,
+	workspaceId: string,
+	events: readonly {
+		readonly aggregate: string
+		readonly aggregateId: string
+		readonly eventType: string
+		readonly payload: Record<string, unknown>
+	}[]
+): Promise<void> {
+	if (events.length === 0) return
+	await tx`
+		INSERT INTO outbox (workspace_id, aggregate, aggregate_id, event_type, payload)
+		SELECT ${workspaceId}, a.aggregate, a.aggregate_id, a.event_type, p.pl
+		FROM unnest(
+			${events.map((e) => e.aggregate)}::text[],
+			${events.map((e) => e.aggregateId)}::uuid[],
+			${events.map((e) => e.eventType)}::text[]
+		) WITH ORDINALITY AS a(aggregate, aggregate_id, event_type, ord)
+		JOIN jsonb_array_elements(${tx.json(events.map((e) => e.payload) as never)}) WITH ORDINALITY AS p(pl, ord)
+			ON p.ord = a.ord
+	`
+}
+
+/** FTS candidates for triage duplicate-suggestions (§3.1). */
+export async function searchSimilarIssues(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly projectIds: readonly string[]
+		readonly excludeIssueId: string
+		readonly queryText: string
+		readonly limit: number
+	}
+): Promise<
+	{
+		readonly id: string
+		readonly identifier: string
+		readonly title: string
+		readonly statusCategory: string
+		readonly rank: number
+	}[]
+> {
+	return tx<{ id: string; identifier: string; title: string; statusCategory: string; rank: number }[]>`
+		SELECT
+			i.id,
+			p.key || '-' || i.number AS identifier,
+			i.title,
+			COALESCE(s.category, 'unstarted') AS "statusCategory",
+			ts_rank_cd(
+				to_tsvector('english', i.title || ' ' || i.description_text),
+				websearch_to_tsquery('english', ${args.queryText})
+			)::float8 AS rank
+		FROM issues i
+		JOIN projects p ON p.workspace_id = i.workspace_id AND p.id = i.project_id
+		LEFT JOIN project_statuses s ON s.workspace_id = i.workspace_id AND s.id = i.status_id
+		WHERE i.workspace_id = ${args.workspaceId}
+			AND i.deleted_at IS NULL
+			AND i.id <> ${args.excludeIssueId}::uuid
+			AND i.triage_status NOT IN ('declined', 'merged')
+			AND i.project_id = ANY(${[...args.projectIds]}::uuid[])
+			AND to_tsvector('english', i.title || ' ' || i.description_text)
+				@@ websearch_to_tsquery('english', ${args.queryText})
+		ORDER BY rank DESC, i.id ASC
+		LIMIT ${args.limit}
+	`
+}
+
+/** Idempotent duplicates-link insert for triage merge (§3.1). */
+export async function ensureIssueRelationRow(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly sourceIssueId: string
+		readonly targetIssueId: string
+		readonly kind: IssueRelationDto['kind']
+		readonly createdBy: string
+	}
+): Promise<void> {
+	await tx`
+		INSERT INTO issue_relations (workspace_id, source_issue_id, target_issue_id, kind, created_by)
+		VALUES (${args.workspaceId}, ${args.sourceIssueId}, ${args.targetIssueId}, ${args.kind}, ${args.createdBy})
+		ON CONFLICT (workspace_id, source_issue_id, target_issue_id, kind) DO NOTHING
+	`
+}
+
+// ---------- M7: Cycle maintenance engine (§3.3) ----------
+
+/**
+ * Projects with the cycle engine enabled — for the nightly sweep. Called
+ * under `withSystem`, so it goes through the SECURITY DEFINER function
+ * (0022) rather than a tenant-scoped query.
+ */
+export async function listCycleMaintenanceProjects(
+	tx: Queryable
+): Promise<{ readonly workspaceId: string; readonly projectId: string }[]> {
+	return tx<{ workspaceId: string; projectId: string }[]>`
+		SELECT workspace_id AS "workspaceId", project_id AS "projectId"
+		FROM list_cycle_maintenance_projects()
+	`
+}
+
+/** All cycles of a project in chronological order — the maintenance input. */
+export async function listProjectCyclesAscending(
+	tx: Queryable,
+	workspaceId: string,
+	projectId: string
+): Promise<CycleDto[]> {
+	return tx<CycleDto[]>`
+		SELECT
+			id, workspace_id AS "workspaceId", project_id AS "projectId",
+			name, description, status,
+			starts_at::text AS "startsAt", ends_at::text AS "endsAt",
+			created_at::text AS "createdAt", updated_at::text AS "updatedAt", version
+		FROM cycles
+		WHERE workspace_id = ${workspaceId} AND project_id = ${projectId}
+		ORDER BY starts_at ASC, id ASC
+	`
+}
+
+/**
+ * Guarded status flip — the WHERE clause on `status` makes the transition
+ * idempotent (a second run matches nothing and returns null).
+ */
+export async function transitionCycleStatus(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly cycleId: string
+		readonly fromStatus: CycleDto['status']
+		readonly toStatus: CycleDto['status']
+	}
+): Promise<CycleDto | null> {
+	const [row] = await tx<CycleDto[]>`
+		UPDATE cycles
+		SET status = ${args.toStatus}, version = version + 1
+		WHERE workspace_id = ${args.workspaceId}
+			AND id = ${args.cycleId}
+			AND status = ${args.fromStatus}
+		RETURNING
+			id, workspace_id AS "workspaceId", project_id AS "projectId",
+			name, description, status,
+			starts_at::text AS "startsAt", ends_at::text AS "endsAt",
+			created_at::text AS "createdAt", updated_at::text AS "updatedAt", version
+	`
+	return row ?? null
+}
+
+/**
+ * Set-based rollover: every non-deleted issue of `cycleId` whose status
+ * category is NOT completed/cancelled moves to `targetCycleId` (null = the
+ * backlog). One UPDATE, full rows back for change_log payloads.
+ */
+export async function rolloverCycleIssues(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly cycleId: string
+		readonly targetCycleId: string | null
+	}
+): Promise<RawIssueRow[]> {
+	return tx<RawIssueRow[]>`
+		UPDATE issues i
+		SET cycle_id = ${args.targetCycleId}::uuid,
+			version = i.version + 1
+		FROM projects p
+		WHERE i.workspace_id = ${args.workspaceId}
+			AND i.cycle_id = ${args.cycleId}
+			AND i.deleted_at IS NULL
+			AND p.workspace_id = i.workspace_id AND p.id = i.project_id
+			AND i.status_id IN (
+				SELECT s.id FROM project_statuses s
+				WHERE s.workspace_id = ${args.workspaceId}
+					AND s.project_id = i.project_id
+					AND s.category NOT IN ('completed', 'cancelled')
+			)
+		RETURNING
+			i.id,
+			i.workspace_id AS "workspaceId",
+			i.project_id AS "projectId",
+			p.key AS "projectKey",
+			i.number,
+			i.parent_id AS "parentId",
+			i.cycle_id AS "cycleId",
+			i.title,
+			i.description,
+			i.description_text AS "descriptionText",
+			i.status_id AS "statusId",
+			i.priority,
+			i.assignee_type AS "assigneeType",
+			i.assignee_id AS "assigneeId",
+			i.creator_id AS "creatorId",
+			i.position,
+			i.start_date::text AS "startDate",
+			i.due_date::text AS "dueDate",
+			i.estimate::float8 AS estimate,
+			i.triage_status AS "triageStatus",
+			i.triage_snoozed_until::text AS "triageSnoozedUntil",
+			i.triage_declined_reason AS "triageDeclinedReason",
+			i.source_kind AS "sourceKind",
+			i.closed_at::text AS "closedAt",
+			i.created_at::text AS "createdAt",
+			i.updated_at::text AS "updatedAt",
+			i.deleted_at::text AS "deletedAt",
+			i.version
+	`
+}
+
+/** Count of all cycles in a project — the base for `Cycle <n>` naming. */
+export async function countProjectCycles(
+	tx: Queryable,
+	workspaceId: string,
+	projectId: string
+): Promise<number> {
+	const [row] = await tx<{ n: number }[]>`
+		SELECT count(*)::int AS n
+		FROM cycles
+		WHERE workspace_id = ${workspaceId} AND project_id = ${projectId}
+	`
+	return row?.n ?? 0
+}
+
+export interface CycleScopeCounts {
+	readonly totalIssues: number
+	readonly completedIssues: number
+	readonly startedIssues: number
+	readonly cancelledIssues: number
+	readonly totalEstimate: number
+	readonly completedEstimate: number
+}
+
+/** One grouped scope query over the cycle's non-deleted issues (§3.3). */
+export async function cycleScopeCounts(
+	tx: Queryable,
+	workspaceId: string,
+	cycleId: string
+): Promise<CycleScopeCounts> {
+	const [row] = await tx<CycleScopeCounts[]>`
+		SELECT
+			count(*)::int AS "totalIssues",
+			count(*) FILTER (WHERE s.category = 'completed')::int AS "completedIssues",
+			count(*) FILTER (WHERE s.category = 'started')::int AS "startedIssues",
+			count(*) FILTER (WHERE s.category = 'cancelled')::int AS "cancelledIssues",
+			COALESCE(sum(i.estimate), 0)::float8 AS "totalEstimate",
+			COALESCE(sum(i.estimate) FILTER (WHERE s.category = 'completed'), 0)::float8 AS "completedEstimate"
+		FROM issues i
+		JOIN project_statuses s ON s.workspace_id = i.workspace_id AND s.id = i.status_id
+		WHERE i.workspace_id = ${workspaceId}
+			AND i.cycle_id = ${cycleId}
+			AND i.deleted_at IS NULL
+	`
+	return (
+		row ?? {
+			totalIssues: 0,
+			completedIssues: 0,
+			startedIssues: 0,
+			cancelledIssues: 0,
+			totalEstimate: 0,
+			completedEstimate: 0
+		}
+	)
+}
+
+/** total_issues of the most recent snapshot strictly before `beforeDate`. */
+export async function priorSnapshotTotalIssues(
+	tx: Queryable,
+	workspaceId: string,
+	cycleId: string,
+	beforeDate: string
+): Promise<number | null> {
+	const [row] = await tx<{ totalIssues: number }[]>`
+		SELECT total_issues AS "totalIssues"
+		FROM cycle_daily_snapshots
+		WHERE workspace_id = ${workspaceId}
+			AND cycle_id = ${cycleId}
+			AND snapshot_date < ${beforeDate}::date
+		ORDER BY snapshot_date DESC
+		LIMIT 1
+	`
+	return row?.totalIssues ?? null
+}
+
+/**
+ * Snapshot upsert keyed on (workspace_id, cycle_id, snapshot_date). The DO
+ * UPDATE WHERE clause skips no-op rewrites, so a second identical run writes
+ * nothing and RETURNING yields zero rows — that is the idempotency signal.
+ */
+export async function upsertCycleSnapshotRow(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly cycleId: string
+		readonly snapshotDate: string
+		readonly totalIssues: number
+		readonly completedIssues: number
+		readonly startedIssues: number
+		readonly cancelledIssues: number
+		readonly totalEstimate: number
+		readonly completedEstimate: number
+		readonly scopeAddedCount: number
+		readonly scopeRemovedCount: number
+	}
+): Promise<boolean> {
+	const rows = await tx<{ cycleId: string }[]>`
+		INSERT INTO cycle_daily_snapshots (
+			workspace_id, cycle_id, snapshot_date,
+			total_issues, completed_issues, started_issues, cancelled_issues,
+			total_estimate, completed_estimate, scope_added_count, scope_removed_count
+		) VALUES (
+			${args.workspaceId}, ${args.cycleId}, ${args.snapshotDate}::date,
+			${args.totalIssues}, ${args.completedIssues}, ${args.startedIssues}, ${args.cancelledIssues},
+			${args.totalEstimate}, ${args.completedEstimate}, ${args.scopeAddedCount}, ${args.scopeRemovedCount}
+		)
+		ON CONFLICT (workspace_id, cycle_id, snapshot_date) DO UPDATE SET
+			total_issues = excluded.total_issues,
+			completed_issues = excluded.completed_issues,
+			started_issues = excluded.started_issues,
+			cancelled_issues = excluded.cancelled_issues,
+			total_estimate = excluded.total_estimate,
+			completed_estimate = excluded.completed_estimate,
+			scope_added_count = excluded.scope_added_count,
+			scope_removed_count = excluded.scope_removed_count
+		WHERE
+			cycle_daily_snapshots.total_issues IS DISTINCT FROM excluded.total_issues
+			OR cycle_daily_snapshots.completed_issues IS DISTINCT FROM excluded.completed_issues
+			OR cycle_daily_snapshots.started_issues IS DISTINCT FROM excluded.started_issues
+			OR cycle_daily_snapshots.cancelled_issues IS DISTINCT FROM excluded.cancelled_issues
+			OR cycle_daily_snapshots.total_estimate IS DISTINCT FROM excluded.total_estimate
+			OR cycle_daily_snapshots.completed_estimate IS DISTINCT FROM excluded.completed_estimate
+			OR cycle_daily_snapshots.scope_added_count IS DISTINCT FROM excluded.scope_added_count
+			OR cycle_daily_snapshots.scope_removed_count IS DISTINCT FROM excluded.scope_removed_count
+		RETURNING cycle_id AS "cycleId"
+	`
+	return rows.length > 0
+}
+
+/** Snapshot rows of one cycle ascending by date — the burnup chart series. */
+export async function listCycleSnapshotRows(
+	tx: Queryable,
+	workspaceId: string,
+	cycleId: string
+): Promise<CycleDailySnapshotDto[]> {
+	return tx<CycleDailySnapshotDto[]>`
+		SELECT
+			workspace_id AS "workspaceId",
+			cycle_id AS "cycleId",
+			snapshot_date::text AS "snapshotDate",
+			total_issues AS "totalIssues",
+			completed_issues AS "completedIssues",
+			started_issues AS "startedIssues",
+			cancelled_issues AS "cancelledIssues",
+			total_estimate::float8 AS "totalEstimate",
+			completed_estimate::float8 AS "completedEstimate",
+			scope_added_count AS "scopeAddedCount",
+			scope_removed_count AS "scopeRemovedCount",
+			created_at::text AS "createdAt"
+		FROM cycle_daily_snapshots
+		WHERE workspace_id = ${workspaceId} AND cycle_id = ${cycleId}
+		ORDER BY snapshot_date ASC
+	`
+}

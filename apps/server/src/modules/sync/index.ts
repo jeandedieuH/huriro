@@ -4,9 +4,16 @@ import { appendChange, appendChanges } from '../../api/changelog'
 import type { RealtimePubSub } from '../../realtime/pubsub'
 import type { Auth } from '../identity'
 import { workspaceDerive } from '../tenancy'
-import { MutationsBatchBody, RealtimeTicketBody, SyncChangesQuery, SyncSnapshotQuery } from './schema'
+import {
+	MutationsBatchBody,
+	RealtimeTicketBody,
+	SyncChangesQuery,
+	SyncScopeSnapshotQuery,
+	SyncSnapshotQuery
+} from './schema'
 import {
 	applyMutationsBatch,
+	getScopeSnapshot,
 	getSyncChanges,
 	getSyncSnapshot,
 	issueRealtimeTicket,
@@ -23,6 +30,9 @@ export function syncModule(sql: Sql, auth: Auth | null, pubsub?: RealtimePubSub)
 		)
 		.get('/sync/snapshot', { query: SyncSnapshotQuery }, ({ query, inWorkspace }) =>
 			inWorkspace((tx, actor) => getSyncSnapshot(tx, actor, query))
+		)
+		.get('/sync/scope-snapshot', { query: SyncScopeSnapshotQuery }, ({ query, inWorkspace }) =>
+			inWorkspace((tx, actor) => getScopeSnapshot(tx, actor, query))
 		)
 		.post('/mutations', { body: MutationsBatchBody }, async ({ body, workspaceCtx, inWorkspace }) => {
 			const result = await inWorkspace((tx, actor) => applyMutationsBatch(tx, actor, body.mutations))

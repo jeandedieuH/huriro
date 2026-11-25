@@ -32,7 +32,20 @@ interface ManagedCollection<T extends { readonly id: string }> {
 	values(): T[]
 }
 
-function makeManagedCollection<T extends { readonly id: string }>(id: string): ManagedCollection<T> {
+interface ManagedCollectionOptions<T> {
+	/**
+	 * Write guard consulted before overwriting an EXISTING row. Return false to
+	 * skip the write — used by the issues collection for version-guarded upserts
+	 * so stale tier-2 hydration pages can never clobber newer rows that arrived
+	 * through the change feed (§8.1, ADR-0031).
+	 */
+	readonly guardWrite?: ((incoming: T, existing: T) => boolean) | undefined
+}
+
+function makeManagedCollection<T extends { readonly id: string }>(
+	id: string,
+	opts?: ManagedCollectionOptions<T>
+): ManagedCollection<T> {
 	let driver: SyncDriver<T> | null = null
 
 	const collection = createCollection<T, string>({
@@ -81,7 +94,11 @@ function makeManagedCollection<T extends { readonly id: string }>(id: string): M
 			const d = ensureDriver()
 			d.begin()
 			for (const item of items) {
-				d.write({ type: collection.has(item.id) ? 'update' : 'insert', value: item })
+				const existing = collection.get(item.id)
+				if (existing !== undefined && opts?.guardWrite && !opts.guardWrite(item, existing)) {
+					continue
+				}
+				d.write({ type: existing !== undefined ? 'update' : 'insert', value: item })
 			}
 			d.commit()
 			d.markReady()
@@ -108,6 +125,22 @@ function makeManagedCollection<T extends { readonly id: string }>(id: string): M
 
 export const REPLICA_SCHEMA_VERSION = 1
 
+/** Tier-2 retention window — must mirror the server's 30d core-snapshot cutoff (§8.1). */
+export const TIER2_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+
+/**
+ * True when an issue belongs to the lazy tier-2 history tier: closed over 30
+ * days ago or deleted over 30 days ago. Reopened/undone rows (closedAt/deletedAt
+ * cleared, or recent) are tier-1 shaped and survive scope purges — this check is
+ * the exact mirror of the server's `listCoreSnapshotIssues` exclusion filter.
+ */
+export function isTier2Issue(issue: Pick<IssueDto, 'closedAt' | 'deletedAt'>, nowMs: number): boolean {
+	const cutoff = nowMs - TIER2_RETENTION_MS
+	if (issue.closedAt !== null && Date.parse(issue.closedAt) < cutoff) return true
+	if (issue.deletedAt !== null && Date.parse(issue.deletedAt) < cutoff) return true
+	return false
+}
+
 export interface PersistedReplicaState {
 	/** Versioned so older replicas can render locally without trusted-cursor drift. */
 	readonly schemaVersion?: number | undefined
@@ -127,7 +160,14 @@ export class HuriroSyncCollections {
 	readonly statusesManaged = makeManagedCollection<ProjectStatusDto>('project_statuses')
 	readonly labelsManaged = makeManagedCollection<LabelDto>('labels')
 	readonly cyclesManaged = makeManagedCollection<CycleDto>('cycles')
-	readonly issuesManaged = makeManagedCollection<IssueDto>('issues')
+	// Version-guarded upserts (§8.1): `version` is server-authoritative and
+	// monotonic per issue, so a write carrying a strictly older version is always
+	// stale — critically, tier-2 history hydration pages must never clobber newer
+	// rows that arrived through the change feed mid-pagination. Equal versions
+	// pass so idempotent rewrites and same-version optimistic writes still apply.
+	readonly issuesManaged = makeManagedCollection<IssueDto>('issues', {
+		guardWrite: (incoming, existing) => incoming.version >= existing.version
+	})
 	readonly viewsManaged = makeManagedCollection<SavedViewDto>('saved_views')
 	readonly notificationsManaged = makeManagedCollection<NotificationDto>('notifications')
 	readonly docPagesManaged = makeManagedCollection<DocPageDto>('doc_pages')
@@ -173,7 +213,20 @@ export class HuriroSyncCollections {
 		this.statusesManaged.replaceAll(snap.projectStatuses as unknown as ProjectStatusDto[])
 		this.labelsManaged.replaceAll(snap.labels as unknown as LabelDto[])
 		this.cyclesManaged.replaceAll(snap.cycles as unknown as CycleDto[])
-		this.issuesManaged.replaceAll(snap.issues as unknown as IssueDto[])
+		// Tier-aware issues handling (§8.1, ADR-0031): the server's tier-1 core
+		// snapshot legitimately OMITS closed/deleted-over-30d issues, so a plain
+		// replace would silently wipe every hydrated tier-2 history row. Preserve
+		// local rows that are still tier-2 shaped and absent from the snapshot;
+		// rows present in the snapshot (e.g. reopened since hydration) take the
+		// authoritative server copy. Tier-1 rows missing from the snapshot are
+		// dropped as before — they were deleted or revoked.
+		const snapIssues = snap.issues as unknown as IssueDto[]
+		const snapIssueIds = new Set(snapIssues.map((i) => i.id))
+		const nowMs = Date.now()
+		const preservedTier2 = this.issuesManaged
+			.values()
+			.filter((i) => !snapIssueIds.has(i.id) && isTier2Issue(i, nowMs))
+		this.issuesManaged.replaceAll([...snapIssues, ...preservedTier2])
 		this.viewsManaged.replaceAll(snap.savedViews as unknown as SavedViewDto[])
 		this.notificationsManaged.replaceAll(snap.notifications as unknown as NotificationDto[])
 		this.docPagesManaged.replaceAll((snap.docPages ?? []) as unknown as DocPageDto[])
@@ -356,17 +409,19 @@ export class HuriroSyncCollections {
 		}
 	}
 
+	/**
+	 * Hard wipe for sign-out/revoke — must NOT go through the tier-aware
+	 * `applyFullSnapshot` (which preserves tier-2 rows): every row is tenant
+	 * data and leaving any behind would leak across sessions (§16).
+	 */
 	clearAll(): void {
-		this.applyFullSnapshot({
-			cursor: 0,
-			projects: [],
-			projectStatuses: [],
-			labels: [],
-			cycles: [],
-			issues: [],
-			savedViews: [],
-			notifications: [],
-			docPages: []
-		})
+		this.projectsManaged.replaceAll([])
+		this.statusesManaged.replaceAll([])
+		this.labelsManaged.replaceAll([])
+		this.cyclesManaged.replaceAll([])
+		this.issuesManaged.replaceAll([])
+		this.viewsManaged.replaceAll([])
+		this.notificationsManaged.replaceAll([])
+		this.docPagesManaged.replaceAll([])
 	}
 }

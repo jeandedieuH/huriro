@@ -61,6 +61,17 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
 				return
 			}
 
+			// Mod+A selects every issue in the current view order (§3.4). Unlike
+			// the other Mod chords it must NEVER hijack native text selection, so the
+			// editable-target guard applies here.
+			if (mod && key === 'a' && !isEditableElement(ev.target)) {
+				if (handlers.orderedIssueIds.length > 0) {
+					ev.preventDefault()
+					state.selectAllIssues(handlers.orderedIssueIds)
+				}
+				return
+			}
+
 			if (mod && (ev.key === 'ArrowUp' || ev.key === 'ArrowDown') && !isEditableElement(ev.target)) {
 				const targetId = state.focusedIssueId ?? state.selectedIssueId
 				if (targetId && handlers.onReorderWithinColumn) {

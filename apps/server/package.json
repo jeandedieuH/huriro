@@ -28,6 +28,7 @@
 		"@modelcontextprotocol/server": "2.4.0",
 		"axios": "^1.21.1",
 		"better-auth": "1.7.25",
+		"croner": "11.0.1",
 		"elysia": "2.0.0-rc.3",
 		"imapflow": "^2.12.1",
 		"lib0": "0.2.120",
@@ -43,6 +44,7 @@
 		"resend": "^6.39.0",
 		"typebox": "1.4.7",
 		"y-protocols": "1.0.7",
+		"yaml": "2.9.1",
 		"yjs": "13.6.33",
 		"zod": "^4.6.7"
 	},

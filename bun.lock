@@ -90,6 +90,7 @@
         "@modelcontextprotocol/server": "2.4.0",
         "axios": "^1.21.1",
         "better-auth": "1.7.25",
+        "croner": "11.0.1",
         "elysia": "2.0.0-rc.3",
         "imapflow": "^2.12.1",
         "lib0": "0.2.120",
@@ -105,6 +106,7 @@
         "resend": "^6.39.0",
         "typebox": "1.4.7",
         "y-protocols": "1.0.7",
+        "yaml": "2.9.1",
         "yjs": "13.6.33",
         "zod": "^4.6.7",
       },
@@ -1648,6 +1650,8 @@
     "crc32-stream": ["crc32-stream@6.0.0", "", { "dependencies": { "crc-32": "^1.2.0", "readable-stream": "^4.0.0" } }, "sha512-piICUB6ei4IlTv1+653yq5+KoqfBYmj9bw6LqXoOneTMDXk5nM1qt12mFW1caG3LlJXEKW1Bp0WggEmIfQB34g=="],
 
     "cron-parser": ["cron-parser@5.10.6", "", { "dependencies": { "luxon": "^3.7.2" } }, "sha512-kpoxgQyveO1l29nw+FWdvmotyV7eOSzGHQpxiXOEZIDOjqO1iR6kfgJ0PVHTuV26uBemKq3ppzma7dHFAG7viw=="],
+
+    "croner": ["croner@11.0.1", "", {}, "sha512-/fmHcoczPy5cMcmJ6ex7J7LAwb545V1dNmRrdDGP3hwStg/06IYP56YgBySCSdWGDz2PJYQyDukaR8b8R5o2HA=="],
 
     "cross-spawn": ["cross-spawn@7.0.6", "", { "dependencies": { "path-key": "^3.1.0", "shebang-command": "^2.0.0", "which": "^2.0.1" } }, "sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA=="],
 

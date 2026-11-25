@@ -17,13 +17,19 @@ import type {
 	ProjectDto,
 	SavedViewDto,
 	SyncChangesResponse,
+	SyncScopeSnapshotResponse,
 	SyncSnapshotResponse,
 	UpdateDocPageBody,
 	UpdateIssueBody
 } from '@huriro/contracts'
 import { generateKeyBetween } from '@huriro/domain'
 import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
-import { HuriroSyncCollections, type PersistedReplicaState, REPLICA_SCHEMA_VERSION } from './collections'
+import {
+	HuriroSyncCollections,
+	isTier2Issue,
+	type PersistedReplicaState,
+	REPLICA_SCHEMA_VERSION
+} from './collections'
 import {
 	type FlushOptions,
 	generateUuidV7,
@@ -32,6 +38,7 @@ import {
 	type QueuedMutation,
 	type SyncConflict
 } from './outbox'
+import { type PersistedScopeEntry, ScopedSyncManager, type ScopeRegistryEntry } from './scoped-sync'
 import {
 	createBestReplicaStorage,
 	MemoryReplicaStorage,
@@ -42,10 +49,21 @@ import { WsSignalClient } from './ws-signal'
 
 const REPLICA_KEY = 'huriro:replica:v1'
 const CLIENT_ID_KEY = 'huriro:client_id:v1'
+const SCOPES_KEY = 'huriro:scopes:v1'
+
+/** Default tier-2 scope byte budget — ADR-0031 web quota; mobile passes 30 MB. */
+export const DEFAULT_SCOPE_QUOTA_BYTES = 50 * 1024 * 1024
 
 export interface SyncTransport extends MutationTransport {
-	fetchChanges(since: number, limit: number, clientId: string): Promise<SyncChangesResponse>
+	/**
+	 * `scopes` is the comma-joined active tier-2 subscription list (§8.1,
+	 * ADR-0031). Optional fourth parameter — pre-M7 transports keep working.
+	 */
+	fetchChanges(since: number, limit: number, clientId: string, scopes?: string): Promise<SyncChangesResponse>
 	fetchSnapshot(scope?: string): Promise<SyncSnapshotResponse>
+	/** Tier-2 scope hydration endpoint. Optional: engines degrade gracefully
+	 * (scope subscriptions reject) when the transport predates M7. */
+	fetchScopeSnapshot?(scope: string, after: string | null): Promise<SyncScopeSnapshotResponse>
 	fetchRealtimeTicket?(deviceId: string): Promise<{ ticket: string }>
 }
 
@@ -119,8 +137,14 @@ export class HttpSyncTransport implements SyncTransport {
 		}
 	}
 
-	async fetchChanges(since: number, limit: number, clientId: string): Promise<SyncChangesResponse> {
-		const url = `${this.baseUrl}/api/v1/sync/changes?since=${since}&limit=${limit}&clientId=${encodeURIComponent(clientId)}`
+	async fetchChanges(
+		since: number,
+		limit: number,
+		clientId: string,
+		scopes?: string
+	): Promise<SyncChangesResponse> {
+		const scopesQs = scopes ? `&scopes=${encodeURIComponent(scopes)}` : ''
+		const url = `${this.baseUrl}/api/v1/sync/changes?since=${since}&limit=${limit}&clientId=${encodeURIComponent(clientId)}${scopesQs}`
 		const res = await this.http.get(url, { headers: this.buildHeaders() })
 		if (res.status === 410) {
 			const err = new Error('sync_cursor_expired') as Error & { status?: number }
@@ -131,6 +155,18 @@ export class HttpSyncTransport implements SyncTransport {
 			throw formatHttpError('sync/changes failed', res.status, res.data)
 		}
 		return res.data as SyncChangesResponse
+	}
+
+	async fetchScopeSnapshot(scope: string, after: string | null): Promise<SyncScopeSnapshotResponse> {
+		const afterQs = after !== null ? `&after=${encodeURIComponent(after)}` : ''
+		const res = await this.http.get(
+			`${this.baseUrl}/api/v1/sync/scope-snapshot?scope=${encodeURIComponent(scope)}${afterQs}`,
+			{ headers: this.buildHeaders() }
+		)
+		if (res.status >= 300) {
+			throw formatHttpError('sync/scope-snapshot failed', res.status, res.data)
+		}
+		return res.data as SyncScopeSnapshotResponse
 	}
 
 	async fetchSnapshot(scope?: string): Promise<SyncSnapshotResponse> {
@@ -197,6 +233,10 @@ export interface HuriroSyncEngineOptions {
 		| ((users: readonly { userId: string; status: 'online' | 'away'; lastSeenAt: number }[]) => void)
 		| undefined
 	readonly onTyping?: ((ev: { channelId: string; userId: string; until: number }) => void) | undefined
+	/** Tier-2 scope byte budget (ADR-0031): 50 MB web default, 30 MB on mobile. */
+	readonly scopeQuotaBytes?: number | undefined
+	/** Notified when the LRU evicts a scope — the UI can resubscribe or go stale. */
+	readonly onScopeEvicted?: ((scope: string) => void) | undefined
 }
 
 export class HuriroSyncEngine {
@@ -219,6 +259,8 @@ export class HuriroSyncEngine {
 		| ((users: readonly { userId: string; status: 'online' | 'away'; lastSeenAt: number }[]) => void)
 		| undefined
 	private readonly onTyping: ((ev: { channelId: string; userId: string; until: number }) => void) | undefined
+	private readonly onScopeEvicted: ((scope: string) => void) | undefined
+	private readonly scopedSync: ScopedSyncManager
 
 	private wsClient: WsSignalClient | null = null
 	private cursor = 0
@@ -239,6 +281,7 @@ export class HuriroSyncEngine {
 	private cachedStatus: SyncEngineStatus | null = null
 	private onlineHandler: (() => void) | null = null
 	private offlineHandler: (() => void) | null = null
+	private pendingScopeRegistryWrite: Promise<void> | null = null
 
 	constructor(opts: HuriroSyncEngineOptions) {
 		this.workspaceId = opts.workspaceId
@@ -255,6 +298,56 @@ export class HuriroSyncEngine {
 		this.onChatSignal = opts.onChatSignal
 		this.onPresence = opts.onPresence
 		this.onTyping = opts.onTyping
+		this.onScopeEvicted = opts.onScopeEvicted
+
+		// Tier-2 lazy scope hydration (§8.1, ADR-0031). Rows land in the SAME
+		// issues collection as the core feed — version-guarded upserts keep
+		// mid-pagination pages from clobbering newer change-feed rows, and the
+		// purge only deletes rows that are STILL tier-2 shaped so reopened
+		// issues survive their scope's release/eviction.
+		this.scopedSync = new ScopedSyncManager({
+			quotaBytes: opts.scopeQuotaBytes ?? DEFAULT_SCOPE_QUOTA_BYTES,
+			fetchPage: async (scope, after) => {
+				if (!this.transport?.fetchScopeSnapshot) {
+					throw new Error('Transport does not support tier-2 scope hydration')
+				}
+				const page = await this.transport.fetchScopeSnapshot(scope, after)
+				return { rows: page.rows, nextAfter: page.nextAfter, hasMore: page.hasMore }
+			},
+			applyRows: (scope, rows) => {
+				if (!scope.startsWith('issue_hist:')) {
+					// Only issue_hist hydrates into collections in M7 — other scope
+					// kinds are forward-compat no-ops (server returns empty rows).
+					return
+				}
+				this.collections.issuesManaged.upsertMany(rows as unknown as IssueDto[])
+				// Re-overlay pending optimistic edits so hydration pages never hide
+				// a local offline change that is still queued in the outbox.
+				this.reapplyPendingOptimisticState()
+			},
+			purgeRows: (scope, _rowIds) => {
+				if (!scope.startsWith('issue_hist:')) return
+				const projectId = scope.slice('issue_hist:'.length)
+				const nowMs = Date.now()
+				// Scan by project rather than trust the manager's id list: boot-restored
+				// scopes have no recorded ids, and tier-1 rows that aged into tier-2 while
+				// held belong to the scope's memory budget just the same. Rows that no
+				// longer look like tier-2 (reopened, deletedAt cleared) survive the purge.
+				const keys = this.collections.issuesManaged
+					.values()
+					.filter((i) => i.projectId === projectId && isTier2Issue(i, nowMs))
+					.map((i) => i.id)
+				this.collections.issuesManaged.deleteMany(keys)
+			},
+			onEvict: (scope) => {
+				this.onScopeEvicted?.(scope)
+				void this.persistReplica()
+			},
+			onRegistryChange: (entries) => {
+				void this.persistScopeRegistry(entries)
+				this.emit()
+			}
+		})
 	}
 
 	subscribe(listener: () => void): () => void {
@@ -345,6 +438,32 @@ export class HuriroSyncEngine {
 			}
 		} else {
 			this.collections.markAllReady()
+		}
+
+		// Restore the tier-2 scope registry AFTER the collections are hydrated:
+		// boot-restored entries come back `stale` (rows already in the replica,
+		// lazy rehydration on next subscribe) and an over-quota restore evicts
+		// LRU-first — the eviction purge scans the collections, so they must be
+		// populated before this runs.
+		const rawScopes = await this.storage.get(SCOPES_KEY)
+		if (rawScopes) {
+			try {
+				const parsed = JSON.parse(rawScopes) as PersistedScopeEntry[]
+				if (Array.isArray(parsed)) {
+					this.scopedSync.restoreRegistry(
+						parsed.filter(
+							(e) =>
+								e &&
+								typeof e === 'object' &&
+								typeof (e as { scope?: unknown }).scope === 'string' &&
+								Number.isFinite((e as { byteSize?: unknown }).byteSize) &&
+								Number.isFinite((e as { lastAccess?: unknown }).lastAccess)
+						)
+					)
+				}
+			} catch {
+				// Corrupt registry metadata is non-fatal — scopes simply rehydrate fresh.
+			}
 		}
 
 		await this.outbox.load()
@@ -450,6 +569,12 @@ export class HuriroSyncEngine {
 						visibility: (envelope.patch['visibility'] as 'workspace' | 'private') ?? 'workspace',
 						position: String(envelope.patch['position'] ?? 'V'),
 						archivedAt: null,
+						triageEnabled: false,
+						cycleEnabled: false,
+						cycleDurationDays: 14,
+						cycleCooldownDays: 0,
+						cycleAutoRolloverMode: 'next_cycle',
+						cycleStartWeekday: 1,
 						createdBy: this.currentUserId,
 						createdAt: nowIso,
 						updatedAt: nowIso,
@@ -475,6 +600,8 @@ export class HuriroSyncEngine {
 						name: String(envelope.patch['name'] ?? 'Saved view'),
 						layout: (envelope.patch['layout'] as 'list' | 'board') ?? 'list',
 						filters: (envelope.patch['filters'] as SavedViewDto['filters']) ?? {},
+						filterExpr: null,
+						displayOptions: {},
 						sort: (envelope.patch['sort'] as Record<string, unknown>) ?? {},
 						isShared: Boolean(envelope.patch['isShared'] ?? false),
 						position: String(envelope.patch['position'] ?? 'V'),
@@ -526,6 +653,10 @@ export class HuriroSyncEngine {
 						dueDate: null,
 						estimate: null,
 						closedAt: null,
+						triageStatus: 'none',
+						triageSnoozedUntil: null,
+						triageDeclinedReason: null,
+						sourceKind: 'manual',
 						labelIds: (envelope.patch['labelIds'] as string[]) ?? [],
 						createdAt: nowIso,
 						updatedAt: nowIso,
@@ -686,7 +817,17 @@ export class HuriroSyncEngine {
 
 			let hasMore = true
 			while (hasMore && !this.disposed && this.online) {
-				const page = await this.transport.fetchChanges(this.cursor, 500, this.clientId)
+				// Active tier-2 scope subscriptions ride along on every delta pull
+				// (§8.1) — recomputed per page because scopes can activate while a
+				// long catch-up pagination is in flight. Pre-M7 servers ignore the
+				// parameter; pre-M7 transports simply don't receive it (optional).
+				const activeScopes = this.scopedSync.activeScopes()
+				const page = await this.transport.fetchChanges(
+					this.cursor,
+					500,
+					this.clientId,
+					activeScopes.length > 0 ? activeScopes.join(',') : undefined
+				)
 				if (page.changes.length > 0) {
 					const { grantScopes } = this.collections.applyChanges(page.changes)
 					for (const scope of grantScopes) {
@@ -878,6 +1019,10 @@ export class HuriroSyncEngine {
 			dueDate: input.dueDate ?? null,
 			estimate: input.estimate ?? null,
 			closedAt: null,
+			triageStatus: 'none',
+			triageSnoozedUntil: null,
+			triageDeclinedReason: null,
+			sourceKind: 'manual',
 			labelIds: input.labelIds ?? [],
 			createdAt: nowIso,
 			updatedAt: nowIso,
@@ -1070,6 +1215,12 @@ export class HuriroSyncEngine {
 			visibility: input.visibility ?? 'workspace',
 			position,
 			archivedAt: null,
+			triageEnabled: false,
+			cycleEnabled: false,
+			cycleDurationDays: 14,
+			cycleCooldownDays: 0,
+			cycleAutoRolloverMode: 'next_cycle',
+			cycleStartWeekday: 1,
 			createdBy: this.currentUserId,
 			createdAt: nowIso,
 			updatedAt: nowIso,
@@ -1116,6 +1267,8 @@ export class HuriroSyncEngine {
 			name: input.name,
 			layout: input.layout ?? 'list',
 			filters: input.filters ?? {},
+			filterExpr: input.filterExpr ?? null,
+			displayOptions: input.displayOptions ?? {},
 			sort: input.sort ?? {},
 			isShared: input.isShared ?? false,
 			position,
@@ -1362,6 +1515,9 @@ export class HuriroSyncEngine {
 		this.lastSyncError = null
 		this.lastError = null
 		this.revokedReason = reason
+		// Drop all scope registrations WITHOUT purging — the hard collection wipe
+		// below already removes every row, and purge scans would be wasted work.
+		this.scopedSync.reset()
 		await this.outbox.clearAll()
 		this.collections.clearAll()
 		await this.persistReplica()
@@ -1371,6 +1527,55 @@ export class HuriroSyncEngine {
 	async persistReplica(): Promise<void> {
 		const state = this.collections.exportState(this.cursor)
 		await this.storage.set(REPLICA_KEY, JSON.stringify(state))
+	}
+
+	private async persistScopeRegistry(entries: readonly PersistedScopeEntry[]): Promise<void> {
+		// Metadata only — rows live in the replica itself. Writes are fire-and-forget
+		// but tracked so `signOutAndWipe` can wait for the in-flight one before
+		// clearing storage — otherwise a late landing write could resurrect scope
+		// metadata (which embeds project ids) after sign-out.
+		const write = this.storage.set(SCOPES_KEY, JSON.stringify(entries)).catch(() => {})
+		this.pendingScopeRegistryWrite = write
+		await write
+	}
+
+	// ---------- Tier-2 scope subscriptions (§8.1, ADR-0031) ----------
+
+	/**
+	 * Subscribe a tier-2 scope (in M7: `issue_hist:<projectId>`). Resolves when
+	 * hydrated; rejects when hydration fails — the caller owns a ref either way
+	 * and MUST pair every call with `releaseScope`. Recovery from a failed
+	 * hydration is release + re-subscribe.
+	 */
+	subscribeScope(scope: string): Promise<void> {
+		const promise = this.scopedSync.subscribe(scope)
+		// Persist hydrated rows once paging completes so offline restarts render
+		// them immediately; failures leave the replica untouched.
+		void promise.then(() => this.persistReplica()).catch(() => {})
+		return promise
+	}
+
+	releaseScope(scope: string): void {
+		this.scopedSync.release(scope)
+		void this.persistReplica()
+	}
+
+	pinScope(scope: string): void {
+		this.scopedSync.pin(scope)
+	}
+
+	unpinScope(scope: string): void {
+		this.scopedSync.unpin(scope)
+		void this.persistReplica()
+	}
+
+	/** Scopes threaded into `/sync/changes` — ready plus boot-restored stale ones. */
+	activeScopes(): string[] {
+		return this.scopedSync.activeScopes()
+	}
+
+	getScopeState(scope: string): ScopeRegistryEntry | null {
+		return this.scopedSync.getScopeState(scope)
 	}
 
 	sendPresence(status: 'online' | 'away'): void {
@@ -1386,6 +1591,14 @@ export class HuriroSyncEngine {
 		this.lastFlushError = null
 		this.lastSyncError = null
 		this.lastError = null
+		// Scope registry is dropped before the storage clear, and any in-flight
+		// registry write is awaited so it cannot resurrect scope metadata (which
+		// embeds project ids) after the wipe.
+		this.scopedSync.reset()
+		if (this.pendingScopeRegistryWrite) {
+			await this.pendingScopeRegistryWrite
+			this.pendingScopeRegistryWrite = null
+		}
 		await this.outbox.clearAll()
 		this.collections.clearAll()
 		await this.storage.clear()

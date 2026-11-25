@@ -44,6 +44,7 @@ import {
 } from '@huriro/editor'
 import * as Y from 'yjs'
 import { appendChange, appendChanges, type ChangeLogEntry } from '../../api/changelog'
+import { deleteEntityLinksFor } from '../../api/entity-links'
 import { HttpError } from '../../api/error'
 import { log } from '../../api/observability'
 import { grantAcl, resolveResourceAcl } from '../tenancy'
@@ -267,7 +268,7 @@ async function rebalanceDocSiblings(
 	}
 }
 
-async function requireDocPageAccess(
+export async function requireDocPageAccess(
 	tx: Queryable,
 	actor: ActorContext,
 	pageId: string,
@@ -891,6 +892,18 @@ export async function deleteDocPage(
 		targetId: page.id,
 		metadata: { archivedCount: archivedIds.length }
 	})
+
+	// Archiving a subtree makes every descendant unavailable through the docs
+	// access seam, so every archived page's polymorphic edges are cleaned up in
+	// this transaction (ADR-0033 — entity_links carries no endpoint FKs).
+	for (const archivedId of archivedIds) {
+		await deleteEntityLinksFor(tx, {
+			workspaceId: actor.workspaceId,
+			entityType: 'doc_page',
+			entityId: archivedId,
+			actorId: actor.principalId
+		})
+	}
 
 	const changes: ChangeLogEntry[] = archived.map((row) => ({
 		entityType: 'doc_page',

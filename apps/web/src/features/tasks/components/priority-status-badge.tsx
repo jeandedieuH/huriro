@@ -64,11 +64,11 @@ export function StatusIcon({ category }: { readonly category: ProjectStatusDto['
 		case 'backlog':
 			return <CircleDashed className="size-3.5 text-muted-foreground" aria-hidden />
 		case 'unstarted':
-			return <Circle className="size-3.5 text-(--info)" aria-hidden />
+			return <Circle className="size-3.5 text-info" aria-hidden />
 		case 'started':
-			return <CircleDot className="size-3.5 text-(--warning)" aria-hidden />
+			return <CircleDot className="size-3.5 text-warning" aria-hidden />
 		case 'completed':
-			return <CheckCircle2 className="size-3.5 text-(--success)" aria-hidden />
+			return <CheckCircle2 className="size-3.5 text-success" aria-hidden />
 		case 'cancelled':
 			return <XCircle className="size-3.5 text-destructive" aria-hidden />
 	}

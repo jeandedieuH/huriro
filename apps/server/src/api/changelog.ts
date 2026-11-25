@@ -10,7 +10,9 @@ import type { Queryable } from '@huriro/db'
 import { changeLogWriteMs } from './observability'
 
 export interface ChangeLogEntry {
-	readonly entityType: SyncEntityType
+	// `entity_link` is written for ADR-0033 graph edges ahead of the sync-v2
+	// consumer (slice S6); the column is unconstrained text and sync filters it out.
+	readonly entityType: SyncEntityType | 'entity_link'
 	readonly entityId: string
 	readonly action: SyncAction
 	readonly scope?: readonly string[]
@@ -47,25 +49,29 @@ export async function appendChanges(
 	const endCursor = Number(seq.lastCursor)
 	const startCursor = endCursor - entries.length + 1
 
-	for (let i = 0; i < entries.length; i++) {
-		const entry = entries[i]
-		if (!entry) continue
-		const cursor = startCursor + i
-		const scope = entry.scope ? [...entry.scope] : []
-		await tx`
-			INSERT INTO change_log (workspace_id, cursor, entity_type, entity_id, action, scope, payload, actor_id)
-			VALUES (
-				${workspaceId},
-				${cursor},
-				${entry.entityType},
-				${entry.entityId},
-				${entry.action},
-				${scope}::text[],
-				${entry.payload === null ? null : tx.json(entry.payload as never)},
-				${entry.actorId ?? null}
-			)
-		`
-	}
+	// ONE multi-row INSERT: cursors map 1:1 to entry order via WITH ORDINALITY.
+	await tx`
+		INSERT INTO change_log (workspace_id, cursor, entity_type, entity_id, action, scope, payload, actor_id)
+		SELECT
+			${workspaceId},
+			${startCursor} + a.ord - 1,
+			a.et,
+			a.eid,
+			a.act,
+			COALESCE(ARRAY(SELECT jsonb_array_elements_text(sc.el)), '{}'::text[]),
+			p.pl,
+			a.actor
+		FROM unnest(
+			${entries.map((e) => e.entityType)}::text[],
+			${entries.map((e) => e.entityId)}::uuid[],
+			${entries.map((e) => e.action)}::text[],
+			${entries.map((e) => e.actorId ?? null)}::uuid[]
+		) WITH ORDINALITY AS a(et, eid, act, actor, ord)
+		JOIN jsonb_array_elements(${tx.json(entries.map((e) => (e.scope ? [...e.scope] : [])) as never)})
+			WITH ORDINALITY AS sc(el, ord) ON sc.ord = a.ord
+		JOIN jsonb_array_elements(${tx.json(entries.map((e) => e.payload) as never)})
+			WITH ORDINALITY AS p(pl, ord) ON p.ord = a.ord
+	`
 
 	changeLogWriteMs.observe(performance.now() - start)
 	return endCursor

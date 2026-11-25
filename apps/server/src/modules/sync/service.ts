@@ -14,6 +14,8 @@ import {
 	type SyncChangeDto,
 	type SyncChangesQuery,
 	type SyncChangesResponse,
+	type SyncScopeSnapshotQuery,
+	type SyncScopeSnapshotResponse,
 	type SyncSnapshotQuery,
 	type SyncSnapshotResponse,
 	UpdateDocPageBody,
@@ -43,6 +45,7 @@ import {
 	createProject,
 	createSavedView,
 	deleteIssue,
+	getIssueHistoryPage,
 	getTasksSnapshotData,
 	listAccessibleProjectIds,
 	moveIssue,
@@ -73,6 +76,118 @@ function extractDocPageIdFromScope(scope: readonly string[]): string | null {
 		if (s.startsWith('doc_page:')) return s.slice('doc_page:'.length)
 	}
 	return null
+}
+
+// ---------- Tier-2 scope protocol (§8.1, ADR-0031) ----------
+
+const SYNC_SCOPE_KINDS = new Set(['links', 'issue_hist', 'db', 'channel'] as const)
+type SyncScopeKind = 'links' | 'issue_hist' | 'db' | 'channel'
+
+interface ParsedSyncScope {
+	readonly kind: SyncScopeKind
+	readonly rest: string
+}
+
+/**
+ * Scope shape is `<kind>:<id>` with kind in links|issue_hist|db|channel;
+ * `links` scopes always carry the double-segment form `links:<type>:<id>`
+ * (ADR-0033). Everything else is malformed → callers answer 422.
+ */
+function parseSyncScope(entry: string): ParsedSyncScope | null {
+	const idx = entry.indexOf(':')
+	if (idx <= 0) return null
+	const kind = entry.slice(0, idx)
+	if (!SYNC_SCOPE_KINDS.has(kind as SyncScopeKind)) return null
+	const rest = entry.slice(idx + 1)
+	if (rest.length === 0 || rest.length > 150 || /\s/.test(rest)) return null
+	if (kind === 'links') {
+		const sub = rest.indexOf(':')
+		if (sub <= 0 || sub === rest.length - 1) return null
+	}
+	return { kind: kind as SyncScopeKind, rest }
+}
+
+/** Parse + validate the comma-separated `scopes` query param (max 50 entries). */
+function parseScopesParam(raw: string): string[] {
+	const entries = raw.split(',').map((s) => s.trim())
+	if (entries.some((e) => e.length === 0)) {
+		throw new HttpError(422, 'validation_failed', 'Malformed scopes: empty entry in comma list')
+	}
+	if (entries.length > 50) {
+		throw new HttpError(422, 'validation_failed', 'Too many scopes: at most 50 may be subscribed per request')
+	}
+	for (const entry of entries) {
+		if (!parseSyncScope(entry)) {
+			throw new HttpError(
+				422,
+				'validation_failed',
+				'Malformed scope: expected <kind>:<id> with kind in links|issue_hist|db|channel'
+			)
+		}
+	}
+	return [...new Set(entries)]
+}
+
+function encodeScopeCursor(key: { readonly closedAt: string | null; readonly id: string }): string {
+	return Buffer.from(JSON.stringify({ c: key.closedAt, i: key.id }), 'utf8').toString('base64url')
+}
+
+function decodeScopeCursor(raw: string): { readonly closedAt: string | null; readonly id: string } {
+	try {
+		const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as {
+			c?: unknown
+			i?: unknown
+		}
+		const closedAt = typeof parsed.c === 'string' ? parsed.c : null
+		const id = typeof parsed.i === 'string' ? parsed.i : ''
+		// `c` round-trips a `closed_at::text` timestamptz string (or null for
+		// deleted-never-closed rows); `i` must be the row uuid.
+		if (!isUuid(id) || (parsed.c !== null && typeof parsed.c !== 'string')) {
+			throw new Error('bad shape')
+		}
+		return { closedAt, id }
+	} catch {
+		throw new HttpError(422, 'validation_failed', 'Malformed after cursor')
+	}
+}
+
+/**
+ * `GET /sync/scope-snapshot` — tier-2 lazy hydration (§8.1). Only
+ * `issue_hist:<projectId>` is implemented in M7; `db:`/`links:`/`channel:` are
+ * valid shapes that intentionally hydrate to EMPTY pages until their milestone
+ * lands, so forward-compatible clients can subscribe uniformly.
+ */
+export async function getScopeSnapshot(
+	tx: Queryable,
+	actor: ActorContext,
+	query: SyncScopeSnapshotQuery
+): Promise<SyncScopeSnapshotResponse> {
+	assertActiveSyncMember(actor)
+	const parsed = parseSyncScope(query.scope)
+	if (!parsed) {
+		throw new HttpError(
+			422,
+			'validation_failed',
+			'Malformed scope: expected <kind>:<id> with kind in links|issue_hist|db|channel'
+		)
+	}
+	if (parsed.kind !== 'issue_hist') {
+		// Forward-compat no-op, see docstring above.
+		return { scope: query.scope, rows: [], nextAfter: null, hasMore: false }
+	}
+	if (!isUuid(parsed.rest)) {
+		throw new HttpError(422, 'validation_failed', 'Malformed issue_hist scope: expected a project uuid')
+	}
+	const after = query.after ? decodeScopeCursor(query.after) : null
+	const limit = query.limit ?? 500
+	const page = await getIssueHistoryPage(tx, actor, { projectId: parsed.rest, after, limit })
+	const last = page.items[page.items.length - 1]
+	return {
+		scope: query.scope,
+		rows: page.items,
+		nextAfter: page.hasMore && last ? encodeScopeCursor({ closedAt: last.closedAt, id: last.id }) : null,
+		hasMore: page.hasMore
+	}
 }
 
 function filterRowForActor(
@@ -300,6 +415,16 @@ export async function getSyncChanges(
 	assertActiveSyncMember(actor)
 	const since = query.since ?? 0
 	const limit = query.limit ?? 200
+	// Tier-2 scope subscriptions (§8.1, ADR-0031): rows whose scope array
+	// intersects this set are delivered IN ADDITION to the normal core feed.
+	// `entity_link` rows are ONLY ever delivered through this intersection —
+	// they carry no project:/doc_page: scope, so core filtering always drops
+	// them. The change feed itself is not tiered: core delivery is unchanged
+	// when `scopes` is absent. Note on authorization: subscription is
+	// knowledge-of-id based and payloads are pure edge metadata (endpoint
+	// uuids + relation kind, never content) — endpoint-level ACL filtering is
+	// deferred to the graph milestone by design.
+	const requestedScopes = query.scopes ? new Set(parseScopesParam(query.scopes)) : new Set<string>()
 
 	const { lastCursor, minLogCursor } = await getWorkspaceCursorBounds(tx, actor.workspaceId)
 	const expired =
@@ -337,7 +462,23 @@ export async function getSyncChanges(
 			accessibleDocPages,
 			accessibleArchivedDocPages
 		)
-		if (mapped) filtered.push(mapped)
+		if (mapped) {
+			filtered.push(mapped)
+			continue
+		}
+		// Scope-intersected delivery: core filtering dropped the row, but the
+		// client explicitly subscribed one of its scopes — ship it raw.
+		if (requestedScopes.size > 0 && row.scope.some((s) => requestedScopes.has(s))) {
+			filtered.push({
+				cursor: row.cursor,
+				entity: row.entityType,
+				id: row.entityId,
+				action: row.action,
+				scope: row.scope,
+				data: row.payload,
+				changedAt: row.changedAt
+			})
+		}
 	}
 
 	const collapsed = collapseChangesPerEntity(filtered)

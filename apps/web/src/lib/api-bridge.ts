@@ -16,6 +16,9 @@ import type {
 	AiSettingsResponse,
 	BillingPortalDto,
 	BillingSummaryResponse,
+	BulkIssuesBody,
+	BulkIssuesResponse,
+	BulkRestoreBody,
 	ChannelChangesResponse,
 	ChatChannelDto,
 	ChatChannelMemberDto,
@@ -29,6 +32,7 @@ import type {
 	CreateCheckoutBody,
 	CreateDmBody,
 	CreateDocCommentBody,
+	CreateEntityLinkBody,
 	CreateGithubInstallationBody,
 	CreateIssueGithubLinkBody,
 	CreateMailAccountBody,
@@ -38,6 +42,7 @@ import type {
 	CreateWebhookBody,
 	CreateWebhookResponse,
 	CreateWebPushSubscriptionBody,
+	CycleDailySnapshotDto,
 	DocCommentDto,
 	DocExportMarkdownResponse,
 	DocImportMarkdownBody,
@@ -46,6 +51,8 @@ import type {
 	DocVersionDetailDto,
 	DocVersionDto,
 	EmailPipelineStatusDto,
+	EntityLinkDto,
+	EntityType,
 	EraseAccountBody,
 	EraseAccountResponse,
 	FileDto,
@@ -55,6 +62,7 @@ import type {
 	ImportExecuteBody,
 	ImportJobDto,
 	IssueCommentDto,
+	IssueDto,
 	IssueGithubLinkDto,
 	IssueRelationDto,
 	LinkConversationBody,
@@ -68,11 +76,15 @@ import type {
 	MailNoteDto,
 	MailTimelineDto,
 	NotificationPreferencesDto,
+	PeekCardDto,
+	QueryIssuesBody,
 	RelationKind,
 	SearchHitDto,
 	SendMailDraftBody,
 	SendMessageBody,
 	SendTestEmailResponse,
+	TriageActionBody,
+	TriageSuggestionsDto,
 	UpdateChannelBody,
 	UpdateConversationBody,
 	UpdateDocCommentBody,
@@ -305,6 +317,22 @@ export interface TaskApiBridge {
 	createWorkspaceExport(): Promise<WorkspaceExportDto>
 	getWorkspaceExportDownloadUrl(exportId: string): string
 	eraseMyAccount(body: EraseAccountBody): Promise<EraseAccountResponse>
+	// M7: triage queue, bulk actions + undo, compound queries, cycles, entity graph
+	listTriageQueue(projectId: string, state?: 'pending' | 'snoozed' | 'resolved'): Promise<IssueDto[]>
+	triageIssue(issueId: string, body: TriageActionBody): Promise<IssueDto>
+	getTriageSuggestions(issueId: string): Promise<TriageSuggestionsDto>
+	bulkUpdateIssues(body: BulkIssuesBody): Promise<BulkIssuesResponse>
+	bulkRestoreIssues(body: BulkRestoreBody): Promise<{ readonly restored: number }>
+	queryIssues(body: QueryIssuesBody): Promise<{
+		readonly data: IssueDto[]
+		readonly nextCursor: string | null
+		readonly hasMore: boolean
+	}>
+	listCycleSnapshots(cycleId: string): Promise<CycleDailySnapshotDto[]>
+	listEntityLinks(type: EntityType, id: string): Promise<EntityLinkDto[]>
+	createEntityLink(body: CreateEntityLinkBody): Promise<EntityLinkDto>
+	deleteEntityLink(linkId: string): Promise<void>
+	peekEntity(type: EntityType, id: string): Promise<PeekCardDto | null>
 }
 
 export interface CreateInvitationResponse {

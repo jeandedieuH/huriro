@@ -31,6 +31,13 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/approvals/{id}`
 - `/api/v1/approvals/{id}/decide`
 - `/api/v1/auth/providers`
+- `/api/v1/automations/rules`
+- `/api/v1/automations/rules/import`
+- `/api/v1/automations/rules/{id}`
+- `/api/v1/automations/rules/{id}/simulate`
+- `/api/v1/automations/rules/{id}/yaml`
+- `/api/v1/automations/runs`
+- `/api/v1/automations/runs/{runId}`
 - `/api/v1/billing/checkout`
 - `/api/v1/billing/portal`
 - `/api/v1/billing/subscription`
@@ -51,6 +58,7 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/chat/messages/{id}/thread`
 - `/api/v1/chat/threads`
 - `/api/v1/cycles`
+- `/api/v1/cycles/{cycleId}/snapshots`
 - `/api/v1/cycles/{id}`
 - `/api/v1/docs`
 - `/api/v1/docs/by-slug/{slug}`
@@ -77,6 +85,9 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/governance/erase-me`
 - `/api/v1/governance/exports`
 - `/api/v1/governance/exports/{id}/download`
+- `/api/v1/graph/links`
+- `/api/v1/graph/links/{linkId}`
+- `/api/v1/graph/peek`
 - `/api/v1/imports`
 - `/api/v1/imports/dry-run`
 - `/api/v1/imports/execute`
@@ -91,10 +102,15 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/invitations`
 - `/api/v1/invitations/accept`
 - `/api/v1/issues`
+- `/api/v1/issues/bulk`
+- `/api/v1/issues/bulk/restore`
 - `/api/v1/issues/by-key/{identifier}`
+- `/api/v1/issues/query`
 - `/api/v1/issues/{id}`
 - `/api/v1/issues/{id}/labels`
 - `/api/v1/issues/{id}/move`
+- `/api/v1/issues/{id}/triage`
+- `/api/v1/issues/{id}/triage-suggestions`
 - `/api/v1/issues/{issueId}/comments`
 - `/api/v1/issues/{issueId}/comments/{commentId}`
 - `/api/v1/issues/{issueId}/github-links`
@@ -144,6 +160,7 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/notifications/{id}/read`
 - `/api/v1/projects`
 - `/api/v1/projects/{id}`
+- `/api/v1/projects/{id}/triage`
 - `/api/v1/projects/{projectId}/statuses`
 - `/api/v1/realtime/ticket`
 - `/api/v1/search`
@@ -152,6 +169,7 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/setup/status`
 - `/api/v1/statuses/{id}`
 - `/api/v1/sync/changes`
+- `/api/v1/sync/scope-snapshot`
 - `/api/v1/sync/snapshot`
 - `/api/v1/views`
 - `/api/v1/views/{id}`

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { createPreviewWorkspace } from '@/lib/sync-bootstrap'
 import { expectNoViolations } from '@/lib/test-setup'
+import { WorkspaceProvider } from '@/lib/workspace'
 import { useUiStore } from '@/stores/ui-store'
 import { TasksSidebarNav } from './components/tasks-sidebar-nav'
 import { TasksWorkspace } from './components/tasks-workspace'
@@ -15,12 +16,14 @@ async function renderTasksWorkspace() {
 	const boot = await createPreviewWorkspace()
 	const rendered = render(
 		<TooltipProvider>
-			<SyncProvider engine={boot.engine}>
-				<div className="flex h-full">
-					<TasksSidebarNav />
-					<TasksWorkspace api={boot.api} currentUserId={boot.currentUserId} />
-				</div>
-			</SyncProvider>
+			<WorkspaceProvider boot={boot}>
+				<SyncProvider engine={boot.engine}>
+					<div className="flex h-full">
+						<TasksSidebarNav />
+						<TasksWorkspace api={boot.api} currentUserId={boot.currentUserId} />
+					</div>
+				</SyncProvider>
+			</WorkspaceProvider>
 		</TooltipProvider>
 	)
 	return { boot, ...rendered }
@@ -47,6 +50,14 @@ describe('TasksWorkspace', () => {
 				priority: 'all',
 				assigneeId: 'all',
 				activeViewId: null
+			},
+			filterExpr: null,
+			tasksDisplay: {
+				groupBy: 'none',
+				subGroupBy: 'none',
+				sortBy: 'manual',
+				sortDirection: 'asc',
+				showSubIssues: true
 			},
 			commandPaletteOpen: false,
 			shortcutsDialogOpen: false,

@@ -10,11 +10,13 @@ import type {
 	ChatChannelDto,
 	ChatChannelMemberDto,
 	ChatMessageDto,
+	CycleDailySnapshotDto,
 	DocCommentDto,
 	DocPageDetailDto,
 	DocPageDto,
 	DocVersionDto,
 	EmailPipelineStatusDto,
+	EntityLinkDto,
 	FileDto,
 	GithubInstallationDto,
 	IssueCommentDto,
@@ -86,6 +88,12 @@ export function createPreviewSeedSnapshot() {
 			visibility: 'workspace',
 			position: 'F',
 			archivedAt: null,
+			triageEnabled: false,
+			cycleEnabled: false,
+			cycleDurationDays: 14,
+			cycleCooldownDays: 0,
+			cycleAutoRolloverMode: 'next_cycle',
+			cycleStartWeekday: 1,
 			createdBy: PREVIEW_USER_ID,
 			createdAt: now,
 			updatedAt: now,
@@ -100,6 +108,12 @@ export function createPreviewSeedSnapshot() {
 			visibility: 'private',
 			position: 'V',
 			archivedAt: null,
+			triageEnabled: false,
+			cycleEnabled: false,
+			cycleDurationDays: 14,
+			cycleCooldownDays: 0,
+			cycleAutoRolloverMode: 'next_cycle',
+			cycleStartWeekday: 1,
 			createdBy: PREVIEW_USER_ID,
 			createdAt: now,
 			updatedAt: now,
@@ -477,6 +491,15 @@ export function createPreviewApiBridge(
 	engine: HuriroSyncEngine,
 	opts?: { readonly mode?: 'selfhost' | 'cloud' | undefined }
 ): TaskApiBridge {
+	const previewEntityLinks: EntityLinkDto[] = []
+	const previewCycleSnapshots: CycleDailySnapshotDto[] = []
+	const previewPeekIssues: {
+		id: string
+		title: string
+		identifier: string
+		statusCategory: string
+		updatedAt: string
+	}[] = []
 	const commentsByIssue = new Map<string, IssueCommentDto[]>()
 	const relationsByIssue = new Map<string, IssueRelationDto[]>()
 	const docStatesByPage = new Map<
@@ -2757,6 +2780,69 @@ export function createPreviewApiBridge(
 				userId: PREVIEW_USER_ID,
 				revokedWorkspaceIds: [PREVIEW_WORKSPACE_ID]
 			}
+		},
+		// M7 in the offline preview: the queue/query/bulk endpoints are server
+		// computations, so the preview degrades to empty results; entity links
+		// are fully functional in-memory so the graph UI stays demoable (§9.5).
+		async listTriageQueue() {
+			return []
+		},
+		async triageIssue() {
+			throw new Error('Triage actions require a connected server')
+		},
+		async getTriageSuggestions() {
+			return { duplicates: [], suggestedPriority: null, suggestedLabelIds: [], suggestedAssigneeId: null }
+		},
+		async bulkUpdateIssues() {
+			throw new Error('Bulk actions require a connected server')
+		},
+		async bulkRestoreIssues() {
+			throw new Error('Bulk restore requires a connected server')
+		},
+		async queryIssues() {
+			return { data: [], nextCursor: null, hasMore: false }
+		},
+		async listCycleSnapshots() {
+			return previewCycleSnapshots
+		},
+		async listEntityLinks(type, id) {
+			return previewEntityLinks.filter(
+				(l) => (l.sourceType === type && l.sourceId === id) || (l.targetType === type && l.targetId === id)
+			)
+		},
+		async createEntityLink(body) {
+			const next: EntityLinkDto = {
+				id: generateUuidV7(),
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				sourceType: body.sourceType,
+				sourceId: body.sourceId,
+				targetType: body.targetType,
+				targetId: body.targetId,
+				relationKind: body.relationKind ?? 'references',
+				createdBy: PREVIEW_USER_ID,
+				createdAt: new Date().toISOString()
+			}
+			previewEntityLinks.push(next)
+			return next
+		},
+		async deleteEntityLink(linkId) {
+			const idx = previewEntityLinks.findIndex((l) => l.id === linkId)
+			if (idx >= 0) previewEntityLinks.splice(idx, 1)
+		},
+		async peekEntity(type, id) {
+			const issue = previewPeekIssues.find((i) => i.id === id)
+			if (type === 'issue' && issue) {
+				return {
+					type,
+					id,
+					title: issue.title,
+					subtitle: issue.identifier,
+					status: { kind: 'status', label: issue.statusCategory },
+					meta: {},
+					updatedAt: issue.updatedAt
+				}
+			}
+			return null
 		}
 	}
 }

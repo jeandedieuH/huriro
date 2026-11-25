@@ -28,6 +28,7 @@ import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 import type { TaskApiBridge, WorkspaceMemberSummary } from '@/lib/sync-bootstrap'
 import { useUiStore } from '@/stores/ui-store'
+import { EntityLinksSection } from './entity-links'
 
 export interface IssueDetailPanelProps {
 	readonly issue: IssueDto
@@ -458,6 +459,10 @@ export function IssueDetailPanel({
 						<Separator />
 					</>
 				) : null}
+
+				<EntityLinksSection issueId={issue.id} />
+
+				<Separator />
 
 				{/* Comments */}
 				<div className="space-y-2">

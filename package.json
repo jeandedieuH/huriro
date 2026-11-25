@@ -28,6 +28,7 @@
 		"chaos:smoke": "bun scripts/chaos-smoke.ts",
 		"smoke:compose": "bun scripts/compose-smoke.ts",
 		"soak:collab": "bun --cwd apps/server scripts/collab-soak.ts",
+		"bench:g7": "bun --cwd apps/server scripts/g7-bench.ts",
 		"verify": "turbo lint typecheck test build gen:check && bun run check:boundaries && bun run check:licenses && bun run check:bundles && bun run check:shared-code",
 		"migrate": "bun --cwd apps/server src/index.ts migrate",
 		"setup-token": "bun --cwd apps/server src/index.ts setup-token",

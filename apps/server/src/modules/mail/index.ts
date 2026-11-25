@@ -53,17 +53,20 @@ export {
 	hashInboundToken,
 	nodeDnsResolver
 } from './providers'
-export type { MailModuleConfig, MailOutboxEvent, MailWorkerDeps } from './service'
+export type { MailConversationEndpoint, MailModuleConfig, MailOutboxEvent, MailWorkerDeps } from './service'
 export {
+	createNote,
 	exportConversation,
 	ingestRawMime,
 	listAccounts,
 	listConversations,
 	processMailOutboxEvent,
+	requireMailConversationAccess,
 	resolveInboundRoute,
 	runRetentionSweep,
 	sendDueDraft,
-	syncAccount
+	syncAccount,
+	updateConversation
 } from './service'
 
 export function mailModule(

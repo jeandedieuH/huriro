@@ -12,6 +12,7 @@ import type {
 	CreateProjectBody,
 	CreateSavedViewBody,
 	CreateStatusBody,
+	CycleDailySnapshotDto,
 	CycleDto,
 	IssueCommentDto,
 	IssueDto,
@@ -34,12 +35,15 @@ import { decodeCursor, encodeCursor } from '@huriro/contracts'
 import { isAcceptableClientId, type Queryable } from '@huriro/db'
 import {
 	type ActorContext,
+	type FilterExpr,
 	generateKeyBetween,
 	generateNKeysBetween,
 	needsRebalance,
-	rebalanceKeys
+	rebalanceKeys,
+	validateFilter
 } from '@huriro/domain'
 import { appendChange, appendChanges, type ChangeLogEntry } from '../../api/changelog'
+import { deleteEntityLinksFor } from '../../api/entity-links'
 import { HttpError } from '../../api/error'
 import { grantAcl, resolveResourceAcl } from '../tenancy'
 import { TASKS_EVENTS } from './events'
@@ -71,8 +75,11 @@ import {
 	insertSavedViewRow,
 	insertStatusRow,
 	listColumnIssueIdsAndPositions,
+	listCoreSnapshotIssues,
+	listCycleSnapshotRows,
 	listCyclesForProjects,
 	listIssueComments,
+	listIssueHistoryPage,
 	listIssueRelations,
 	listIssuesFiltered,
 	listLabels,
@@ -111,6 +118,21 @@ function extractMentions(text: string): string[] {
 	return [...found]
 }
 
+/**
+ * Domain is the authority for FilterExpr validity — map failures to a 422
+ * problem with the error list (§3.4).
+ */
+function validateFilterExprInput(input: unknown): FilterExpr | null {
+	if (input === undefined || input === null) return null
+	const v = validateFilter(input)
+	if (!v.ok) {
+		throw new HttpError(422, 'validation_failed', 'Invalid filter expression', undefined, {
+			errors: v.errors
+		})
+	}
+	return v.expr
+}
+
 function assertValidClientId(id: string | undefined, label: string): void {
 	if (id !== undefined && !isAcceptableClientId(id)) {
 		throw new HttpError(
@@ -146,7 +168,7 @@ function computeChangedKeys(before: Record<string, unknown>, after: Record<strin
 	return changed
 }
 
-function isClosedCategory(category: ProjectStatusDto['category']): boolean {
+export function isClosedCategory(category: ProjectStatusDto['category']): boolean {
 	return category === 'completed' || category === 'cancelled'
 }
 
@@ -165,7 +187,7 @@ export async function listAccessibleProjectIds(tx: Queryable, actor: ActorContex
 	return new Set(visible.map((p) => p.id))
 }
 
-async function requireProjectRead(
+export async function requireProjectRead(
 	tx: Queryable,
 	actor: ActorContext,
 	projectId: string
@@ -180,6 +202,53 @@ async function requireProjectRead(
 	})
 	await authorizeProject(tx, actor, 'project.read', project, acl)
 	return project
+}
+
+/**
+ * Cross-module seam for the sync module's tier-2 `issue_hist:<projectId>`
+ * scope snapshot (§8.1, ADR-0031): project-read authorization is identical to
+ * the tasks controller, then the keyset page comes from `listIssueHistoryPage`.
+ */
+export async function getIssueHistoryPage(
+	tx: Queryable,
+	actor: ActorContext,
+	args: {
+		readonly projectId: string
+		readonly after: { readonly closedAt: string | null; readonly id: string } | null
+		readonly limit: number
+	}
+): Promise<{ readonly items: IssueDto[]; readonly hasMore: boolean }> {
+	await requireProjectRead(tx, actor, args.projectId)
+	return listIssueHistoryPage(tx, {
+		workspaceId: actor.workspaceId,
+		projectId: args.projectId,
+		after: args.after,
+		limit: args.limit
+	})
+}
+
+/**
+ * Cross-module issue access seam (graph traversal/peek). Read and write use the
+ * exact same project ACL policy as the tasks controller — never a parallel rule.
+ */
+export async function requireIssueAccess(
+	tx: Queryable,
+	actor: ActorContext,
+	issueId: string,
+	action: 'issue.read' | 'issue.write'
+): Promise<IssueDto> {
+	const issue = await getIssueById(tx, actor.workspaceId, issueId)
+	if (!issue) throw new HttpError(404, 'not_found', 'Issue not found')
+	const project = await getProjectById(tx, actor.workspaceId, issue.projectId)
+	if (!project) throw new HttpError(404, 'not_found', 'Project not found')
+	const acl = await resolveResourceAcl(tx, {
+		workspaceId: actor.workspaceId,
+		resourceType: 'project',
+		resourceId: project.id,
+		userId: actor.userId
+	})
+	await authorizeProject(tx, actor, action, project, acl)
+	return issue
 }
 
 // ---------- Projects ----------
@@ -209,7 +278,13 @@ export async function createProject(
 		description: input.description ?? '',
 		visibility,
 		position,
-		createdBy: actor.userId
+		createdBy: actor.userId,
+		triageEnabled: input.triageEnabled,
+		cycleEnabled: input.cycleEnabled,
+		cycleDurationDays: input.cycleDurationDays,
+		cycleCooldownDays: input.cycleCooldownDays,
+		cycleAutoRolloverMode: input.cycleAutoRolloverMode,
+		cycleStartWeekday: input.cycleStartWeekday
 	})
 
 	const statusKeys = generateNKeysBetween(null, null, DEFAULT_STATUS_TEMPLATES.length)
@@ -306,10 +381,17 @@ export async function updateProject(
 		resourceId: projectId,
 		userId: actor.userId
 	})
+	const changesProjectSettings =
+		input.triageEnabled !== undefined ||
+		input.cycleEnabled !== undefined ||
+		input.cycleDurationDays !== undefined ||
+		input.cycleCooldownDays !== undefined ||
+		input.cycleAutoRolloverMode !== undefined ||
+		input.cycleStartWeekday !== undefined
 	await authorizeProject(
 		tx,
 		actor,
-		input.visibility !== undefined && input.visibility !== current.visibility
+		(input.visibility !== undefined && input.visibility !== current.visibility) || changesProjectSettings
 			? 'project.manage'
 			: 'project.write',
 		current,
@@ -340,7 +422,13 @@ export async function updateProject(
 		name: input.name?.trim() ?? current.name,
 		description: input.description ?? current.description,
 		visibility: nextVisibility,
-		archivedAt: nextArchivedAt
+		archivedAt: nextArchivedAt,
+		triageEnabled: input.triageEnabled,
+		cycleEnabled: input.cycleEnabled,
+		cycleDurationDays: input.cycleDurationDays,
+		cycleCooldownDays: input.cycleCooldownDays,
+		cycleAutoRolloverMode: input.cycleAutoRolloverMode,
+		cycleStartWeekday: input.cycleStartWeekday
 	})
 	if (!updated) {
 		const latest = await getProjectById(tx, actor.workspaceId, projectId)
@@ -773,6 +861,26 @@ export async function updateCycle(
 	return { data: updated, cursor }
 }
 
+/** Daily burnup snapshots of one cycle ascending by date (§3.3). */
+export async function listCycleSnapshots(
+	tx: Queryable,
+	actor: ActorContext,
+	cycleId: string
+): Promise<CycleDailySnapshotDto[]> {
+	const cycle = await getCycleById(tx, actor.workspaceId, cycleId)
+	if (!cycle) throw new HttpError(404, 'not_found', 'Cycle not found')
+	const project = await getProjectById(tx, actor.workspaceId, cycle.projectId)
+	if (!project) throw new HttpError(404, 'not_found', 'Project not found')
+	const acl = await resolveResourceAcl(tx, {
+		workspaceId: actor.workspaceId,
+		resourceType: 'project',
+		resourceId: project.id,
+		userId: actor.userId
+	})
+	await authorizeProject(tx, actor, 'issue.read', project, acl)
+	return listCycleSnapshotRows(tx, actor.workspaceId, cycleId)
+}
+
 // ---------- Issues ----------
 
 export async function listIssues(
@@ -805,6 +913,8 @@ export async function listIssues(
 		parentId: query.parentId,
 		priority: query.priority,
 		mineUserId: query.mine ? actor.principalId : undefined,
+		// §3.1: pending/snoozed triage issues are hidden unless explicitly asked for.
+		triageStatus: query.triageStatus === undefined ? undefined : [query.triageStatus],
 		q: query.q,
 		cursorPos,
 		limit
@@ -900,6 +1010,12 @@ export async function createIssue(
 	const number = await allocateIssueNumber(tx, actor.workspaceId, project.id)
 	const closedAt = isClosedCategory(status.category) ? new Date().toISOString() : null
 
+	// §3.1: non-manual sources (and explicit triage:true) land in the triage
+	// queue when the project has triage_enabled.
+	const sourceKind = input.sourceKind ?? (actor.kind === 'agent' ? 'agent' : 'manual')
+	const triageStatus =
+		project.triageEnabled && (sourceKind !== 'manual' || input.triage === true) ? 'pending' : 'none'
+
 	const created = await insertIssueRow(tx, {
 		id: input.id,
 		workspaceId: actor.workspaceId,
@@ -921,7 +1037,9 @@ export async function createIssue(
 		dueDate: input.dueDate ?? null,
 		estimate: input.estimate ?? null,
 		closedAt,
-		labelIds: input.labelIds ?? []
+		labelIds: input.labelIds ?? [],
+		sourceKind,
+		triageStatus
 	})
 
 	await emitTasksEvent(tx, {
@@ -1445,6 +1563,15 @@ export async function deleteIssue(
 		metadata: { identifier: current.identifier }
 	})
 
+	// Polymorphic graph edges have no database FK (ADR-0033); cleanup is part
+	// of the same transaction as the issue tombstone.
+	await deleteEntityLinksFor(tx, {
+		workspaceId: actor.workspaceId,
+		entityType: 'issue',
+		entityId: issueId,
+		actorId: actor.principalId
+	})
+
 	const cursor = await appendChange(tx, actor.workspaceId, {
 		entityType: 'issue',
 		entityId: issueId,
@@ -1766,6 +1893,8 @@ export async function createSavedView(
 	const lastPos = existing.at(-1)?.position ?? null
 	const position = input.position ?? generateKeyBetween(lastPos, null)
 
+	const filterExpr = validateFilterExprInput(input.filterExpr)
+
 	const created = await insertSavedViewRow(tx, {
 		id: input.id,
 		workspaceId: actor.workspaceId,
@@ -1774,6 +1903,8 @@ export async function createSavedView(
 		name: input.name.trim(),
 		layout: input.layout ?? 'list',
 		filters: (input.filters ?? {}) as Record<string, unknown>,
+		filterExpr,
+		displayOptions: (input.displayOptions ?? {}) as Record<string, unknown>,
 		sort: input.sort ?? {},
 		isShared: input.isShared ?? false,
 		position
@@ -1824,6 +1955,9 @@ export async function updateSavedView(
 		)
 	}
 
+	const filterExpr =
+		input.filterExpr === undefined ? current.filterExpr : validateFilterExprInput(input.filterExpr)
+
 	const updated = await updateSavedViewRow(tx, {
 		workspaceId: actor.workspaceId,
 		viewId,
@@ -1831,6 +1965,8 @@ export async function updateSavedView(
 		name: input.name?.trim() ?? current.name,
 		layout: input.layout ?? current.layout,
 		filters: (input.filters ?? current.filters) as Record<string, unknown>,
+		filterExpr,
+		displayOptions: (input.displayOptions ?? current.displayOptions) as Record<string, unknown>,
 		sort: input.sort ?? current.sort,
 		isShared: input.isShared ?? current.isShared
 	})
@@ -1916,16 +2052,19 @@ export async function getTasksSnapshotData(
 	const scopedProjects = scopeProjectId ? allProjects.filter((p) => p.id === scopeProjectId) : allProjects
 	const projectIds = scopedProjects.map((p) => p.id)
 
-	const [projectStatuses, labelRows, cycleRows, issuesPage, savedViews] = await Promise.all([
+	const [projectStatuses, labelRows, cycleRows, issueRows, savedViews] = await Promise.all([
 		listVisibleStatuses(tx, actor.workspaceId, projectIds),
 		actor.roleKey === 'guest' && projectIds.length === 0
 			? Promise.resolve([])
 			: listLabels(tx, actor.workspaceId),
 		listCyclesForProjects(tx, actor.workspaceId, projectIds),
-		listIssuesFiltered(tx, {
+		// Sync Engine v2 tier-1 (§8.1, ADR-0031): no hard row cap — the eager
+		// core ships every non-deleted issue except closed-over-30d ones (those
+		// hydrate lazily through the `issue_hist:<projectId>` tier-2 scope) and
+		// includes triage rows for client-side filtering.
+		listCoreSnapshotIssues(tx, {
 			workspaceId: actor.workspaceId,
-			visibleProjectIds: projectIds,
-			limit: 500
+			visibleProjectIds: projectIds
 		}),
 		listSavedViewsForUser(tx, actor.workspaceId, actor.principalId, projectIds)
 	])
@@ -1935,7 +2074,7 @@ export async function getTasksSnapshotData(
 		projectStatuses,
 		labels: labelRows,
 		cycles: cycleRows,
-		issues: issuesPage.items,
+		issues: issueRows,
 		savedViews
 	}
 }

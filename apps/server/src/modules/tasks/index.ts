@@ -14,6 +14,8 @@ import type { RealtimePubSub } from '../../realtime/pubsub'
 import type { Auth } from '../identity'
 import { workspaceDerive } from '../tenancy'
 import {
+	BulkIssuesBody,
+	BulkRestoreBody,
 	CommentPatchParam,
 	CreateCycleBody,
 	CreateIssueBody,
@@ -23,6 +25,7 @@ import {
 	CreateProjectBody,
 	CreateSavedViewBody,
 	CreateStatusBody,
+	CycleIdParam,
 	IdParam,
 	IssueGetParam,
 	IssueIdParam,
@@ -31,8 +34,11 @@ import {
 	ListIssuesQuery,
 	MoveIssueBody,
 	ProjectIdParam,
+	QueryIssuesBody,
 	RelationDeleteParam,
 	SetIssueLabelsBody,
+	TriageActionBody,
+	TriageQueueQuery,
 	UpdateCycleBody,
 	UpdateIssueBody,
 	UpdateIssueCommentBody,
@@ -59,15 +65,18 @@ import {
 	getIssueByIdentifier,
 	getIssueByIdForRedirect,
 	getIssueDetail,
+	getIssueHistoryPage,
 	getTasksSnapshotData,
 	listAccessibleProjectIds,
 	listAccessibleProjects,
+	listCycleSnapshots,
 	listCycles,
 	listIssues,
 	listProjectStatuses,
 	listSavedViews,
 	listWorkspaceLabels,
 	moveIssue,
+	requireIssueAccess,
 	setIssueLabels,
 	updateCycle,
 	updateIssue,
@@ -77,9 +86,21 @@ import {
 	updateProjectStatus,
 	updateSavedView
 } from './service'
+import {
+	bulkRestoreIssues,
+	bulkUpdateIssues,
+	getTriageSuggestions,
+	listTriageQueue,
+	queryIssues,
+	runTriageWakeOnce,
+	triageIssue
+} from './service-m7'
 
+export { runCycleMaintenanceOnce } from './cycle-maintenance'
 export { TASKS_EVENTS } from './events'
 export {
+	bulkRestoreIssues,
+	bulkUpdateIssues,
 	createIssue,
 	createIssueComment,
 	createProject,
@@ -91,12 +112,20 @@ export {
 	getIssueByIdentifier,
 	getIssueByIdForRedirect,
 	getIssueDetail,
+	getIssueHistoryPage,
 	getTasksSnapshotData,
+	getTriageSuggestions,
 	listAccessibleProjectIds,
 	listAccessibleProjects,
+	listCycleSnapshots,
 	listIssues,
 	listProjectStatuses,
+	listTriageQueue,
 	moveIssue,
+	queryIssues,
+	requireIssueAccess,
+	runTriageWakeOnce,
+	triageIssue,
 	updateIssue,
 	updateIssueComment,
 	updateProject,
@@ -154,6 +183,14 @@ export function tasksModule(sql: Sql, auth: Auth | null, pubsub?: RealtimePubSub
 					if (pubsub) await pubsub.publishCursor(workspaceCtx.workspaceId, result.cursor)
 					return result.data
 				}
+			)
+			.get(
+				'/projects/:id/triage',
+				{ params: IdParam, query: TriageQueueQuery },
+				({ params, query, inWorkspace }) =>
+					inWorkspace(async (tx, actor) => ({
+						data: await listTriageQueue(tx, actor, params.id, query.state ?? 'pending')
+					}))
 			)
 			// ---- Project statuses ----
 			.get('/projects/:projectId/statuses', { params: ProjectIdParam }, ({ params, inWorkspace }) =>
@@ -221,6 +258,12 @@ export function tasksModule(sql: Sql, auth: Auth | null, pubsub?: RealtimePubSub
 					if (pubsub) await pubsub.publishCursor(workspaceCtx.workspaceId, result.cursor)
 					return result.data
 				}
+			)
+			// Daily burnup snapshot series for the cycle header charts (§3.3).
+			.get('/cycles/:cycleId/snapshots', { params: CycleIdParam }, ({ params, inWorkspace }) =>
+				inWorkspace(async (tx, actor) => ({
+					data: await listCycleSnapshots(tx, actor, params.cycleId)
+				}))
 			)
 			// ---- Issues ----
 			.get('/issues', { query: ListIssuesQuery }, ({ query, inWorkspace }) =>
@@ -328,6 +371,55 @@ export function tasksModule(sql: Sql, auth: Auth | null, pubsub?: RealtimePubSub
 				if (pubsub) await pubsub.publishCursor(workspaceCtx.workspaceId, result.cursor)
 				return { deleted: true, id: result.id }
 			})
+			.post('/issues/query', { body: QueryIssuesBody }, ({ body, inWorkspace }) =>
+				inWorkspace((tx, actor) => queryIssues(tx, actor, body))
+			)
+			.post(
+				'/issues/bulk',
+				{ body: BulkIssuesBody },
+				async ({ body, headers, workspaceCtx, inWorkspace }) => {
+					const res = await inWorkspace((tx, actor) =>
+						withIdempotency(tx, {
+							workspaceId: workspaceCtx.workspaceId,
+							key: headers['idempotency-key'],
+							endpoint: 'POST /api/v1/issues/bulk',
+							requestBody: body,
+							execute: () => bulkUpdateIssues(tx, actor, body)
+						})
+					)
+					if (!res.replayed && pubsub) await pubsub.publishCursor(workspaceCtx.workspaceId, res.body.cursor)
+					return res.body
+				}
+			)
+			.post(
+				'/issues/bulk/restore',
+				{ body: BulkRestoreBody },
+				async ({ body, headers, workspaceCtx, inWorkspace }) => {
+					const res = await inWorkspace((tx, actor) =>
+						withIdempotency(tx, {
+							workspaceId: workspaceCtx.workspaceId,
+							key: headers['idempotency-key'],
+							endpoint: 'POST /api/v1/issues/bulk/restore',
+							requestBody: body,
+							execute: () => bulkRestoreIssues(tx, actor, body)
+						})
+					)
+					if (!res.replayed && pubsub) await pubsub.publishCursor(workspaceCtx.workspaceId, res.body.cursor)
+					return res.body
+				}
+			)
+			.post(
+				'/issues/:id/triage',
+				{ params: IdParam, body: TriageActionBody },
+				async ({ params, body, workspaceCtx, inWorkspace }) => {
+					const result = await inWorkspace((tx, actor) => triageIssue(tx, actor, params.id, body))
+					if (pubsub) await pubsub.publishCursor(workspaceCtx.workspaceId, result.cursor)
+					return result.data
+				}
+			)
+			.get('/issues/:id/triage-suggestions', { params: IdParam }, ({ params, inWorkspace }) =>
+				inWorkspace((tx, actor) => getTriageSuggestions(tx, actor, params.id))
+			)
 			// ---- Relations & Comments ----
 			.post(
 				'/issues/:issueId/relations',

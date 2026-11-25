@@ -80,6 +80,28 @@ export async function listPrincipals(
 	`
 }
 
+export async function findActiveAutomationPrincipalByName(
+	tx: Queryable,
+	workspaceId: string,
+	ownerUserId: string,
+	name: string
+): Promise<AgentPrincipalRow | null> {
+	const rows = await tx<AgentPrincipalRow[]>`
+		SELECT id, workspace_id AS "workspaceId", kind, name,
+			owner_user_id AS "ownerUserId", oauth_client_id AS "oauthClientId",
+			scope_ceiling AS "scopeCeiling", tier_overrides AS "tierOverrides",
+			require_approval_all_writes AS "requireApprovalAllWrites",
+			status, last_active_at AS "lastActiveAt", created_at AS "createdAt"
+		FROM agent_principals
+		WHERE workspace_id = ${workspaceId}
+			AND owner_user_id = ${ownerUserId}
+			AND kind = 'automation'
+			AND name = ${name}
+			AND status = 'active'
+	`
+	return rows[0] ?? null
+}
+
 export async function insertPrincipal(
 	tx: Queryable,
 	args: {

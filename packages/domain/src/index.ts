@@ -21,6 +21,54 @@ export {
 } from './chat'
 export type { MergeResolution } from './conflict'
 export { resolveFieldMerge } from './conflict'
+export type { CyclePolicy, CycleWindow } from './cycle-schedule'
+export {
+	alignToWeekday,
+	isCycleDueToActivate,
+	isCycleDueToComplete,
+	nextCycleWindow,
+	windowsToPreCreate
+} from './cycle-schedule'
+export type {
+	FilterableIssue,
+	FilterContext,
+	FilterExpr,
+	FilterField,
+	FilterFieldDef,
+	FilterFieldType,
+	FilterOp,
+	FilterPredicate,
+	FilterScalar,
+	FilterValidation,
+	FilterValidationError,
+	FilterValue,
+	RelativeDate
+} from './filter-ast'
+export {
+	compileFilter,
+	evaluateFilter,
+	FILTER_FIELDS,
+	FILTER_TRUE,
+	legacyFiltersToExpr,
+	normalizeFilter,
+	resolveRelative,
+	validateFilter
+} from './filter-ast'
+export type { FilterNodeEdit, FilterNodePath } from './filter-builder'
+export {
+	appendFilterNode,
+	countFilterNodes,
+	createGroup,
+	createPredicate,
+	filterExprEquals,
+	getFilterNode,
+	opNeedsValue,
+	patchPredicate,
+	removeFilterNode,
+	setFilterCombinator,
+	toggleFilterNot,
+	updateFilterNode
+} from './filter-builder'
 export {
 	comparePositions,
 	DEFAULT_REBALANCE_MAX_LENGTH,

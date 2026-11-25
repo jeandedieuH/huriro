@@ -9,6 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import type { WorkspaceMemberSummary } from '@/lib/sync-bootstrap'
 import { cn } from '@/lib/utils'
 import { useUiStore } from '@/stores/ui-store'
+import { DisplayMenu } from './display-menu'
+import { FilterBuilderButton } from './filter-builder'
 
 export interface FilterBarProps {
 	readonly statuses: readonly ProjectStatusDto[]
@@ -119,6 +121,9 @@ export function FilterBar({ statuses, members, projectLabel, viewLabel, onSaveVi
 				/>
 			</div>
 
+			{/* Compound filter builder (§3.4) — a non-empty expr wins over the flat filters */}
+			<FilterBuilderButton />
+
 			{/* Status filter */}
 			<Select
 				value={filters.statusId}
@@ -185,6 +190,9 @@ export function FilterBar({ statuses, members, projectLabel, viewLabel, onSaveVi
 					{t('tasks.filter.clear')}
 				</Button>
 			) : null}
+
+			{/* Grouping/swimlane/sort display options (§3.4) */}
+			<DisplayMenu />
 
 			{/* Save current view */}
 			<Popover open={savePopoverOpen} onOpenChange={setSavePopoverOpen}>

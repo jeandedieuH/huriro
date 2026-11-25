@@ -31,7 +31,9 @@ const MODULE_SCHEMA_OWNERSHIP = {
 	billing: ['billing'],
 	governance: ['governance'],
 	audit: ['audit'],
-	sync: ['sync']
+	sync: ['sync'],
+	graph: ['graph'],
+	automations: ['automations']
 }
 
 const modules = Object.keys(MODULE_SCHEMA_OWNERSHIP)

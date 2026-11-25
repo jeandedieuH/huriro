@@ -26,6 +26,9 @@ code, not a ui-kit dependency.
 - Component props are semantic: `tone="danger"`, `size="sm"` — never `color="red"`.
 - Every user-facing string goes through `t(id)` from `@huriro/i18n` — no inline
   literals. Add ids to `packages/i18n/locales/en.ts` and run `bun run gen` there.
+  Interpolation is `t(id, { count })` — NEVER `.replace('{count}', …)` on the
+  output: Lingui strips unknown `{placeholders}` to empty strings at render
+  time, so the replace target is already gone (M7 postmortem).
 - Interactive components get: a story (default + variant states), a play-function
   interaction test, and a vitest + `expectNoViolations` axe check (`src/lib/test-setup`).
 - `@/` aliases `src/` (resolved via `resolve.tsconfigPaths`). Tests run under

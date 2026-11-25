@@ -8,6 +8,7 @@ import {
 	CalendarRange,
 	Clock,
 	FolderKanban,
+	Inbox,
 	Layers,
 	ListChecks,
 	ListTodo,
@@ -23,7 +24,38 @@ import {
 	useSidebarCollapsed
 } from '@/components/app-shell/sidebar/sidebar-primitives'
 import { cn } from '@/lib/utils'
-import { type TasksPreset, useUiStore } from '@/stores/ui-store'
+import { type TasksDisplayOptions, type TasksPreset, useUiStore } from '@/stores/ui-store'
+
+function coerceGroupBy(value: string | undefined): TasksDisplayOptions['groupBy'] {
+	switch (value) {
+		case 'status_category':
+		case 'priority':
+		case 'assignee_id':
+		case 'project_id':
+		case 'cycle_id':
+		case 'due_date':
+			return value
+		default:
+			return 'none'
+	}
+}
+
+function coerceSubGroupBy(value: string | null | undefined): TasksDisplayOptions['subGroupBy'] {
+	return value === 'priority' || value === 'assignee_id' ? value : 'none'
+}
+
+function coerceSortBy(value: string | undefined): TasksDisplayOptions['sortBy'] {
+	switch (value) {
+		case 'priority':
+		case 'due_date':
+		case 'updated_at':
+		case 'created_at':
+		case 'estimate':
+			return value
+		default:
+			return 'manual'
+	}
+}
 
 export interface TasksSidebarNavProps {
 	readonly collapsed?: boolean | undefined
@@ -37,8 +69,10 @@ const MY_WORK_PRESETS: readonly {
 		| 'tasks.sidebar.my-week'
 		| 'tasks.sidebar.overdue'
 		| 'tasks.sidebar.due-soon'
+		| 'tasks.triage.title'
 	readonly icon: typeof ListTodo
 }[] = [
+	{ id: 'triage', labelId: 'tasks.triage.title', icon: Inbox },
 	{ id: 'my-tasks', labelId: 'tasks.sidebar.my-tasks', icon: ListTodo },
 	{ id: 'this-week', labelId: 'tasks.sidebar.this-week', icon: CalendarDays },
 	{ id: 'my-week', labelId: 'tasks.sidebar.my-week', icon: CalendarRange },
@@ -60,6 +94,8 @@ export function TasksSidebarNav({ collapsed }: TasksSidebarNavProps) {
 	const setTasksPreset = useUiStore((s) => s.setTasksPreset)
 	const setTasksLayout = useUiStore((s) => s.setTasksLayout)
 	const setFilterPatch = useUiStore((s) => s.setFilterPatch)
+	const setFilterExpr = useUiStore((s) => s.setFilterExpr)
+	const setTasksDisplay = useUiStore((s) => s.setTasksDisplay)
 	const setCreateProjectOpen = useUiStore((s) => s.setCreateProjectOpen)
 	const resetFilters = useUiStore((s) => s.resetFilters)
 
@@ -68,7 +104,18 @@ export function TasksSidebarNav({ collapsed }: TasksSidebarNavProps) {
 	function handleSelectView(view: SavedViewDto) {
 		setTasksPreset('all')
 		setActiveProjectId(view.projectId)
-		setTasksLayout(view.layout)
+		setTasksLayout(view.layout === 'board' ? 'board' : 'list')
+		// Compound expr restores first — the setter clears activeViewId as a side
+		// effect, and the flat-filter patch below re-establishes it. A non-null
+		// expr wins over the flat filters in the workspace (§3.4).
+		setFilterExpr(view.filterExpr)
+		setTasksDisplay({
+			groupBy: coerceGroupBy(view.displayOptions.groupBy),
+			subGroupBy: coerceSubGroupBy(view.displayOptions.subGroupBy),
+			sortBy: coerceSortBy(view.displayOptions.sortBy),
+			sortDirection: view.displayOptions.sortDirection === 'desc' ? 'desc' : 'asc',
+			showSubIssues: view.displayOptions.showSubIssues ?? true
+		})
 		const priorityRaw = view.filters.priorities?.[0]
 		const statusRaw = view.filters.statusIds?.[0]
 		setFilterPatch({

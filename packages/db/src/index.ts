@@ -6,7 +6,14 @@ export { drizzle as drizzlePg } from 'drizzle-orm/postgres-js'
 export type { PoolOptions, Queryable, Sql } from './client'
 export { createAppPool, createOwnerPool, resolveSecret } from './client'
 export type { WorkspaceContext } from './context'
-export { currentContext, NIL_UUID, TenantContextError, withSystem, withWorkspace } from './context'
+export {
+	currentContext,
+	NIL_UUID,
+	setAutomationDepth,
+	TenantContextError,
+	withSystem,
+	withWorkspace
+} from './context'
 export { isAcceptableClientId, isUuid, isUuidV7, uuid7, uuid7TimestampMs } from './ids'
 export type { AppliedMigration } from './migrate'
 export { listMigrationFiles, migrate, migrationsDir, pendingMigrations } from './migrate'
@@ -21,6 +28,7 @@ export {
 	authVerifications,
 	betterAuthSchema
 } from './schema/auth'
+export { automationRules, automationRunSteps, automationRuns } from './schema/automations'
 export { billingSubscriptions, billingUsageSnapshots, billingWebhookEvents } from './schema/billing'
 export {
 	chatChannelMembers,
@@ -44,6 +52,7 @@ export {
 } from './schema/docs'
 export { files } from './schema/files'
 export { workspaceExports } from './schema/governance'
+export { entityLinks } from './schema/graph'
 export { users } from './schema/identity'
 export { importJobs, importMappings } from './schema/imports'
 export { githubInstallations, githubWebhookEvents, issueGithubLinks } from './schema/integrations'
@@ -82,6 +91,7 @@ export {
 	workspaceSeq
 } from './schema/system'
 export {
+	cycleDailySnapshots,
 	cycles,
 	issueComments,
 	issueCounters,

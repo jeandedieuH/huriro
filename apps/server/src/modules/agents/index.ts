@@ -54,7 +54,8 @@ import { assertRegistryCoverage } from './tool-handlers'
 export { invokeTool } from './dispatch'
 export { AGENTS_EVENTS } from './events'
 export { markdownResponse, renderDocument, renderIssue, splitMdParam } from './markdown'
-export { type ResolvedAgent, resolveAgentActor } from './principal'
+export { type ResolvedAgent, resolveAgentActor, resolveAutomationActor } from './principal'
+export { findActiveAutomationPrincipalByName, getPrincipalById, insertPrincipal } from './repo'
 export { sweepExpiredApprovals } from './service'
 export { assertRegistryCoverage }
 

@@ -535,6 +535,50 @@ const CASES: Case[] = [
 		action: 'ai.manage',
 		resource: wsResource,
 		expect: { effect: 'allow', via: 'role' }
+	},
+
+	// --- workflow automations (M7) -------------------------------------------
+	{
+		name: 'owner can read and manage automations',
+		actor: actor({ roleKey: 'owner', roleRank: ROLE_RANKS.owner, permissions: new Set(ACTIONS) }),
+		action: 'automation.manage',
+		resource: wsResource,
+		expect: { effect: 'allow', via: 'role' }
+	},
+	{
+		name: 'admin can read and manage automations',
+		actor: adminActor(),
+		action: 'automation.manage',
+		resource: wsResource,
+		expect: { effect: 'allow', via: 'role' }
+	},
+	{
+		name: 'member can read automations',
+		actor: actor({ permissions: new Set([...actor().permissions, 'automation.read']) }),
+		action: 'automation.read',
+		resource: wsResource,
+		expect: { effect: 'allow', via: 'role' }
+	},
+	{
+		name: 'member cannot manage automations',
+		actor: actor(),
+		action: 'automation.manage',
+		resource: wsResource,
+		expect: { effect: 'deny', reason: 'insufficient_role' }
+	},
+	{
+		name: 'guest cannot read automations',
+		actor: actor({ roleKey: 'guest', roleRank: ROLE_RANKS.guest, permissions: new Set() }),
+		action: 'automation.read',
+		resource: wsResource,
+		expect: { effect: 'deny', reason: 'insufficient_role' }
+	},
+	{
+		name: 'manage ACL on a private resource does not grant automation.manage',
+		actor: actor(),
+		action: 'automation.manage',
+		resource: privateDoc('manage'),
+		expect: { effect: 'deny', reason: 'insufficient_role' }
 	}
 ]
 

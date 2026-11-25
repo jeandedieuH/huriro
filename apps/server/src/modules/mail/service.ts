@@ -35,6 +35,7 @@ import {
 } from '@huriro/domain'
 import { appendChanges } from '../../api/changelog'
 import { decryptSecret, encryptSecret } from '../../api/crypto'
+import { deleteEntityLinkByEndpoints, insertEntityLink } from '../../api/entity-links'
 import { HttpError } from '../../api/error'
 import type { BlobStorage } from '../files'
 import { ingestInboundAttachmentFile } from '../files'
@@ -265,6 +266,42 @@ async function requireConversation(
 		visibility: accountVisibility(account)
 	})
 	return { conversation, account }
+}
+
+export interface MailConversationEndpoint {
+	readonly id: string
+	readonly subject: string
+	readonly status: string
+	readonly inboxId: string
+	readonly inboxName: string | null
+	readonly accountId: string
+	readonly customerEmail: string | null
+	readonly updatedAt: string
+}
+
+/**
+ * Cross-module conversation access seam for the entity graph. Authorization is
+ * the owning account's normal mail policy; the small projection avoids loading
+ * the whole timeline for hover/traversal checks.
+ */
+export async function requireMailConversationAccess(
+	tx: Queryable,
+	actor: ActorContext,
+	conversationId: string,
+	action: 'mail.read' | 'mail.assign'
+): Promise<MailConversationEndpoint> {
+	const { conversation } = await requireConversation(tx, actor, conversationId, action)
+	const inbox = await repo.getMailInbox(tx, actor.workspaceId, conversation.inboxId)
+	return {
+		id: conversation.id,
+		subject: conversation.subject,
+		status: conversation.status,
+		inboxId: conversation.inboxId,
+		inboxName: inbox?.name ?? null,
+		accountId: conversation.accountId,
+		customerEmail: conversation.customerEmail,
+		updatedAt: conversation.updatedAt
+	}
 }
 
 async function insertOutbox(
@@ -926,6 +963,18 @@ export async function linkTask(
 		actorId: actor.principalId,
 		payload: { taskId }
 	})
+	// ADR-0033 dual-write: the legacy table remains authoritative for V1 reads,
+	// while the graph edge serves traversal/peek and sync-v2 scopes.
+	await insertEntityLink(tx, {
+		workspaceId: actor.workspaceId,
+		sourceType: 'mail_conversation',
+		sourceId: conversationId,
+		targetType: 'issue',
+		targetId: taskId,
+		relationKind: 'tracked_by',
+		createdBy: actor.userId,
+		actorId: actor.principalId
+	})
 }
 
 export async function unlinkTask(
@@ -943,6 +992,17 @@ export async function unlinkTask(
 		kind: 'unlinked',
 		actorId: actor.principalId,
 		payload: { taskId }
+	})
+	// Unlink is part of the same V1 write surface, so the dual-write window
+	// removes the graph edge too rather than waiting for the later sweep.
+	await deleteEntityLinkByEndpoints(tx, {
+		workspaceId: actor.workspaceId,
+		sourceType: 'mail_conversation',
+		sourceId: conversationId,
+		targetType: 'issue',
+		targetId: taskId,
+		relationKind: 'tracked_by',
+		actorId: actor.principalId
 	})
 }
 
@@ -970,6 +1030,16 @@ export async function linkDoc(
 		actorId: actor.principalId,
 		payload: { pageId }
 	})
+	await insertEntityLink(tx, {
+		workspaceId: actor.workspaceId,
+		sourceType: 'mail_conversation',
+		sourceId: conversationId,
+		targetType: 'doc_page',
+		targetId: pageId,
+		relationKind: 'references',
+		createdBy: actor.userId,
+		actorId: actor.principalId
+	})
 }
 
 export async function unlinkDoc(
@@ -987,6 +1057,15 @@ export async function unlinkDoc(
 		kind: 'unlinked',
 		actorId: actor.principalId,
 		payload: { pageId }
+	})
+	await deleteEntityLinkByEndpoints(tx, {
+		workspaceId: actor.workspaceId,
+		sourceType: 'mail_conversation',
+		sourceId: conversationId,
+		targetType: 'doc_page',
+		targetId: pageId,
+		relationKind: 'references',
+		actorId: actor.principalId
 	})
 }
 
@@ -1010,7 +1089,8 @@ export async function convertToIssue(
 		projectId: body.projectId,
 		title: (body.title ?? conversation.subject).slice(0, 300),
 		descriptionText,
-		description: null
+		description: null,
+		sourceKind: 'mail'
 	})
 
 	await repo.linkConversationTask(tx, {
@@ -1025,6 +1105,16 @@ export async function convertToIssue(
 		kind: 'converted',
 		actorId: actor.principalId,
 		payload: { taskId: issue.id, identifier: issue.identifier }
+	})
+	await insertEntityLink(tx, {
+		workspaceId: actor.workspaceId,
+		sourceType: 'mail_conversation',
+		sourceId: conversationId,
+		targetType: 'issue',
+		targetId: issue.id,
+		relationKind: 'tracked_by',
+		createdBy: actor.userId,
+		actorId: actor.principalId
 	})
 	return { issueId: issue.id, identifier: issue.identifier ?? '' }
 }

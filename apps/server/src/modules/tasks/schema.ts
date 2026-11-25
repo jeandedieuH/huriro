@@ -1,6 +1,8 @@
 import { Type } from 'typebox'
 
 export {
+	BulkIssuesBody,
+	BulkRestoreBody,
 	CreateCycleBody,
 	CreateIssueBody,
 	CreateIssueCommentBody,
@@ -11,7 +13,10 @@ export {
 	CreateStatusBody,
 	ListIssuesQuery,
 	MoveIssueBody,
+	QueryIssuesBody,
 	SetIssueLabelsBody,
+	TriageActionBody,
+	TriageQueueQuery,
 	UpdateCycleBody,
 	UpdateIssueBody,
 	UpdateIssueCommentBody,
@@ -36,6 +41,10 @@ export const ProjectIdParam = Type.Object({
 
 export const IssueIdParam = Type.Object({
 	issueId: Type.String({ format: 'uuid' })
+})
+
+export const CycleIdParam = Type.Object({
+	cycleId: Type.String({ format: 'uuid' })
 })
 
 export const RelationDeleteParam = Type.Object({

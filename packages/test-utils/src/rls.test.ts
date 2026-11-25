@@ -14,7 +14,16 @@ import { beforeAll, describe, expect, test } from 'bun:test'
 import { randomUUID } from 'node:crypto'
 import { type Queryable, withWorkspace } from '@huriro/db'
 import { getTestDb, type TestDb } from './db'
-import { aMembership, anAclEntry, aUser, aWorkspace, seedTwoTenants } from './factories'
+import {
+	aCycle,
+	aMembership,
+	anAclEntry,
+	anIssue,
+	aProject,
+	aUser,
+	aWorkspace,
+	seedTwoTenants
+} from './factories'
 import { classifyTable, INSTANCE_RLS_TABLES, SYSTEM_TABLES, TENANT_TABLES } from './rls'
 
 let db: TestDb | null = null
@@ -299,4 +308,169 @@ describe('rls coverage', () => {
 		`)
 		expect(insErr).not.toBeNull()
 	})
+
+	test('M7 tables: cross-tenant deny on every new tenant table', async () => {
+		if (skip()) return
+		const { wsA, wsB, userA, userB } = await seedTwoTenants(db!.owner)
+
+		// wsA fixtures via the owner pool: a cycle (snapshot FK), an automation
+		// principal + rule + run + step chain, and one entity_links edge.
+		const projA = await aProject(db!.owner, { workspaceId: wsA.id, createdBy: userA.id })
+		const cycleId = await aCycle(db!.owner, { workspaceId: wsA.id, projectId: projA.id })
+		await db!.owner`
+			INSERT INTO cycle_daily_snapshots
+				(workspace_id, cycle_id, snapshot_date, total_issues, completed_issues, started_issues)
+			VALUES (${wsA.id}, ${cycleId}, '2026-11-24', 10, 4, 5)
+		`
+		await db!.owner`
+			INSERT INTO entity_links
+				(workspace_id, source_type, source_id, target_type, target_id, relation_kind)
+			VALUES (${wsA.id}, 'issue', ${randomUUID()}, 'doc_page', ${randomUUID()}, 'references')
+		`
+		const [principalA] = await db!.owner<{ id: string }[]>`
+			INSERT INTO agent_principals (workspace_id, kind, name, owner_user_id, scope_ceiling)
+			VALUES (${wsA.id}, 'automation', 'rls-test-automation', ${userA.id}, '{tasks.read}'::text[])
+			RETURNING id
+		`
+		const [ruleA] = await db!.owner<{ id: string }[]>`
+			INSERT INTO automation_rules (workspace_id, name, principal_id, trigger_kind, created_by)
+			VALUES (${wsA.id}, 'rule-a', ${principalA!.id}, 'event', ${userA.id})
+			RETURNING id
+		`
+		const [runA] = await db!.owner<{ id: string }[]>`
+			INSERT INTO automation_runs (workspace_id, rule_id, status)
+			VALUES (${wsA.id}, ${ruleA!.id}, 'succeeded')
+			RETURNING id
+		`
+		await db!.owner`
+			INSERT INTO automation_run_steps (workspace_id, run_id, step_index, action_kind, status)
+			VALUES (${wsA.id}, ${runA!.id}, 0, 'issue.create', 'succeeded')
+		`
+
+		const M7_TABLES = [
+			'cycle_daily_snapshots',
+			'entity_links',
+			'automation_rules',
+			'automation_runs',
+			'automation_run_steps'
+		] as const
+
+		// Inside wsB's context every wsA row is invisible — SELECT reads nothing,
+		// and UPDATE/DELETE silently match zero rows (RLS hides the targets).
+		await withWorkspace(db!.app, { workspaceId: wsB.id, userId: userB.id }, async (tx) => {
+			for (const t of M7_TABLES) {
+				const [r] = await tx.unsafe<{ n: number }[]>(
+					`SELECT count(*)::int AS n FROM ${t} WHERE workspace_id = '${wsA.id}'`
+				)
+				expect(r!.n, `${t} leaked wsA rows into wsB context`).toBe(0)
+				const upd = await tx.unsafe<unknown[]>(
+					`UPDATE ${t} SET workspace_id = workspace_id WHERE workspace_id = '${wsA.id}' RETURNING workspace_id`
+				)
+				expect(upd.length, `${t} allowed UPDATE of wsA rows from wsB`).toBe(0)
+				const del = await tx.unsafe<unknown[]>(
+					`DELETE FROM ${t} WHERE workspace_id = '${wsA.id}' RETURNING workspace_id`
+				)
+				expect(del.length, `${t} allowed DELETE of wsA rows from wsB`).toBe(0)
+			}
+		})
+
+		// WITH CHECK: a wsA-workspace row can't be written from wsB's context —
+		// each denial gets its own tx (a permission error aborts the block).
+		const crossInsert = async (table: string) => {
+			const inserts: Record<string, string> = {
+				cycle_daily_snapshots: `INSERT INTO cycle_daily_snapshots
+					(workspace_id, cycle_id, snapshot_date, total_issues, completed_issues, started_issues)
+					VALUES ('${wsA.id}', '${cycleId}', '2026-11-25', 11, 5, 5)`,
+				entity_links: `INSERT INTO entity_links
+					(workspace_id, source_type, source_id, target_type, target_id)
+					VALUES ('${wsA.id}', 'issue', '${randomUUID()}', 'doc_page', '${randomUUID()}')`,
+				automation_rules: `INSERT INTO automation_rules
+					(workspace_id, name, principal_id, trigger_kind)
+					VALUES ('${wsA.id}', 'rule-x', '${principalA!.id}', 'cron')`,
+				automation_runs: `INSERT INTO automation_runs
+					(workspace_id, rule_id, status)
+					VALUES ('${wsA.id}', '${ruleA!.id}', 'running')`,
+				automation_run_steps: `INSERT INTO automation_run_steps
+					(workspace_id, run_id, step_index, action_kind, status)
+					VALUES ('${wsA.id}', '${runA!.id}', 9, 'issue.create', 'skipped')`
+			}
+			try {
+				await withWorkspace(db!.app, { workspaceId: wsB.id, userId: userB.id }, async (tx) => {
+					await tx.unsafe(inserts[table]!)
+				})
+				return null
+			} catch (e) {
+				return e as { code?: string; message?: string }
+			}
+		}
+		for (const t of M7_TABLES) {
+			const err = await crossInsert(t)
+			expect(err, `${t} accepted a wsA row inside wsB context`).not.toBeNull()
+		}
+	}, 30_000)
+
+	test('M7 CHECK constraints reject bad values', async () => {
+		if (skip()) return
+		const { wsA, userA } = await seedTwoTenants(db!.owner)
+		const projA = await aProject(db!.owner, { workspaceId: wsA.id, createdBy: userA.id })
+
+		const denied = async (q: PromiseLike<unknown>) => {
+			try {
+				await q
+				return null
+			} catch (e) {
+				return e as { code?: string }
+			}
+		}
+
+		// issues.triage_status enum
+		const issue = await anIssue(db!.owner, {
+			workspaceId: wsA.id,
+			projectId: projA.id,
+			statusId: projA.statusIds['Todo']!,
+			creatorId: userA.id
+		})
+		const triageErr = await denied(
+			db!.owner`UPDATE issues SET triage_status = 'bogus' WHERE id = ${issue.id}`
+		)
+		expect(triageErr?.code).toBe('23514')
+
+		// entity_links self-edge
+		const selfId = randomUUID()
+		const selfErr = await denied(db!.owner`
+			INSERT INTO entity_links
+				(workspace_id, source_type, source_id, target_type, target_id)
+			VALUES (${wsA.id}, 'issue', ${selfId}, 'issue', ${selfId})
+		`)
+		expect(selfErr?.code).toBe('23514')
+
+		// automation_runs idempotency: one real run per (rule, event) —
+		// dry runs are exempt from the partial unique index.
+		const [principalA] = await db!.owner<{ id: string }[]>`
+			INSERT INTO agent_principals (workspace_id, kind, name, owner_user_id, scope_ceiling)
+			VALUES (${wsA.id}, 'automation', 'ck-test-automation', ${userA.id}, '{tasks.read}'::text[])
+			RETURNING id
+		`
+		const [ruleA] = await db!.owner<{ id: string }[]>`
+			INSERT INTO automation_rules (workspace_id, name, principal_id, trigger_kind)
+			VALUES (${wsA.id}, 'rule-ck', ${principalA!.id}, 'event')
+			RETURNING id
+		`
+		const eventId = randomUUID()
+		await db!.owner`
+			INSERT INTO automation_runs (workspace_id, rule_id, trigger_event_id, status)
+			VALUES (${wsA.id}, ${ruleA!.id}, ${eventId}, 'succeeded')
+		`
+		const dupErr = await denied(db!.owner`
+			INSERT INTO automation_runs (workspace_id, rule_id, trigger_event_id, status)
+			VALUES (${wsA.id}, ${ruleA!.id}, ${eventId}, 'running')
+		`)
+		expect(dupErr?.code).toBe('23505')
+		// Same event twice is fine when the runs are dry runs.
+		await db!.owner`
+			INSERT INTO automation_runs (workspace_id, rule_id, trigger_event_id, status, dry_run)
+			VALUES (${wsA.id}, ${ruleA!.id}, ${eventId}, 'dry_run', true),
+			       (${wsA.id}, ${ruleA!.id}, ${eventId}, 'dry_run', true)
+		`
+	}, 30_000)
 })

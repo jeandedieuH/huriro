@@ -34,6 +34,17 @@ export const projects = pgTable(
 			.default('workspace'),
 		position: text('position').notNull(),
 		archivedAt: timestamp('archived_at', { withTimezone: true }),
+		// M7: per-project triage inbox + cycle engine settings (§3.1, §3.3)
+		triageEnabled: boolean('triage_enabled').notNull().default(false),
+		cycleEnabled: boolean('cycle_enabled').notNull().default(false),
+		cycleDurationDays: integer('cycle_duration_days').notNull().default(14),
+		cycleCooldownDays: integer('cycle_cooldown_days').notNull().default(0),
+		cycleAutoRolloverMode: text('cycle_auto_rollover_mode', {
+			enum: ['next_cycle', 'backlog', 'none']
+		})
+			.notNull()
+			.default('next_cycle'),
+		cycleStartWeekday: smallint('cycle_start_weekday').notNull().default(1),
 		createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -123,6 +134,35 @@ export const cycles = pgTable(
 	]
 )
 
+// Nightly burnup snapshots per active cycle — composite PK, no surrogate id (§3.3).
+export const cycleDailySnapshots = pgTable(
+	'cycle_daily_snapshots',
+	{
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		cycleId: uuid('cycle_id').notNull(),
+		snapshotDate: date('snapshot_date').notNull(),
+		totalIssues: integer('total_issues').notNull(),
+		completedIssues: integer('completed_issues').notNull(),
+		startedIssues: integer('started_issues').notNull(),
+		totalEstimate: numeric('total_estimate', { precision: 10, scale: 2 }).notNull().default('0'),
+		completedEstimate: numeric('completed_estimate', { precision: 10, scale: 2 }).notNull().default('0'),
+		scopeAddedCount: integer('scope_added_count').notNull().default(0),
+		scopeRemovedCount: integer('scope_removed_count').notNull().default(0),
+		cancelledIssues: integer('cancelled_issues').notNull().default(0),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		primaryKey({ columns: [t.workspaceId, t.cycleId, t.snapshotDate] }),
+		foreignKey({
+			columns: [t.workspaceId, t.cycleId],
+			foreignColumns: [cycles.workspaceId, cycles.id],
+			name: 'fk_cycle_daily_snapshots_cycle'
+		}).onDelete('cascade')
+	]
+)
+
 export const issueCounters = pgTable(
 	'issue_counters',
 	{
@@ -167,6 +207,19 @@ export const issues = pgTable(
 		startDate: date('start_date'),
 		dueDate: date('due_date'),
 		estimate: numeric('estimate', { precision: 6, scale: 2 }),
+		// M7: triage lifecycle + intake provenance (§3.1)
+		triageStatus: text('triage_status', {
+			enum: ['none', 'pending', 'accepted', 'snoozed', 'declined', 'merged']
+		})
+			.notNull()
+			.default('none'),
+		triageSnoozedUntil: timestamp('triage_snoozed_until', { withTimezone: true }),
+		triageDeclinedReason: text('triage_declined_reason'),
+		sourceKind: text('source_kind', {
+			enum: ['manual', 'mail', 'chat', 'form', 'github', 'gitlab', 'api', 'agent']
+		})
+			.notNull()
+			.default('manual'),
 		closedAt: timestamp('closed_at', { withTimezone: true }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -288,10 +341,13 @@ export const savedViews = pgTable(
 		projectId: uuid('project_id'),
 		ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'cascade' }),
 		name: text('name').notNull(),
-		layout: text('layout', { enum: ['list', 'board'] })
+		layout: text('layout', { enum: ['list', 'board', 'timeline', 'calendar', 'table'] })
 			.notNull()
 			.default('list'),
 		filters: jsonb('filters').notNull().default({}),
+		// M7: domain FilterExpr AST — when non-null it wins over `filters` (§3.4)
+		filterExpr: jsonb('filter_expr'),
+		displayOptions: jsonb('display_options').notNull().default({}),
 		sort: jsonb('sort').notNull().default({}),
 		isShared: boolean('is_shared').notNull().default(false),
 		position: text('position').notNull(),

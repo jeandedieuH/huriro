@@ -114,17 +114,21 @@ describe('M4 Settings & GitHub sync UI', () => {
 			const members = await boot.api.listMembers()
 			const { container } = render(
 				<TooltipProvider>
-					<IssueDetailPanel
-						issue={eng2}
-						allIssues={allIssues}
-						statuses={boot.engine.collections.projectStatuses.toArray}
-						labels={[]}
-						members={members}
-						api={boot.api}
-						onUpdateIssue={async () => undefined}
-						onCreateSubIssue={async () => undefined}
-						onDeleteIssue={async () => undefined}
-					/>
+					<WorkspaceProvider boot={boot}>
+						<SyncProvider engine={boot.engine}>
+							<IssueDetailPanel
+								issue={eng2}
+								allIssues={allIssues}
+								statuses={boot.engine.collections.projectStatuses.toArray}
+								labels={[]}
+								members={members}
+								api={boot.api}
+								onUpdateIssue={async () => undefined}
+								onCreateSubIssue={async () => undefined}
+								onDeleteIssue={async () => undefined}
+							/>
+						</SyncProvider>
+					</WorkspaceProvider>
 				</TooltipProvider>
 			)
 

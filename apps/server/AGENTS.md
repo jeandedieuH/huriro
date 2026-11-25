@@ -12,7 +12,7 @@ ADR-0018, §19.1. Also the operator CLI (`huriro`).
 - `src/api/` — Elysia app: observability hooks, problem+json mapper, SSRF egress proxy (`egress.ts`), envelope AES-256-GCM crypto (`crypto.ts`), routes.
 - `src/email/` — React Email composition (`components/`, 14 templates in `templates/`), HTML + plain-text renderer (`render.ts`), multi-provider transport pipeline (`transports.ts`: Emailit for `cloud`, Resend or SMTP/nodemailer for `selfhost`, safe noop fallback), and typed `EmailPipeline` service (`service.ts`).
 - `src/modules/<name>/` — index (routes) + schema + service + repo + policy +
-  events per module (`tenancy`, `tasks`, `docs`, `chat`, `files`, `notifications`, `search`, `imports`, `webhooks`, `integrations`, `ai`, `agents`, `mail`). Only index.ts may be imported cross-module.
+  events per module (`tenancy`, `tasks`, `docs`, `chat`, `files`, `notifications`, `search`, `imports`, `webhooks`, `integrations`, `ai`, `agents`, `mail`, `graph`, `automations`). Only index.ts may be imported cross-module.
 - `mail` module (§14, ADR-0023): canonical store is `mail_*` tables — raw MIME
   is quarantined blob storage (`mail-raw/...`), parsed/sanitized projections
   only in tables. `/mail/inbound/:token` + `/mail/webhook/:token` are
@@ -34,6 +34,22 @@ ADR-0018, §19.1. Also the operator CLI (`huriro`).
   Markdown renderers live in `api/markdown.ts` (shared — `no-circular` forbids
   tasks/docs importing the agents module); `.md` reps ride inside
   `/issues/by-key/`, `/docs/by-slug/` params plus `/agent/**.md` twins.
+- Entity-link writes live in `api/entity-links.ts` for the same no-circular
+  reason (ADR-0033): tasks/docs/mail dual-write through that helper, while the
+  `graph` module reads endpoint visibility/peek metadata back through each
+  owning module's exported `index.ts` seam. Modules must never import
+  `modules/graph` internally.
+- `automations` module (§7.2, ADR-0028): the outbox matcher only inserts
+  `automation_runs` inside the drain transaction; action execution is always
+  post-commit (plus the 30s `automation-runs` spillover queue) under the rule's
+  active `kind='automation'` principal, never as a bypass actor. M7 conditions
+  are issue-shaped `FilterExpr`s. The loop guard is deliberately invisible to
+  producer modules: the executor sets transaction-local `app.automation_depth`
+  to run depth + 1 via `setAutomationDepth`, and migration 0024's BEFORE INSERT
+  trigger on `outbox` merges that value into `payload.x_automation_depth`
+  (largest explicit value wins). Depth >= 5 writes `loop_guard_tripped` and no
+  action runs. Cron rules ride the every-minute `automation-cron` queue and are
+  claimed by optimistically advancing `next_run_at` before inserting the run.
 - `ai` module (§11.3–§11.4, ADR-0022): workspace-off-by-default gateway —
   `policy.ts` loads flags + caps all AI routes (`ai.manage` to configure,
   `ai.use` to run, `ai_no_provider`/`ai_disabled` errors); BYO providers store
@@ -44,6 +60,23 @@ ADR-0018, §19.1. Also the operator CLI (`huriro`).
   content-hash change; `/ai/search` reuses search's ACL filter. Only
   `kind='ollama'` providers get `allowPrivate` egress — every other provider
   URL stays under strict SSRF rules (§20).
+- `tasks` module (§3.1, §3.4): `listIssues` EXCLUDES `triage_status IN
+  ('pending','snoozed')` unless `ListIssuesQuery.triageStatus` opts in — sync
+  feeds include all rows (clients filter); `POST /issues/query` +
+  `filter-sql.ts` interpret domain `FilterExpr` to SQL with semantics pinned by
+  the `filter-sql.integration.test.ts` differential test (SQL id-set === domain
+  `evaluateFilter` id-set over seeded random exprs); `POST /issues/bulk` +
+  `/bulk/restore` are set-based single-tx writes (one outbox INSERT, one
+  `appendChanges` change_log batch, `undoWindowMs` for restore);
+  `runTriageWakeOnce` is the pg-boss `triage-snooze-wake` sweep flipping
+  expired snoozes back to pending. `runCycleMaintenanceOnce` is the nightly
+  `tasks-cycle-maintenance` sweep (§3.3): per cycle-enabled project in one
+  tenant tx it completes expired actives and rolls unfinished issues per
+  `cycle_auto_rollover_mode`, activates the due planned successor in the same
+  pass, pre-creates future windows, and upserts `cycle_daily_snapshots`
+  (net-total scope delta until M8 `issue_activity`) — repeat runs with the same `now` write nothing.
+  Discovery rides SECURITY DEFINER `list_cycle_maintenance_projects()` (0022);
+  `GET /cycles/:cycleId/snapshots` serves the ascending series (`issue.read`).
 - Chat partitioned sync (§15.1–§15.2): `chat` allocates per-channel monotonic `channel_seq` and `rev` under `chat_channels` lock order, exposes `/api/v1/chat/channels/:id/changes?since=`, and never writes chat rows to workspace `change_log`.
 - Egress & secrets: every outbound URL fetch (OpenGraph unfurling, outbound webhooks) goes through `api/egress.ts`; webhook/GitHub secrets use `api/crypto.ts` and are never logged or returned after creation/rotation.
 - Agent credentials (M3, ADR-0019): identity also exposes
