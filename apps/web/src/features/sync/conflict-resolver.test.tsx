@@ -153,4 +153,83 @@ describe('SyncStatusBanner & ConflictResolverDialog', () => {
 			engine.dispose()
 		}
 	})
+
+	it('renders plural conflict banner when multiple records conflict and keeps dialog open until all resolve', async () => {
+		const seed = createPreviewSeedSnapshot()
+		const issueA = seed.issues[0]
+		const issueB = seed.issues[1]
+		if (!issueA || !issueB) throw new Error('missing two seed issues')
+
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				return seed
+			},
+			async fetchChanges(since) {
+				return {
+					changes: [],
+					nextCursor: since,
+					hasMore: false,
+					serverTime: new Date().toISOString()
+				}
+			},
+			async sendBatch(mutations) {
+				return {
+					cursor: 2,
+					results: mutations.map((m) => {
+						const baseIssue = m.entityId === issueA.id ? issueA : issueB
+						return {
+							mutationId: m.mutationId,
+							status: 409,
+							outcome: 'stale_version' as const,
+							currentVersion: 2,
+							currentEntity: { ...baseIssue, title: 'Server title', version: 2 },
+							changedFields: ['title']
+						}
+					})
+				}
+			}
+		}
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: seed.projects[0]?.workspaceId ?? generateUuidV7(),
+			currentUserId: seed.projects[0]?.createdBy ?? generateUuidV7(),
+			storage: new MemoryReplicaStorage(),
+			transport
+		})
+		await engine.bootstrap()
+		engine.setOnline(false)
+		await engine.updateIssue(issueA.id, { title: 'Local A' })
+		await engine.updateIssue(issueB.id, { title: 'Local B' })
+		engine.setOnline(true)
+		await engine.flushOutbox()
+
+		try {
+			render(
+				<SyncProvider engine={engine}>
+					<SyncStatusBanner />
+					<ConflictResolverDialog />
+				</SyncProvider>
+			)
+
+			expect(screen.getByText(/2 conflicts need review/)).toBeInTheDocument()
+
+			fireEvent.click(screen.getByRole('button', { name: 'Resolve' }))
+			expect(await screen.findByText('Resolve sync conflict')).toBeInTheDocument()
+
+			// Keeping theirs for the first conflict leaves the dialog open for the remaining conflict.
+			fireEvent.click(screen.getByRole('button', { name: 'Keep theirs' }))
+			await waitFor(() => {
+				expect(engine.getConflicts()).toHaveLength(1)
+			})
+			expect(screen.getByText(/1 conflict needs review/)).toBeInTheDocument()
+			expect(screen.getByText('Resolve sync conflict')).toBeInTheDocument()
+
+			fireEvent.click(screen.getByRole('button', { name: 'Keep theirs' }))
+			await waitFor(() => {
+				expect(engine.getConflicts()).toHaveLength(0)
+			})
+		} finally {
+			engine.dispose()
+		}
+	})
 })

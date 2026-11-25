@@ -61,10 +61,15 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/cycles/{cycleId}/snapshots`
 - `/api/v1/cycles/{id}`
 - `/api/v1/docs`
+- `/api/v1/docs/bookmarks/unfurl`
 - `/api/v1/docs/by-slug/{slug}`
 - `/api/v1/docs/import/markdown`
+- `/api/v1/docs/synced-blocks`
+- `/api/v1/docs/synced-blocks/{id}`
+- `/api/v1/docs/synced-blocks/{id}/collab-ticket`
 - `/api/v1/docs/{id}`
 - `/api/v1/docs/{id}/append`
+- `/api/v1/docs/{id}/button-trigger`
 - `/api/v1/docs/{id}/collab-ticket`
 - `/api/v1/docs/{id}/comments`
 - `/api/v1/docs/{id}/comments/{commentId}`
@@ -72,7 +77,12 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/docs/{id}/export`
 - `/api/v1/docs/{id}/favorite`
 - `/api/v1/docs/{id}/move`
+- `/api/v1/docs/{id}/public-share`
 - `/api/v1/docs/{id}/split`
+- `/api/v1/docs/{id}/suggestions`
+- `/api/v1/docs/{id}/suggestions/decide-all`
+- `/api/v1/docs/{id}/suggestions/{groupId}/decision`
+- `/api/v1/docs/{id}/verification`
 - `/api/v1/docs/{id}/versions`
 - `/api/v1/docs/{id}/versions/{versionId}`
 - `/api/v1/docs/{id}/versions/{versionId}/restore`
@@ -85,6 +95,7 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/governance/erase-me`
 - `/api/v1/governance/exports`
 - `/api/v1/governance/exports/{id}/download`
+- `/api/v1/graph/knowledge`
 - `/api/v1/graph/links`
 - `/api/v1/graph/links/{linkId}`
 - `/api/v1/graph/peek`
@@ -167,6 +178,8 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/projects/{projectId}/milestones/{milestoneId}`
 - `/api/v1/projects/{projectId}/statuses`
 - `/api/v1/projects/{projectId}/updates`
+- `/api/v1/public/docs/{workspaceSlug}/{publicSlug}`
+- `/api/v1/public/docs/{workspaceSlug}/{publicSlug}/unlock`
 - `/api/v1/realtime/ticket`
 - `/api/v1/search`
 - `/api/v1/settings/agents`
@@ -176,6 +189,10 @@ OpenAPI document: `docs/api/openapi.json`. Auth and conventions: `docs/api/llms.
 - `/api/v1/sync/changes`
 - `/api/v1/sync/scope-snapshot`
 - `/api/v1/sync/snapshot`
+- `/api/v1/teamspaces`
+- `/api/v1/teamspaces/{id}`
+- `/api/v1/teamspaces/{id}/members`
+- `/api/v1/teamspaces/{id}/members/{userId}`
 - `/api/v1/views`
 - `/api/v1/views/{id}`
 - `/api/v1/webhooks`

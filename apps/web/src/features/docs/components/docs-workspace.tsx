@@ -1,9 +1,19 @@
-import type { DocCommentDto, DocHeadingDto, DocPageDetailDto, DocVersionDto } from '@huriro/contracts'
+import type {
+	DocCommentDto,
+	DocHeadingDto,
+	DocPageDetailDto,
+	DocSuggestionDto,
+	DocVersionDto,
+	ProposeDocSuggestionBody,
+	SetDocVerificationBody,
+	UpdateDocPageBody
+} from '@huriro/contracts'
 import type { EncodedAnchor } from '@huriro/editor'
 import { t } from '@huriro/i18n'
 import { useCollectionItems, useSyncEngine } from '@huriro/sync-client'
-import { FilePlus2 } from 'lucide-react'
+import { FilePlus2, FileText, Star, X } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { ErrorState } from '@/components/ui/error-state'
@@ -16,11 +26,21 @@ import { CommentThreadPanel } from './comment-thread-panel'
 import { CreateDocDialog } from './create-doc-dialog'
 import { DocImportDialog } from './doc-import-dialog'
 import { DocShareDialog } from './doc-share-dialog'
+import { SuggestionReviewPanel } from './suggestion-review-panel'
 import { TocRail } from './toc-rail'
 import { VersionTimelinePanel } from './version-timeline-panel'
 
-// Lazy-load TipTap/Hocuspocus editor shell to keep initial web shell <= 200 KB gzip (§21.4).
+// Lazy-load TipTap/Hocuspocus editor shell & heavy dialogs to keep initial web shell <= 200 KB gzip (§21.4).
 const EditorShell = lazy(() => import('./editor-shell').then((m) => ({ default: m.EditorShell })))
+const TeamspaceManagerDialog = lazy(() =>
+	import('./teamspace-manager-dialog').then((m) => ({ default: m.TeamspaceManagerDialog }))
+)
+const DocPublishDialog = lazy(() =>
+	import('./doc-publish-dialog').then((m) => ({ default: m.DocPublishDialog }))
+)
+const KnowledgeGraphView = lazy(() =>
+	import('./knowledge-graph-view').then((m) => ({ default: m.KnowledgeGraphView }))
+)
 
 export interface DocsWorkspaceProps {
 	readonly api: TaskApiBridge
@@ -28,6 +48,16 @@ export interface DocsWorkspaceProps {
 	readonly isPreview: boolean
 	readonly activeSlug: string | null
 	readonly onSelectSlug?: (slug: string) => void
+}
+
+function triggerBlobDownload(blob: Blob, filename: string) {
+	if (typeof URL.createObjectURL !== 'function' || typeof document === 'undefined') return
+	const url = URL.createObjectURL(blob)
+	const anchor = document.createElement('a')
+	anchor.href = url
+	anchor.download = filename
+	anchor.click()
+	URL.revokeObjectURL(url)
 }
 
 export function DocsWorkspace({
@@ -43,12 +73,16 @@ export function DocsWorkspace({
 	const activePanel = useUiStore((s) => s.activeDocSidePanel)
 	const setActivePanel = useUiStore((s) => s.setActiveDocSidePanel)
 	const setCreateDocOpen = useUiStore((s) => s.setCreateDocOpen)
+	const teamspaceManagerOpen = useUiStore((s) => s.teamspaceManagerOpen)
+	const docPublishOpen = useUiStore((s) => s.docPublishOpen)
+	const docsGraphOpen = useUiStore((s) => s.docsGraphOpen)
 	const pushToast = useUiStore((s) => s.pushToast)
 
 	const [members, setMembers] = useState<WorkspaceMemberSummary[]>([])
 	const [detail, setDetail] = useState<DocPageDetailDto | null>(null)
 	const [headings, setHeadings] = useState<DocHeadingDto[]>([])
 	const [comments, setComments] = useState<DocCommentDto[]>([])
+	const [suggestions, setSuggestions] = useState<DocSuggestionDto[]>([])
 	const [versions, setVersions] = useState<DocVersionDto[]>([])
 	const [loadingDetail, setLoadingDetail] = useState(false)
 	const [loadError, setLoadError] = useState<string | null>(null)
@@ -148,9 +182,16 @@ export function DocsWorkspace({
 				setDetail(loaded)
 				setHeadings(loaded.headings)
 				setComments(loaded.comments)
-				const verList = await api.listDocVersions(loaded.page.id).catch(() => [])
+				setSuggestions(loaded.suggestions ?? [])
+				const [verList, sugList] = await Promise.all([
+					api.listDocVersions(loaded.page.id).catch(() => []),
+					loaded.suggestions
+						? Promise.resolve(loaded.suggestions)
+						: api.listDocSuggestions(loaded.page.id).catch(() => [])
+				])
 				if (seq !== loadSeqRef.current) return
 				setVersions(verList)
+				setSuggestions(sugList)
 			} catch (err) {
 				if (seq !== loadSeqRef.current) return
 				setDetail(null)
@@ -189,6 +230,7 @@ export function DocsWorkspace({
 			setDetail(null)
 			setHeadings([])
 			setComments([])
+			setSuggestions([])
 			setVersions([])
 			setLoadError(null)
 			return
@@ -199,37 +241,181 @@ export function DocsWorkspace({
 	async function handleExportMarkdown() {
 		if (!detail) return
 		const res = await api.exportDocMarkdown(detail.page.id)
-		if (typeof Blob !== 'undefined' && typeof URL.createObjectURL === 'function') {
-			const blob = new Blob([res.markdown], { type: 'text/markdown' })
-			const url = URL.createObjectURL(blob)
-			const anchor = document.createElement('a')
-			anchor.href = url
-			anchor.download = `${res.slug}.md`
-			anchor.click()
-			URL.revokeObjectURL(url)
-		}
+		triggerBlobDownload(new Blob([res.markdown], { type: 'text/markdown' }), `${res.slug}.md`)
 		pushToast({ tone: 'success', title: `${res.slug}.md` })
 	}
 
+	async function handleExportHtml(print: boolean) {
+		if (!detail) return
+		const res = await api.exportDocHtml(detail.page.id, print)
+		if (print && typeof window !== 'undefined' && typeof window.open === 'function') {
+			const win = window.open('', '_blank', 'noopener,noreferrer')
+			if (win) {
+				win.document.write(res.html)
+				win.document.close()
+				return
+			}
+		}
+		triggerBlobDownload(new Blob([res.html], { type: 'text/html' }), `${res.slug}.html`)
+		pushToast({ tone: 'success', title: `${res.slug}.html` })
+	}
+
+	async function handleExportZip() {
+		if (!detail) return
+		const blob = await api.exportDocZip(detail.page.id, true)
+		triggerBlobDownload(blob, `${detail.page.slug}.zip`)
+		pushToast({ tone: 'success', title: `${detail.page.slug}.zip` })
+	}
+
+	async function handleUpdatePageMeta(patch: Omit<UpdateDocPageBody, 'version'>) {
+		if (!detail) return
+		await engine.updateDocPage(detail.page.id, patch)
+		const refreshed = engine.collections.docPages.get(detail.page.id)
+		if (refreshed) {
+			setDetail((prev) => (prev ? { ...prev, page: refreshed } : prev))
+		}
+	}
+
+	async function handleVerifyPage(body: SetDocVerificationBody) {
+		if (!detail) return
+		const verification = await api.setDocVerification(detail.page.id, body)
+		setDetail((prev) =>
+			prev
+				? {
+						...prev,
+						verification,
+						page: {
+							...prev.page,
+							verificationStatus: verification.status,
+							verificationExpiresAt: verification.expiresAt
+						}
+					}
+				: prev
+		)
+	}
+
+	async function handleClearVerification() {
+		if (!detail) return
+		await api.clearDocVerification(detail.page.id)
+		setDetail((prev) =>
+			prev
+				? {
+						...prev,
+						verification: null,
+						page: { ...prev.page, verificationStatus: 'unverified', verificationExpiresAt: null }
+					}
+				: prev
+		)
+	}
+
+	async function handleProposeSuggestion(body: ProposeDocSuggestionBody) {
+		if (!detail) return
+		const created = await api.proposeDocSuggestion(detail.page.id, body)
+		setSuggestions((prev) => [created, ...prev.filter((s) => s.groupId !== created.groupId)])
+		const refreshed = await api.getDocDetail(detail.page.id).catch(() => null)
+		if (refreshed) setDetail(refreshed)
+	}
+
+	async function handleDecideSuggestion(groupId: string, decision: 'accept' | 'reject') {
+		if (!detail) return
+		const updated = await api.decideDocSuggestion(detail.page.id, groupId, decision)
+		setSuggestions((prev) => prev.map((s) => (s.groupId === groupId ? updated : s)))
+		const refreshed = await api.getDocDetail(detail.page.id).catch(() => null)
+		if (refreshed) setDetail(refreshed)
+	}
+
+	async function handleDecideAllSuggestions(decision: 'accept' | 'reject') {
+		if (!detail) return
+		await api.decideAllDocSuggestions(detail.page.id, decision)
+		const [refreshed, latestSuggestions] = await Promise.all([
+			api.getDocDetail(detail.page.id).catch(() => null),
+			api.listDocSuggestions(detail.page.id).catch(() => suggestions)
+		])
+		if (refreshed) setDetail(refreshed)
+		setSuggestions(latestSuggestions)
+	}
+
+	const openSuggestionCount = useMemo(
+		() => suggestions.filter((s) => s.status === 'open').length,
+		[suggestions]
+	)
+	const openCommentCount = useMemo(
+		() => comments.filter((c) => c.parentId === null && c.deletedAt === null && c.resolvedAt === null).length,
+		[comments]
+	)
+	const recentPages = useMemo(
+		() =>
+			docPages
+				.filter((p) => p.archivedAt === null && !p.isTemplate)
+				.sort((a, b) => Number(b.isFavorite) - Number(a.isFavorite) || b.updatedAt.localeCompare(a.updatedAt))
+				.slice(0, 6),
+		[docPages]
+	)
+
 	return (
-		<div className="flex h-full min-h-0 flex-1 overflow-hidden">
+		<div className="flex h-full min-h-0 flex-1 overflow-hidden bg-background">
 			<div className="flex min-w-0 flex-1 flex-col overflow-hidden">
 				{!activeSlug ? (
-					<EmptyState
-						className="m-8"
-						title={t('docs.empty.title')}
-						hint={t('docs.empty.hint')}
-						action={
-							<Button type="button" size="sm" onClick={() => setCreateDocOpen(true)}>
-								<FilePlus2 className="size-4" aria-hidden />
-								<span>{t('docs.sidebar.new-page')}</span>
-							</Button>
-						}
-					/>
+					<div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-10">
+						<EmptyState
+							className="max-w-lg"
+							title={t('docs.empty.title')}
+							hint={t('docs.empty.hint')}
+							action={
+								<Button type="button" size="sm" onClick={() => setCreateDocOpen(true)}>
+									<FilePlus2 className="size-4" aria-hidden />
+									<span>{t('docs.sidebar.new-page')}</span>
+								</Button>
+							}
+						/>
+						{recentPages.length > 0 ? (
+							<section aria-label={t('docs.empty.recent')} className="mt-8 w-full max-w-2xl space-y-2.5">
+								<h2 className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+									{t('docs.empty.recent')}
+								</h2>
+								<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+									{recentPages.map((page) => (
+										<button
+											key={page.id}
+											type="button"
+											onClick={() => selectSlug(page.slug)}
+											className="flex items-start gap-2.5 rounded-xl border border-border/70 bg-card/60 p-3 text-left transition-colors hover:border-border hover:bg-accent/50"
+										>
+											<span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-background text-base">
+												{page.icon ?? <FileText className="size-4 text-muted-foreground" aria-hidden />}
+											</span>
+											<span className="min-w-0 flex-1">
+												<span className="flex items-center gap-1 text-xs font-medium text-foreground">
+													<span className="truncate">{page.title}</span>
+													{page.isFavorite ? (
+														<Star className="size-3 shrink-0 fill-(--warning) text-(--warning)" aria-hidden />
+													) : null}
+												</span>
+												<time className="mt-0.5 block text-[11px] text-muted-foreground">
+													{page.updatedAt.slice(0, 10)}
+												</time>
+											</span>
+										</button>
+									))}
+								</div>
+							</section>
+						) : null}
+					</div>
 				) : loadingDetail ? (
-					<div className="space-y-3 p-8">
-						<Skeleton className="h-8 w-64" />
-						<Skeleton className="h-48 w-full" />
+					<div className="flex flex-1 flex-col overflow-hidden">
+						<div className="flex h-11 items-center justify-between border-b border-border/60 px-4">
+							<Skeleton className="h-4 w-44" />
+							<Skeleton className="h-6 w-36" />
+						</div>
+						<div className="mx-auto w-full max-w-3xl space-y-4 px-12 pt-12 sm:px-16">
+							<Skeleton className="h-10 w-72" />
+							<div className="space-y-2.5 pt-4">
+								<Skeleton className="h-4 w-full" />
+								<Skeleton className="h-4 w-11/12" />
+								<Skeleton className="h-4 w-4/5" />
+								<Skeleton className="h-24 w-full rounded-xl" />
+							</div>
+						</div>
 					</div>
 				) : loadError ? (
 					<ErrorState
@@ -260,6 +446,11 @@ export function DocsWorkspace({
 							api={api}
 							isPreview={isPreview}
 							userDisplayName={currentMemberName}
+							currentUserId={currentUserId}
+							pages={docPages}
+							openCommentCount={openCommentCount}
+							openSuggestionCount={openSuggestionCount}
+							onSelectSlug={selectSlug}
 							onUpdateTitle={async (title) => {
 								await engine.updateDocPage(detail.page.id, { title })
 							}}
@@ -269,6 +460,11 @@ export function DocsWorkspace({
 								setDetail((prev) => (prev ? { ...prev, page: updated } : prev))
 							}}
 							onExportMarkdown={handleExportMarkdown}
+							onExportHtml={handleExportHtml}
+							onExportZip={handleExportZip}
+							onUpdatePageMeta={handleUpdatePageMeta}
+							onVerifyPage={handleVerifyPage}
+							onClearVerification={handleClearVerification}
 							onSplitPage={async (title) => {
 								const child = await api.splitDocPage(detail.page.id, title)
 								engine.collections.docPagesManaged.upsertMany([child])
@@ -288,19 +484,39 @@ export function DocsWorkspace({
 			{detail && activePanel ? (
 				<aside
 					aria-label={t('docs.panel.comments')}
-					className="flex w-80 shrink-0 flex-col border-l border-border bg-card/40"
+					className="flex w-84 shrink-0 flex-col border-l border-border/70 bg-card/50 backdrop-blur-sm"
 				>
 					<Tabs
 						value={activePanel}
 						onValueChange={(v) => setActivePanel(v as Exclude<DocSidePanel, null>)}
 						className="flex min-h-0 flex-1 flex-col"
 					>
-						<div className="border-b border-border px-3 py-2">
-							<TabsList className="grid w-full grid-cols-3">
-								<TabsTrigger value="comments">{t('docs.panel.comments')}</TabsTrigger>
-								<TabsTrigger value="versions">{t('docs.panel.versions')}</TabsTrigger>
-								<TabsTrigger value="toc">{t('docs.panel.toc')}</TabsTrigger>
+						<div className="flex items-center gap-1.5 border-b border-border/70 px-2.5 py-2">
+							<TabsList className="grid h-8 flex-1 grid-cols-4">
+								<TabsTrigger value="comments" className="px-1.5 text-xs">
+									{t('docs.panel.comments')}
+								</TabsTrigger>
+								<TabsTrigger value="suggestions" className="gap-1 px-1.5 text-xs">
+									<span>{t('docs.panel.suggestions')}</span>
+									{openSuggestionCount > 0 ? <Badge tone="info">{openSuggestionCount}</Badge> : null}
+								</TabsTrigger>
+								<TabsTrigger value="versions" className="px-1.5 text-xs">
+									{t('docs.panel.versions')}
+								</TabsTrigger>
+								<TabsTrigger value="toc" className="px-1.5 text-xs">
+									{t('docs.panel.toc')}
+								</TabsTrigger>
 							</TabsList>
+							<Button
+								type="button"
+								size="icon"
+								tone="ghost"
+								aria-label={t('docs.panel.close')}
+								onClick={() => setActivePanel(null)}
+								className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+							>
+								<X className="size-3.5" aria-hidden />
+							</Button>
 						</div>
 
 						<TabsContent
@@ -349,13 +565,30 @@ export function DocsWorkspace({
 
 						<TabsContent
 							forceMount
+							value="suggestions"
+							className="mt-0 min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden"
+						>
+							{activePanel === 'suggestions' ? (
+								<SuggestionReviewPanel
+									suggestions={suggestions}
+									canWrite={detail.canWrite && !detail.page.isLocked}
+									canComment={!detail.page.isLocked}
+									onPropose={handleProposeSuggestion}
+									onDecide={handleDecideSuggestion}
+									onDecideAll={handleDecideAllSuggestions}
+								/>
+							) : null}
+						</TabsContent>
+
+						<TabsContent
+							forceMount
 							value="versions"
 							className="mt-0 min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden"
 						>
 							{activePanel === 'versions' ? (
 								<VersionTimelinePanel
 									versions={versions}
-									canWrite={detail.canWrite}
+									canWrite={detail.canWrite && !detail.page.isLocked}
 									onLoadDiff={(verId) => api.getDocVersionDetail(detail.page.id, verId)}
 									onSaveSnapshot={async (label) => {
 										const ver = await api.createDocVersion(detail.page.id, label)
@@ -393,6 +626,14 @@ export function DocsWorkspace({
 			/>
 			<DocShareDialog api={api} page={activePageSummary ?? detail?.page ?? null} members={members} />
 			<DocImportDialog api={api} onImported={() => void engine.syncNow()} />
+
+			<Suspense fallback={null}>
+				{teamspaceManagerOpen ? <TeamspaceManagerDialog api={api} members={members} /> : null}
+				{docPublishOpen ? (
+					<DocPublishDialog api={api} page={activePageSummary ?? detail?.page ?? null} />
+				) : null}
+				{docsGraphOpen ? <KnowledgeGraphView api={api} onSelectSlug={selectSlug} /> : null}
+			</Suspense>
 		</div>
 	)
 }

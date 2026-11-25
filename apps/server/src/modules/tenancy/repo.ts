@@ -4,6 +4,7 @@
  * scoping (§12.4).
  */
 import { type Queryable, uuid7 } from '@huriro/db'
+import type { AclResourceType } from '@huriro/domain'
 
 export interface WorkspaceRow {
 	id: string
@@ -294,7 +295,7 @@ export async function listResourceAclLevelsForUser(
 	tx: Queryable,
 	args: {
 		workspaceId: string
-		resourceType: 'project' | 'doc_page' | 'channel' | 'mail_account'
+		resourceType: AclResourceType
 		resourceId: string
 		userId: string
 	}
@@ -325,7 +326,7 @@ export async function listResourceAclLevelsForUser(
 export interface AclEntryRow {
 	readonly id: string
 	readonly workspaceId: string
-	readonly resourceType: 'project' | 'doc_page' | 'channel' | 'mail_account'
+	readonly resourceType: AclResourceType
 	readonly resourceId: string
 	readonly principalType: 'user' | 'role' | 'workspace'
 	readonly principalId: string | null
@@ -338,7 +339,7 @@ export async function insertAclEntry(
 	tx: Queryable,
 	args: {
 		workspaceId: string
-		resourceType: 'project' | 'doc_page' | 'channel' | 'mail_account'
+		resourceType: AclResourceType
 		resourceId: string
 		principalType: 'user' | 'role' | 'workspace'
 		principalId: string | null

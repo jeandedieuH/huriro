@@ -15,7 +15,8 @@ import type {
 	ProjectUpdateDto,
 	SavedViewDto,
 	SyncChangeDto,
-	SyncSnapshotResponse
+	SyncSnapshotResponse,
+	TeamspaceDto
 } from '@huriro/contracts'
 import { type Collection, createCollection } from '@tanstack/db'
 
@@ -161,6 +162,7 @@ export interface PersistedReplicaState {
 	readonly savedViews: SavedViewDto[]
 	readonly notifications: NotificationDto[]
 	readonly docPages?: DocPageDto[] | undefined
+	readonly teamspaces?: TeamspaceDto[] | undefined
 }
 
 export class HuriroSyncCollections {
@@ -183,6 +185,7 @@ export class HuriroSyncCollections {
 	readonly viewsManaged = makeManagedCollection<SavedViewDto>('saved_views')
 	readonly notificationsManaged = makeManagedCollection<NotificationDto>('notifications')
 	readonly docPagesManaged = makeManagedCollection<DocPageDto>('doc_pages')
+	readonly teamspacesManaged = makeManagedCollection<TeamspaceDto>('teamspaces')
 
 	get projects(): Collection<ProjectDto, string> {
 		return this.projectsManaged.collection
@@ -220,6 +223,9 @@ export class HuriroSyncCollections {
 	get docPages(): Collection<DocPageDto, string> {
 		return this.docPagesManaged.collection
 	}
+	get teamspaces(): Collection<TeamspaceDto, string> {
+		return this.teamspacesManaged.collection
+	}
 
 	markAllReady(): void {
 		this.projectsManaged.markReady()
@@ -234,6 +240,7 @@ export class HuriroSyncCollections {
 		this.viewsManaged.markReady()
 		this.notificationsManaged.markReady()
 		this.docPagesManaged.markReady()
+		this.teamspacesManaged.markReady()
 	}
 
 	applyFullSnapshot(snap: SyncSnapshotResponse | PersistedReplicaState): void {
@@ -262,6 +269,7 @@ export class HuriroSyncCollections {
 		this.viewsManaged.replaceAll(snap.savedViews as unknown as SavedViewDto[])
 		this.notificationsManaged.replaceAll(snap.notifications as unknown as NotificationDto[])
 		this.docPagesManaged.replaceAll((snap.docPages ?? []) as unknown as DocPageDto[])
+		this.teamspacesManaged.replaceAll((snap.teamspaces ?? []) as unknown as TeamspaceDto[])
 	}
 
 	applyScopedSnapshot(snap: SyncSnapshotResponse): void {
@@ -276,6 +284,7 @@ export class HuriroSyncCollections {
 		this.projectUpdatesManaged.upsertMany((snap.projectUpdates ?? []) as unknown as ProjectUpdateDto[])
 		this.viewsManaged.upsertMany(snap.savedViews as unknown as SavedViewDto[])
 		this.docPagesManaged.upsertMany((snap.docPages ?? []) as unknown as DocPageDto[])
+		this.teamspacesManaged.upsertMany((snap.teamspaces ?? []) as unknown as TeamspaceDto[])
 	}
 
 	purgeDocPageScope(pageId: string): void {
@@ -383,6 +392,8 @@ export class HuriroSyncCollections {
 		const notifDeletes: string[] = []
 		const docPageUpserts: DocPageDto[] = []
 		const docPageDeletes: string[] = []
+		const teamspaceUpserts: TeamspaceDto[] = []
+		const teamspaceDeletes: string[] = []
 
 		for (const c of changes) {
 			if (c.action === 'grant') {
@@ -451,6 +462,10 @@ export class HuriroSyncCollections {
 					if (isDel) docPageDeletes.push(c.id)
 					else docPageUpserts.push(c.data as unknown as DocPageDto)
 					break
+				case 'teamspace':
+					if (isDel) teamspaceDeletes.push(c.id)
+					else teamspaceUpserts.push(c.data as unknown as TeamspaceDto)
+					break
 				default:
 					break
 			}
@@ -480,6 +495,8 @@ export class HuriroSyncCollections {
 		this.notificationsManaged.deleteMany(notifDeletes)
 		this.docPagesManaged.upsertMany(docPageUpserts)
 		this.docPagesManaged.deleteMany(docPageDeletes)
+		this.teamspacesManaged.upsertMany(teamspaceUpserts)
+		this.teamspacesManaged.deleteMany(teamspaceDeletes)
 
 		for (const pid of revokedProjectIds) {
 			this.purgeProjectScope(pid)
@@ -510,7 +527,8 @@ export class HuriroSyncCollections {
 			projectUpdates: this.projectUpdatesManaged.values(),
 			savedViews: this.viewsManaged.values(),
 			notifications: this.notificationsManaged.values(),
-			docPages: this.docPagesManaged.values()
+			docPages: this.docPagesManaged.values(),
+			teamspaces: this.teamspacesManaged.values()
 		}
 	}
 
@@ -532,5 +550,6 @@ export class HuriroSyncCollections {
 		this.viewsManaged.replaceAll([])
 		this.notificationsManaged.replaceAll([])
 		this.docPagesManaged.replaceAll([])
+		this.teamspacesManaged.replaceAll([])
 	}
 }

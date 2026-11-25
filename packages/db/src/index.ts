@@ -46,9 +46,15 @@ export {
 	docComments,
 	docFavorites,
 	docPages,
+	docPublicShares,
 	docRoomLeases,
 	docState,
-	docVersions
+	docSuggestions,
+	docSyncedBlocks,
+	docVerifications,
+	docVersions,
+	teamspaceMembers,
+	teamspaces
 } from './schema/docs'
 export { files } from './schema/files'
 export { workspaceExports } from './schema/governance'

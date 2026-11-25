@@ -1,4 +1,4 @@
-import type { DocPageDto } from '@huriro/contracts'
+import type { DocPageDto, TeamspaceDto } from '@huriro/contracts'
 import { t } from '@huriro/i18n'
 import { useCollectionItems, useSyncEngine } from '@huriro/sync-client'
 import {
@@ -8,13 +8,16 @@ import {
 	FolderInput,
 	Lock,
 	MoreHorizontal,
+	Network,
 	Plus,
+	Settings2,
 	Star,
 	Trash2,
 	Upload
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import {
+	SidebarIconTile,
 	SidebarNavItem,
 	SidebarSection,
 	useSidebarCollapsed
@@ -43,17 +46,28 @@ function sortPages(a: DocPageDto, b: DocPageDto): number {
 	return a.position < b.position ? -1 : a.position > b.position ? 1 : a.id.localeCompare(b.id)
 }
 
+function sortTeamspaces(a: TeamspaceDto, b: TeamspaceDto): number {
+	return a.position < b.position ? -1 : a.position > b.position ? 1 : a.id.localeCompare(b.id)
+}
+
 export function DocsSidebarNav({ activeSlug, collapsed, onSelectSlug }: DocsSidebarNavProps) {
 	const ctxCollapsed = useSidebarCollapsed()
 	const isCollapsed = collapsed ?? ctxCollapsed
 	const engine = useSyncEngine()
 	const pages = useCollectionItems(engine.collections.docPages)
+	const teamspaces = useCollectionItems(engine.collections.teamspaces)
+	const setTeamspaceManagerOpen = useUiStore((s) => s.setTeamspaceManagerOpen)
+	const setDocsGraphOpen = useUiStore((s) => s.setDocsGraphOpen)
 
 	const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(() => new Set())
 	const [moveTargetPage, setMoveTargetPage] = useState<DocPageDto | null>(null)
 	const [nextParentId, setNextParentId] = useState<string>('root')
 
 	const activePages = useMemo(() => pages.filter((p) => p.archivedAt === null && !p.isTemplate), [pages])
+	const activeTeamspaces = useMemo(
+		() => teamspaces.filter((ts) => ts.archivedAt === null).sort(sortTeamspaces),
+		[teamspaces]
+	)
 	const favorites = useMemo(() => activePages.filter((p) => p.isFavorite).sort(sortPages), [activePages])
 
 	const childrenByParent = useMemo(() => {
@@ -66,6 +80,12 @@ export function DocsSidebarNav({ activeSlug, collapsed, onSelectSlug }: DocsSide
 		for (const list of map.values()) list.sort(sortPages)
 		return map
 	}, [activePages])
+
+	const rootPages = useMemo(() => childrenByParent.get(null) ?? [], [childrenByParent])
+	const unassignedRootPages = useMemo(() => {
+		const tsIds = new Set(activeTeamspaces.map((ts) => ts.id))
+		return rootPages.filter((p) => !p.teamspaceId || !tsIds.has(p.teamspaceId))
+	}, [activeTeamspaces, rootPages])
 
 	function selectSlug(slug: string) {
 		if (onSelectSlug) onSelectSlug(slug)
@@ -123,9 +143,11 @@ export function DocsSidebarNav({ activeSlug, collapsed, onSelectSlug }: DocsSide
 		)
 	}
 
-	function renderBranch(parentId: string | null, level: number) {
-		const nodes = childrenByParent.get(parentId) ?? []
+	function renderBranch(parentId: string | null, level: number, overrideNodes?: readonly DocPageDto[]) {
+		const nodes = parentId === null && overrideNodes ? overrideNodes : (childrenByParent.get(parentId) ?? [])
 		if (nodes.length === 0) return null
+		// Keep leaf-only branches flush with standard sidebar actions; reserve the chevron gutter only when a sibling can expand.
+		const hasExpandableSiblings = nodes.some((node) => (childrenByParent.get(node.id) ?? []).length > 0)
 		return nodes.map((page) => {
 			const kids = childrenByParent.get(page.id) ?? []
 			const hasChildren = kids.length > 0
@@ -141,7 +163,7 @@ export function DocsSidebarNav({ activeSlug, collapsed, onSelectSlug }: DocsSide
 								? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground'
 								: 'text-sidebar-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground'
 						)}
-						style={{ paddingLeft: `${(level - 1) * 12 + 4}px` }}
+						style={{ paddingLeft: `${(level - 1) * 12 + 6}px` }}
 					>
 						{hasChildren ? (
 							<button
@@ -157,9 +179,9 @@ export function DocsSidebarNav({ activeSlug, collapsed, onSelectSlug }: DocsSide
 									<ChevronRight className="size-3.5" aria-hidden />
 								)}
 							</button>
-						) : (
+						) : hasExpandableSiblings ? (
 							<span className="size-5 shrink-0" aria-hidden />
-						)}
+						) : null}
 
 						<button
 							type="button"
@@ -169,21 +191,28 @@ export function DocsSidebarNav({ activeSlug, collapsed, onSelectSlug }: DocsSide
 								if (ev.key === 'ArrowRight' && hasChildren && !isExpanded) toggleExpand(page.id)
 								if (ev.key === 'ArrowLeft' && hasChildren && isExpanded) toggleExpand(page.id)
 							}}
-							className="flex min-w-0 flex-1 items-center gap-2 truncate text-left"
+							className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
 						>
-							<span
-								aria-hidden
-								className={cn(
-									'flex size-6 shrink-0 items-center justify-center rounded-md text-xs',
-									isSelected
-										? 'bg-sidebar-primary text-sidebar-primary-foreground'
-										: 'border border-sidebar-border/60 bg-sidebar-icon-well text-sidebar-muted-foreground'
-								)}
-							>
-								{page.icon ?? <FileText className="size-3.5" />}
-							</span>
+							<SidebarIconTile active={isSelected}>
+								{page.icon ? <span className="text-xs">{page.icon}</span> : <FileText className="size-4" />}
+							</SidebarIconTile>
 							<span className="truncate">{page.title}</span>
-							{page.visibility === 'private' ? (
+							{page.verificationStatus === 'verified' ? (
+								<span
+									role="img"
+									title={t('docs.verify.badge.verified')}
+									className="size-1.5 shrink-0 rounded-full bg-(--success)"
+									aria-label={t('docs.verify.badge.verified')}
+								/>
+							) : page.verificationStatus === 'stale' ? (
+								<span
+									role="img"
+									title={t('docs.verify.badge.stale')}
+									className="size-1.5 shrink-0 rounded-full bg-(--warning)"
+									aria-label={t('docs.verify.badge.stale')}
+								/>
+							) : null}
+							{page.visibility === 'private' || page.isLocked ? (
 								<Lock className="size-3 shrink-0 text-sidebar-muted-foreground" aria-hidden />
 							) : null}
 						</button>
@@ -248,15 +277,47 @@ export function DocsSidebarNav({ activeSlug, collapsed, onSelectSlug }: DocsSide
 				</SidebarSection>
 			) : null}
 
-			<SidebarSection title={t('docs.sidebar.workspace')}>
-				{activePages.length === 0 ? (
+			{activeTeamspaces.map((ts) => {
+				const tsRoots = rootPages.filter((p) => p.teamspaceId === ts.id)
+				return (
+					<SidebarSection key={ts.id} title={`${ts.icon ? `${ts.icon} ` : ''}${ts.name}`}>
+						{tsRoots.length === 0 ? (
+							<p className="px-2 py-1 text-xs text-sidebar-muted-foreground">{ts.visibility}</p>
+						) : (
+							<nav aria-label={ts.name}>
+								<ul className="space-y-0.5">{renderBranch(null, 1, tsRoots)}</ul>
+							</nav>
+						)}
+					</SidebarSection>
+				)
+			})}
+
+			<SidebarSection
+				title={
+					activeTeamspaces.length > 0 ? t('docs.teamspaces.workspace-root') : t('docs.sidebar.workspace')
+				}
+			>
+				{unassignedRootPages.length === 0 && activeTeamspaces.length === 0 ? (
 					<p className="px-2 py-3 text-xs text-sidebar-muted-foreground">{t('docs.sidebar.empty')}</p>
 				) : (
 					<nav aria-label={t('docs.sidebar.workspace')}>
-						<ul className="space-y-0.5">{renderBranch(null, 1)}</ul>
+						<ul className="space-y-0.5">{renderBranch(null, 1, unassignedRootPages)}</ul>
 					</nav>
 				)}
 			</SidebarSection>
+
+			<div className="space-y-0.5 pt-1">
+				<SidebarNavItem
+					icon={<Network className="size-4" />}
+					label={t('docs.graph.open')}
+					onClick={() => setDocsGraphOpen(true)}
+				/>
+				<SidebarNavItem
+					icon={<Settings2 className="size-4" />}
+					label={t('docs.teamspaces.manage')}
+					onClick={() => setTeamspaceManagerOpen(true)}
+				/>
+			</div>
 
 			<Dialog open={moveTargetPage !== null} onOpenChange={(o) => !o && setMoveTargetPage(null)}>
 				<DialogContent className="max-w-sm">

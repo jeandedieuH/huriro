@@ -1549,4 +1549,433 @@ describe('HuriroSyncEngine', () => {
 		expect(restarted.collections.projectUpdates.get(update.id)?.createdBy).toBe(USER_ID)
 		restarted.dispose()
 	})
+
+	test('coalesces rapid concurrent updateDocPage calls without self-inflicted 409 conflicts', async () => {
+		const storage = new MemoryReplicaStorage()
+		const docId = generateUuidV7()
+		const nowIso = '2026-11-25T00:00:00Z'
+		let serverDoc: DocPageDto = {
+			id: docId,
+			workspaceId: WS_ID,
+			parentId: null,
+			path: docId,
+			depth: 0,
+			slug: 'handbook',
+			title: 'Engineering handbook',
+			icon: null,
+			coverFileId: null,
+			coverGradient: 'ocean',
+			coverPositionY: 50,
+			visibility: 'workspace',
+			isTemplate: false,
+			isFavorite: false,
+			position: 'V',
+			createdBy: USER_ID,
+			archivedAt: null,
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1,
+			byteSize: 0
+		}
+		const sentBatches: MutationEnvelope[][] = []
+
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				return {
+					cursor: 1,
+					serverTime: nowIso,
+					projects: [],
+					projectStatuses: [],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: [serverDoc]
+				}
+			},
+			async fetchChanges(since) {
+				return { changes: [], nextCursor: since, hasMore: false, serverTime: nowIso }
+			},
+			async sendBatch(mutations) {
+				sentBatches.push([...mutations])
+				await new Promise((r) => setTimeout(r, 20))
+				const results = mutations.map((m) => {
+					if (m.baseVersion !== serverDoc.version) {
+						return {
+							mutationId: m.mutationId,
+							status: 409,
+							outcome: 'stale_version' as const,
+							currentVersion: serverDoc.version,
+							currentEntity: serverDoc as unknown as Record<string, unknown>,
+							changedFields: ['coverPositionY']
+						}
+					}
+					serverDoc = {
+						...serverDoc,
+						...(m.patch as Partial<DocPageDto>),
+						version: serverDoc.version + 1
+					}
+					return {
+						mutationId: m.mutationId,
+						status: 200,
+						outcome: 'applied' as const,
+						data: serverDoc as unknown as Record<string, unknown>
+					}
+				})
+				return { cursor: serverDoc.version, results }
+			}
+		}
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport
+		})
+		await engine.bootstrap()
+
+		for (let pos = 30; pos < 80; pos += 1) {
+			void engine.updateDocPage(docId, { coverPositionY: pos })
+		}
+
+		const deadline = Date.now() + 2000
+		while (engine.getStatus().pendingCount > 0 && Date.now() < deadline) {
+			await new Promise((r) => setTimeout(r, 10))
+		}
+
+		expect(engine.getStatus().pendingCount).toBe(0)
+		expect(engine.getConflicts()).toHaveLength(0)
+		expect(engine.collections.docPages.get(docId)?.coverPositionY).toBe(79)
+		expect(serverDoc.coverPositionY).toBe(79)
+		expect(sentBatches.length).toBeLessThanOrEqual(3)
+		engine.dispose()
+	})
+
+	test('coalesces offline doc_page updates, splits batches before move, and rebases cleanly', async () => {
+		const storage = new MemoryReplicaStorage()
+		const docId = generateUuidV7()
+		const nowIso = '2026-11-25T00:00:00Z'
+		let serverDoc: DocPageDto = {
+			id: docId,
+			workspaceId: WS_ID,
+			parentId: null,
+			path: docId,
+			depth: 0,
+			slug: 'handbook',
+			title: 'Engineering handbook',
+			icon: null,
+			coverFileId: null,
+			coverGradient: null,
+			coverPositionY: 50,
+			visibility: 'workspace',
+			isTemplate: false,
+			isFavorite: false,
+			position: 'V',
+			createdBy: USER_ID,
+			archivedAt: null,
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1,
+			byteSize: 0
+		}
+
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				return {
+					cursor: 1,
+					serverTime: nowIso,
+					projects: [],
+					projectStatuses: [],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: [serverDoc]
+				}
+			},
+			async fetchChanges(since) {
+				return { changes: [], nextCursor: since, hasMore: false, serverTime: nowIso }
+			},
+			async sendBatch(mutations) {
+				const results = mutations.map((m) => {
+					if (m.baseVersion !== serverDoc.version) {
+						return {
+							mutationId: m.mutationId,
+							status: 409,
+							outcome: 'stale_version' as const,
+							currentVersion: serverDoc.version,
+							currentEntity: serverDoc as unknown as Record<string, unknown>,
+							changedFields: ['coverPositionY', 'position']
+						}
+					}
+					serverDoc = {
+						...serverDoc,
+						...(m.op === 'move'
+							? {
+									parentId: (m.patch['parentId'] as string | null) ?? null,
+									position: String(m.patch['position'] ?? serverDoc.position)
+								}
+							: (m.patch as Partial<DocPageDto>)),
+						version: serverDoc.version + 1
+					}
+					return {
+						mutationId: m.mutationId,
+						status: 200,
+						outcome: 'applied' as const,
+						data: serverDoc as unknown as Record<string, unknown>
+					}
+				})
+				return { cursor: serverDoc.version, results }
+			}
+		}
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport
+		})
+		await engine.bootstrap()
+		engine.setOnline(false)
+
+		await engine.updateDocPage(docId, { coverGradient: 'ocean' })
+		await engine.updateDocPage(docId, { coverPositionY: 20 })
+		await engine.updateDocPage(docId, { coverPositionY: 35 })
+		await engine.updateDocPage(docId, { coverPositionY: 60 })
+		await engine.updateDocPage(docId, { coverPositionY: 82 })
+		await engine.moveDocPage(docId, { parentId: null, position: 'a' })
+
+		expect(engine.getStatus().pendingCount).toBe(2)
+
+		engine.setOnline(true)
+		await engine.flushOutbox()
+
+		expect(engine.getConflicts()).toHaveLength(0)
+		expect(engine.getStatus().pendingCount).toBe(0)
+		expect(engine.collections.docPages.get(docId)?.coverGradient).toBe('ocean')
+		expect(engine.collections.docPages.get(docId)?.coverPositionY).toBe(82)
+		expect(engine.collections.docPages.get(docId)?.position).toBe('a')
+		expect(engine.collections.docPages.get(docId)?.version).toBe(3)
+		engine.dispose()
+	})
+
+	test('preserves all fields on concurrent non-awaited updateDocPage calls with async storage', async () => {
+		const innerStorage = new MemoryReplicaStorage()
+		const delayedStorage = {
+			mode: innerStorage.mode,
+			get: (key: string) => innerStorage.get(key),
+			async set(key: string, value: string) {
+				await new Promise((r) => setTimeout(r, 10))
+				await innerStorage.set(key, value)
+			},
+			delete: (key: string) => innerStorage.delete(key),
+			keys: () => innerStorage.keys(),
+			clear: () => innerStorage.clear()
+		}
+		const docId = generateUuidV7()
+		const nowIso = '2026-11-25T00:00:00Z'
+		let serverDoc: DocPageDto = {
+			id: docId,
+			workspaceId: WS_ID,
+			parentId: null,
+			path: docId,
+			depth: 0,
+			slug: 'handbook',
+			title: 'Engineering handbook',
+			icon: null,
+			coverFileId: null,
+			coverGradient: null,
+			coverPositionY: 50,
+			visibility: 'workspace',
+			isTemplate: false,
+			isFavorite: false,
+			position: 'V',
+			createdBy: USER_ID,
+			archivedAt: null,
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1,
+			byteSize: 0
+		}
+		const sentBatches: MutationEnvelope[][] = []
+
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				return {
+					cursor: 1,
+					serverTime: nowIso,
+					projects: [],
+					projectStatuses: [],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: [serverDoc]
+				}
+			},
+			async fetchChanges(since) {
+				return { changes: [], nextCursor: since, hasMore: false, serverTime: nowIso }
+			},
+			async sendBatch(mutations) {
+				sentBatches.push([...mutations])
+				const m = mutations[0]
+				if (!m) return { cursor: 1, results: [] }
+				serverDoc = {
+					...serverDoc,
+					...(m.patch as Partial<DocPageDto>),
+					version: serverDoc.version + 1
+				}
+				return {
+					cursor: serverDoc.version,
+					results: [
+						{
+							mutationId: m.mutationId,
+							status: 200,
+							outcome: 'applied',
+							data: serverDoc as unknown as Record<string, unknown>
+						}
+					]
+				}
+			}
+		}
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage: delayedStorage,
+			transport
+		})
+		await engine.bootstrap()
+		engine.setOnline(false)
+
+		await Promise.all([
+			engine.updateDocPage(docId, { coverGradient: 'ocean' }),
+			engine.updateDocPage(docId, { coverPositionY: 75 })
+		])
+
+		expect(engine.getStatus().pendingCount).toBe(1)
+		expect(engine.collections.docPages.get(docId)?.coverGradient).toBe('ocean')
+		expect(engine.collections.docPages.get(docId)?.coverPositionY).toBe(75)
+
+		engine.setOnline(true)
+		await engine.flushOutbox()
+		expect(sentBatches).toHaveLength(1)
+		expect(sentBatches[0]?.[0]?.patch).toEqual({ coverGradient: 'ocean', coverPositionY: 75 })
+		expect(serverDoc.coverGradient).toBe('ocean')
+		expect(serverDoc.coverPositionY).toBe(75)
+		engine.dispose()
+	})
+
+	test('deduplicates repeated conflicts for the same doc_page on bootstrap and during flush', async () => {
+		const storage = new MemoryReplicaStorage()
+		const docId = generateUuidV7()
+		const nowIso = '2026-11-25T00:00:00Z'
+		const baseDoc: DocPageDto = {
+			id: docId,
+			workspaceId: WS_ID,
+			parentId: null,
+			path: docId,
+			depth: 0,
+			slug: 'handbook',
+			title: 'Engineering handbook',
+			icon: null,
+			coverFileId: null,
+			coverGradient: 'ocean',
+			coverPositionY: 50,
+			visibility: 'workspace',
+			isTemplate: false,
+			isFavorite: false,
+			position: 'V',
+			createdBy: USER_ID,
+			archivedAt: null,
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1,
+			byteSize: 0
+		}
+
+		const duplicateConflicts = [10, 25, 40].map((pos) => ({
+			id: generateUuidV7(),
+			mutationId: generateUuidV7(),
+			entity: 'doc_page',
+			entityId: docId,
+			title: baseDoc.title,
+			overlappingFields: ['coverPositionY'],
+			nonConflictingPatch: {},
+			baseValues: { ...baseDoc },
+			localValues: { coverPositionY: pos },
+			serverValues: { ...baseDoc, coverPositionY: 51, version: 2 },
+			serverVersion: 2
+		}))
+		await storage.set('huriro:conflicts:v1', JSON.stringify(duplicateConflicts))
+
+		const serverDoc: DocPageDto = { ...baseDoc, coverPositionY: 51, version: 2 }
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				return {
+					cursor: 2,
+					serverTime: nowIso,
+					projects: [],
+					projectStatuses: [],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: [serverDoc]
+				}
+			},
+			async fetchChanges(since) {
+				return { changes: [], nextCursor: since, hasMore: false, serverTime: nowIso }
+			},
+			async sendBatch(mutations) {
+				return {
+					cursor: 2,
+					results: mutations.map((m) => ({
+						mutationId: m.mutationId,
+						status: 409,
+						outcome: 'stale_version' as const,
+						currentVersion: 2,
+						currentEntity: serverDoc as unknown as Record<string, unknown>,
+						changedFields: ['coverPositionY']
+					}))
+				}
+			}
+		}
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport
+		})
+		await engine.bootstrap({ skipNetwork: true })
+		expect(engine.getConflicts()).toHaveLength(1)
+		expect(engine.getConflicts()[0]?.localValues).toEqual({ coverPositionY: 40 })
+
+		const rawPersisted = await storage.get('huriro:conflicts:v1')
+		expect(rawPersisted).toBeTruthy()
+		expect(JSON.parse(rawPersisted ?? '[]')).toHaveLength(1)
+		engine.dispose()
+
+		// Verify flush also merges a new conflict on the same entity into the existing single entry.
+		const engine2 = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport
+		})
+		await engine2.bootstrap()
+		engine2.setOnline(false)
+		await engine2.updateDocPage(docId, { coverPositionY: 85 })
+		engine2.setOnline(true)
+		await engine2.flushOutbox()
+
+		expect(engine2.getConflicts()).toHaveLength(1)
+		expect(engine2.getConflicts()[0]?.localValues).toEqual({ coverPositionY: 85 })
+		engine2.dispose()
+	})
 })

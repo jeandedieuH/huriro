@@ -1,5 +1,5 @@
 import * as SelectPrimitive from '@radix-ui/react-select'
-import { Check, ChevronDown } from 'lucide-react'
+import { Check, ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export const Select = SelectPrimitive.Root
@@ -12,15 +12,38 @@ export function SelectTrigger({ className, children, ...props }: SelectPrimitive
 			className={cn(
 				'flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-(--shadow-1)',
 				'placeholder:text-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-50',
+				'[&>span]:min-w-0 [&>span]:truncate',
 				className
 			)}
 			{...props}
 		>
 			{children}
 			<SelectPrimitive.Icon asChild>
-				<ChevronDown className="size-4 text-muted-foreground" aria-hidden />
+				<ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
 			</SelectPrimitive.Icon>
 		</SelectPrimitive.Trigger>
+	)
+}
+
+export function SelectScrollUpButton({ className, ...props }: SelectPrimitive.SelectScrollUpButtonProps) {
+	return (
+		<SelectPrimitive.ScrollUpButton
+			className={cn('flex cursor-default items-center justify-center py-1', className)}
+			{...props}
+		>
+			<ChevronUp className="size-3.5 text-muted-foreground" aria-hidden />
+		</SelectPrimitive.ScrollUpButton>
+	)
+}
+
+export function SelectScrollDownButton({ className, ...props }: SelectPrimitive.SelectScrollDownButtonProps) {
+	return (
+		<SelectPrimitive.ScrollDownButton
+			className={cn('flex cursor-default items-center justify-center py-1', className)}
+			{...props}
+		>
+			<ChevronDown className="size-3.5 text-muted-foreground" aria-hidden />
+		</SelectPrimitive.ScrollDownButton>
 	)
 }
 
@@ -41,7 +64,9 @@ export function SelectContent({
 				)}
 				{...props}
 			>
+				<SelectScrollUpButton />
 				<SelectPrimitive.Viewport className="p-1">{children}</SelectPrimitive.Viewport>
+				<SelectScrollDownButton />
 			</SelectPrimitive.Content>
 		</SelectPrimitive.Portal>
 	)

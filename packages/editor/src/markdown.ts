@@ -52,6 +52,7 @@ function withMarks(nodes: ProseMirrorNodeJson[], mark: ProseMirrorMarkJson): Pro
 }
 
 const MENTION_PATTERN = /@\[([^\]]+)\]\((person|issue|doc):([^)]+)\)/g
+const INLINE_MATH_PATTERN = /(?<!\$)\$([^$\n]+)\$(?!\$)/g
 
 function parseTextWithMentions(rawText: string): ProseMirrorNodeJson[] {
 	const out: ProseMirrorNodeJson[] = []
@@ -60,7 +61,7 @@ function parseTextWithMentions(rawText: string): ProseMirrorNodeJson[] {
 	let match = MENTION_PATTERN.exec(rawText)
 	while (match !== null) {
 		if (match.index > lastIndex) {
-			out.push({ type: 'text', text: rawText.slice(lastIndex, match.index) })
+			out.push(...parseInlineMathRuns(rawText.slice(lastIndex, match.index)))
 		}
 		const label = match[1] ?? ''
 		const entityType = match[2] ?? 'person'
@@ -73,9 +74,33 @@ function parseTextWithMentions(rawText: string): ProseMirrorNodeJson[] {
 		match = MENTION_PATTERN.exec(rawText)
 	}
 	if (lastIndex < rawText.length) {
-		out.push({ type: 'text', text: rawText.slice(lastIndex) })
+		out.push(...parseInlineMathRuns(rawText.slice(lastIndex)))
 	}
 	return out.filter((n) => n.type !== 'text' || (n.text && n.text.length > 0))
+}
+
+function parseInlineMathRuns(rawText: string): ProseMirrorNodeJson[] {
+	const out: ProseMirrorNodeJson[] = []
+	let lastIndex = 0
+	INLINE_MATH_PATTERN.lastIndex = 0
+	let match = INLINE_MATH_PATTERN.exec(rawText)
+	while (match !== null) {
+		if (match.index > lastIndex) {
+			out.push({ type: 'text', text: rawText.slice(lastIndex, match.index) })
+		}
+		const latex = match[1]?.trim() ?? ''
+		if (latex) {
+			out.push({ type: 'mathInline', attrs: { latex } })
+		} else {
+			out.push({ type: 'text', text: match[0] })
+		}
+		lastIndex = match.index + match[0].length
+		match = INLINE_MATH_PATTERN.exec(rawText)
+	}
+	if (lastIndex < rawText.length) {
+		out.push({ type: 'text', text: rawText.slice(lastIndex) })
+	}
+	return out
 }
 
 function inlineTokensToNodes(tokens: readonly Token[] | undefined): ProseMirrorNodeJson[] {
@@ -223,6 +248,18 @@ function blockTokensToNodes(
 			}
 			case 'paragraph': {
 				const p = tok as Tokens.Paragraph
+				const trimmed = p.raw.trim()
+				const mathBlockMatch = /^\$\$([\s\S]+?)\$\$$/.exec(trimmed)
+				if (mathBlockMatch?.[1]) {
+					out.push({
+						type: 'mathBlock',
+						attrs: {
+							latex: mathBlockMatch[1].trim(),
+							blockId: deterministicBlockId(seed, counter.idx++)
+						}
+					})
+					break
+				}
 				const inline = inlineTokensToNodes(p.tokens)
 				// Image-only paragraph stays as paragraph or image block; keeping paragraph is TipTap-safe.
 				const blockId = deterministicBlockId(seed, counter.idx++)
@@ -236,6 +273,13 @@ function blockTokensToNodes(
 			case 'code': {
 				const c = tok as Tokens.Code
 				const blockId = deterministicBlockId(seed, counter.idx++)
+				if ((c.lang ?? '').trim().toLowerCase() === 'mermaid') {
+					out.push({
+						type: 'mermaidBlock',
+						attrs: { code: c.text, alt: 'Diagram', viewMode: 'split', blockId }
+					})
+					break
+				}
 				out.push({
 					type: 'codeBlock',
 					attrs: { language: c.lang || null, blockId },
@@ -394,6 +438,9 @@ function serializeInline(nodes: readonly ProseMirrorNodeJson[] | undefined): str
 	return nodes
 		.map((node) => {
 			if (node.type === 'hardBreak') return '  \n'
+			if (node.type === 'mathInline') {
+				return `$${String(node.attrs?.['latex'] ?? '')}$`
+			}
 			if (node.type === 'entityMention') {
 				const label = String(node.attrs?.['label'] ?? '')
 				const entityType = String(node.attrs?.['entityType'] ?? 'person')
@@ -406,8 +453,9 @@ function serializeInline(nodes: readonly ProseMirrorNodeJson[] | undefined): str
 				return isSafeUrl(src) ? `![${alt}](${src})` : ''
 			}
 			if (node.type !== 'text') return ''
-			let text = node.text ?? ''
 			const marks = node.marks ?? []
+			if (marks.some((m) => m.type === 'suggestionDelete')) return ''
+			let text = node.text ?? ''
 			// Apply code innermost, then emphasis/strike, then link outermost.
 			const code = marks.find((m) => m.type === 'code')
 			if (code) text = `\`${text}\``
@@ -482,6 +530,54 @@ function serializeBlocks(nodes: readonly ProseMirrorNodeJson[] | undefined, inde
 				const summary = String(node.attrs?.['summary'] ?? 'Details')
 				const inner = serializeBlocks(node.content)
 				parts.push(`<details>\n<summary>${summary}</summary>\n\n${inner}\n\n</details>`)
+				break
+			}
+			case 'toggleHeading': {
+				const level = Number(node.attrs?.['level'] ?? 2)
+				const hashes = '#'.repeat(Math.max(1, Math.min(3, level)))
+				const summary = String(node.attrs?.['summary'] ?? 'Toggle heading')
+				const inner = serializeBlocks(node.content)
+				parts.push(`<details>\n<summary>${hashes} ${summary}</summary>\n\n${inner}\n\n</details>`)
+				break
+			}
+			case 'columns': {
+				const colTexts = (node.content ?? []).map((col) => serializeBlocks(col.content)).filter(Boolean)
+				if (colTexts.length > 0) parts.push(colTexts.join('\n\n'))
+				break
+			}
+			case 'column': {
+				const inner = serializeBlocks(node.content)
+				if (inner) parts.push(inner)
+				break
+			}
+			case 'mermaidBlock': {
+				const code = String(node.attrs?.['code'] ?? '')
+				parts.push(`\`\`\`mermaid\n${code}\n\`\`\``)
+				break
+			}
+			case 'mathBlock': {
+				const latex = String(node.attrs?.['latex'] ?? '')
+				parts.push(`$$\n${latex}\n$$`)
+				break
+			}
+			case 'bookmarkCard': {
+				const url = String(node.attrs?.['url'] ?? '')
+				const title = String(node.attrs?.['title'] ?? '') || url
+				if (isSafeUrl(url)) parts.push(`[${title}](${url})`)
+				break
+			}
+			case 'tocBlock': {
+				parts.push('[TOC]')
+				break
+			}
+			case 'syncedBlock': {
+				const fallback = String(node.attrs?.['fallbackText'] ?? node.attrs?.['title'] ?? 'Synced block')
+				parts.push(`> ${fallback}`)
+				break
+			}
+			case 'buttonBlock': {
+				const label = String(node.attrs?.['label'] ?? 'Button')
+				parts.push(`[Button: ${label}]`)
 				break
 			}
 			case 'bulletList': {

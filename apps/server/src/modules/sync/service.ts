@@ -40,6 +40,7 @@ import {
 	deleteDocPage,
 	getDocsSnapshotData,
 	listAccessibleDocPages,
+	listVisibleTeamspaces,
 	moveDocPage,
 	updateDocPage
 } from '../docs'
@@ -86,6 +87,13 @@ function extractProjectIdFromScope(scope: readonly string[]): string | null {
 function extractDocPageIdFromScope(scope: readonly string[]): string | null {
 	for (const s of scope) {
 		if (s.startsWith('doc_page:')) return s.slice('doc_page:'.length)
+	}
+	return null
+}
+
+function extractTeamspaceIdFromScope(scope: readonly string[]): string | null {
+	for (const s of scope) {
+		if (s.startsWith('teamspace:')) return s.slice('teamspace:'.length)
 	}
 	return null
 }
@@ -207,7 +215,8 @@ function filterRowForActor(
 	actor: ActorContext,
 	accessibleProjects: ReadonlySet<string>,
 	accessibleDocPages: ReadonlySet<string>,
-	accessibleArchivedDocPages: ReadonlySet<string>
+	accessibleArchivedDocPages: ReadonlySet<string>,
+	accessibleTeamspaces: ReadonlySet<string>
 ): SyncChangeDto | null {
 	if (row.entityType === 'notification') {
 		if (!row.scope.includes(`user:${actor.principalId}`)) return null
@@ -357,6 +366,35 @@ function filterRowForActor(
 		return null
 	}
 
+	if (row.entityType === 'teamspace') {
+		const tsId = extractTeamspaceIdFromScope(row.scope) ?? row.entityId
+		if (row.action === 'delete') {
+			const visibleDelete = actor.roleKey !== 'guest' && row.scope.includes('visibility:workspace')
+			if (!accessibleTeamspaces.has(tsId) && !visibleDelete) return null
+			return {
+				cursor: row.cursor,
+				entity: row.entityType,
+				id: row.entityId,
+				action: 'delete',
+				scope: row.scope,
+				data: null,
+				changedAt: row.changedAt
+			}
+		}
+		if (accessibleTeamspaces.has(tsId)) {
+			return {
+				cursor: row.cursor,
+				entity: row.entityType,
+				id: row.entityId,
+				action: row.action,
+				scope: row.scope,
+				data: row.payload,
+				changedAt: row.changedAt
+			}
+		}
+		return null
+	}
+
 	const projectId = extractProjectIdFromScope(row.scope)
 	if (row.action === 'revoke') {
 		const p = row.payload ?? {}
@@ -482,9 +520,10 @@ export async function getSyncChanges(
 	const { rows, hasMore } = await readChangeLogAfter(tx, actor.workspaceId, since, limit)
 	const nextCursor = rows.length > 0 ? rows[rows.length - 1]!.cursor : Math.max(since, lastCursor)
 
-	const [accessibleProjects, accessibleDocs] = await Promise.all([
+	const [accessibleProjects, accessibleDocs, accessibleTeamspaceRows] = await Promise.all([
 		listAccessibleProjectIds(tx, actor),
-		listAccessibleDocPages(tx, actor, { includeArchived: true, includeTemplates: true })
+		listAccessibleDocPages(tx, actor, { includeArchived: true, includeTemplates: true }),
+		listVisibleTeamspaces(tx, actor, true)
 	])
 	const accessibleDocPages = new Set<string>()
 	const accessibleArchivedDocPages = new Set<string>()
@@ -492,6 +531,9 @@ export async function getSyncChanges(
 		if (doc.archivedAt === null) accessibleDocPages.add(doc.id)
 		else accessibleArchivedDocPages.add(doc.id)
 	}
+	const accessibleTeamspaces = new Set(
+		accessibleTeamspaceRows.filter((ts) => ts.archivedAt === null).map((ts) => ts.id)
+	)
 	const filtered: SyncChangeDto[] = []
 	for (const row of rows) {
 		const mapped = filterRowForActor(
@@ -499,7 +541,8 @@ export async function getSyncChanges(
 			actor,
 			accessibleProjects,
 			accessibleDocPages,
-			accessibleArchivedDocPages
+			accessibleArchivedDocPages,
+			accessibleTeamspaces
 		)
 		if (mapped) {
 			filtered.push(mapped)
@@ -562,9 +605,10 @@ export async function getSyncSnapshot(
 		projectUpdates: [],
 		savedViews: []
 	}
-	const [tasksSnap, docsSnap, notifSnap] = await Promise.all([
+	const [tasksSnap, docsSnap, teamspacesSnap, notifSnap] = await Promise.all([
 		scopeDocPageId ? Promise.resolve(emptyTasks) : getTasksSnapshotData(tx, actor, scopeProjectId),
 		scopeProjectId ? Promise.resolve({ docPages: [] }) : getDocsSnapshotData(tx, actor, scopeDocPageId),
+		scopeProjectId || scopeDocPageId ? Promise.resolve([]) : listVisibleTeamspaces(tx, actor),
 		scopeProjectId || scopeDocPageId ? Promise.resolve([]) : getNotificationsSnapshot(tx, actor)
 	])
 
@@ -582,7 +626,8 @@ export async function getSyncSnapshot(
 		projectUpdates: tasksSnap.projectUpdates as unknown as Record<string, unknown>[],
 		savedViews: tasksSnap.savedViews as unknown as Record<string, unknown>[],
 		notifications: notifSnap as unknown as Record<string, unknown>[],
-		docPages: docsSnap.docPages as unknown as Record<string, unknown>[]
+		docPages: docsSnap.docPages as unknown as Record<string, unknown>[],
+		teamspaces: teamspacesSnap as unknown as Record<string, unknown>[]
 	}
 }
 

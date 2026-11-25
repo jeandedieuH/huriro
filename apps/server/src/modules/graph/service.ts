@@ -1,4 +1,12 @@
-import type { CreateEntityLinkBody, EntityLinkDto, EntityType, PeekCardDto } from '@huriro/contracts'
+import type {
+	CreateEntityLinkBody,
+	EntityLinkDto,
+	EntityType,
+	KnowledgeGraphEdgeDto,
+	KnowledgeGraphNodeDto,
+	KnowledgeGraphResponse,
+	PeekCardDto
+} from '@huriro/contracts'
 import type { Queryable } from '@huriro/db'
 import type { ActorContext } from '@huriro/domain'
 import {
@@ -8,10 +16,10 @@ import {
 } from '../../api/entity-links'
 import { HttpError } from '../../api/error'
 import { getChatMessageEndpoint } from '../chat'
-import { requireDocPageAccess } from '../docs'
+import { listAccessibleDocPages, listVisibleTeamspaces, requireDocPageAccess } from '../docs'
 import { requireMailConversationAccess } from '../mail'
 import { listProjectStatuses, requireIssueAccess } from '../tasks'
-import { getEntityLinkRow, listEntityLinksTouching } from './repo'
+import { getEntityLinkRow, listEntityLinksForDocSources, listEntityLinksTouching } from './repo'
 
 const UNSUPPORTED_IN_M7 = new Set<EntityType>(['doc_database_row', 'contact_org', 'vcs_pr'])
 
@@ -242,4 +250,116 @@ export async function peekEntity(
 	} catch (err) {
 		hidden(err)
 	}
+}
+
+/** Visibility-filtered workspace Knowledge Graph across teamspaces, docs, and backlinks. */
+export async function getKnowledgeGraph(
+	tx: Queryable,
+	actor: ActorContext,
+	query?: { readonly teamspaceId?: string | undefined }
+): Promise<KnowledgeGraphResponse> {
+	if (actor.membership !== 'active') {
+		return { nodes: [], edges: [] }
+	}
+
+	const [allTeamspaces, docs] = await Promise.all([
+		listVisibleTeamspaces(tx, actor),
+		listAccessibleDocPages(tx, actor, {
+			includeTemplates: false,
+			...(query?.teamspaceId ? { teamspaceId: query.teamspaceId } : {})
+		})
+	])
+
+	const teamspaces = query?.teamspaceId
+		? allTeamspaces.filter((t) => t.id === query.teamspaceId)
+		: allTeamspaces
+
+	const visibleTeamspaceIds = new Set(teamspaces.map((t) => t.id))
+	const visibleDocIds = new Set(docs.map((d) => d.id))
+
+	const nodes: KnowledgeGraphNodeDto[] = []
+	const edges: KnowledgeGraphEdgeDto[] = []
+	const seenEdgeKeys = new Set<string>()
+
+	for (const ts of teamspaces) {
+		nodes.push({
+			id: ts.id,
+			kind: 'teamspace',
+			label: ts.name,
+			subtitle: ts.visibility,
+			slug: ts.slug
+		})
+	}
+
+	for (const doc of docs) {
+		nodes.push({
+			id: doc.id,
+			kind: 'doc_page',
+			label: doc.title,
+			subtitle: doc.visibility,
+			slug: doc.slug,
+			teamspaceId: doc.teamspaceId ?? null,
+			verificationStatus: doc.verificationStatus ?? null
+		})
+		if (doc.teamspaceId && visibleTeamspaceIds.has(doc.teamspaceId)) {
+			const edgeKey = `${doc.teamspaceId}->${doc.id}:contains`
+			if (!seenEdgeKeys.has(edgeKey)) {
+				seenEdgeKeys.add(edgeKey)
+				edges.push({
+					id: `ts:${doc.teamspaceId}:${doc.id}`,
+					sourceId: doc.teamspaceId,
+					targetId: doc.id,
+					relationKind: 'contains'
+				})
+			}
+		}
+	}
+
+	const docLinks = await listEntityLinksForDocSources(
+		tx,
+		actor.workspaceId,
+		docs.map((d) => d.id)
+	)
+	const addedIssueNodes = new Set<string>()
+
+	for (const link of docLinks) {
+		if (link.targetType === 'doc_page') {
+			if (!visibleDocIds.has(link.targetId)) continue
+			const edgeKey = `${link.sourceId}->${link.targetId}:${link.relationKind}`
+			if (!seenEdgeKeys.has(edgeKey)) {
+				seenEdgeKeys.add(edgeKey)
+				edges.push({
+					id: link.id,
+					sourceId: link.sourceId,
+					targetId: link.targetId,
+					relationKind: link.relationKind
+				})
+			}
+		} else if (link.targetType === 'issue') {
+			if (!(await isEndpointVisible(tx, actor, 'issue', link.targetId))) continue
+			if (!addedIssueNodes.has(link.targetId)) {
+				const issue = await requireIssueAccess(tx, actor, link.targetId, 'issue.read')
+				addedIssueNodes.add(link.targetId)
+				nodes.push({
+					id: issue.id,
+					kind: 'issue',
+					label: issue.title,
+					subtitle: issue.identifier,
+					slug: null
+				})
+			}
+			const edgeKey = `${link.sourceId}->${link.targetId}:${link.relationKind}`
+			if (!seenEdgeKeys.has(edgeKey)) {
+				seenEdgeKeys.add(edgeKey)
+				edges.push({
+					id: link.id,
+					sourceId: link.sourceId,
+					targetId: link.targetId,
+					relationKind: link.relationKind
+				})
+			}
+		}
+	}
+
+	return { nodes, edges }
 }

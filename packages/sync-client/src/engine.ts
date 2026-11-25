@@ -14,6 +14,7 @@ import type {
 	IssueDto,
 	MoveDocPageBody,
 	MoveIssueBody,
+	MutationEntity,
 	MutationEnvelope,
 	MutationResultDto,
 	MutationsBatchResponse,
@@ -99,7 +100,8 @@ function hasPersistedReplicaShape(state: PersistedReplicaState): boolean {
 		Array.isArray(state.issues) &&
 		Array.isArray(state.savedViews) &&
 		Array.isArray(state.notifications) &&
-		(state.docPages === undefined || Array.isArray(state.docPages))
+		(state.docPages === undefined || Array.isArray(state.docPages)) &&
+		(state.teamspaces === undefined || Array.isArray(state.teamspaces))
 	)
 }
 
@@ -290,6 +292,7 @@ export class HuriroSyncEngine {
 	private onlineHandler: (() => void) | null = null
 	private offlineHandler: (() => void) | null = null
 	private pendingScopeRegistryWrite: Promise<void> | null = null
+	private replicaPersistChain: Promise<void> = Promise.resolve()
 
 	constructor(opts: HuriroSyncEngineOptions) {
 		this.workspaceId = opts.workspaceId
@@ -562,9 +565,16 @@ export class HuriroSyncEngine {
 		}, delayMs)
 	}
 
-	private reapplyPendingOptimisticState(): void {
+	private reapplyPendingOptimisticState(filterEntity?: MutationEntity, filterEntityId?: string): void {
 		for (const item of this.outbox.getPendingMutations()) {
 			const { envelope } = item
+			if (
+				filterEntity !== undefined &&
+				(envelope.entity !== filterEntity ||
+					(filterEntityId !== undefined && envelope.entityId !== filterEntityId))
+			) {
+				continue
+			}
 			if (envelope.entity === 'project') {
 				if (envelope.op === 'create') {
 					const nowIso = envelope.queuedAt ?? new Date().toISOString()
@@ -769,11 +779,23 @@ export class HuriroSyncEngine {
 						id: envelope.entityId,
 						workspaceId: this.workspaceId,
 						parentId,
+						teamspaceId: (envelope.patch['teamspaceId'] as string | null) ?? parent?.teamspaceId ?? null,
 						path: parent ? `${parent.path}/${envelope.entityId}` : envelope.entityId,
 						depth: parent ? parent.depth + 1 : 0,
 						slug: String(envelope.patch['slug'] ?? envelope.entityId.slice(0, 8)),
 						title: String(envelope.patch['title'] ?? 'Untitled'),
 						icon: (envelope.patch['icon'] as string | null) ?? null,
+						coverFileId: null,
+						coverGradient: (envelope.patch['coverGradient'] as string | null) ?? null,
+						coverPositionY: 50,
+						fontStyle: (envelope.patch['fontStyle'] as 'sans' | 'serif' | 'mono') ?? 'sans',
+						fullWidth: Boolean(envelope.patch['fullWidth'] ?? false),
+						smallText: Boolean(envelope.patch['smallText'] ?? false),
+						isLocked: false,
+						lockedBy: null,
+						lockedAt: null,
+						verificationStatus: null,
+						verificationExpiresAt: null,
 						visibility: (envelope.patch['visibility'] as 'workspace' | 'private') ?? 'workspace',
 						isTemplate: Boolean(envelope.patch['isTemplate'] ?? false),
 						isFavorite: false,
@@ -786,11 +808,43 @@ export class HuriroSyncEngine {
 						byteSize: 0
 					}
 					this.collections.docPagesManaged.upsertMany([synthetic])
+				} else if (envelope.op === 'move') {
+					const existing = this.collections.docPages.get(envelope.entityId)
+					if (existing) {
+						const parentId = (envelope.patch['parentId'] as string | null) ?? null
+						const parent = parentId ? this.collections.docPages.get(parentId) : undefined
+						const position =
+							typeof envelope.patch['position'] === 'string' ? envelope.patch['position'] : existing.position
+						this.collections.docPagesManaged.upsertMany([
+							{
+								...existing,
+								parentId,
+								path: parent ? `${parent.path}/${existing.id}` : existing.id,
+								depth: parent ? parent.depth + 1 : 0,
+								position,
+								updatedAt: new Date().toISOString()
+							}
+						])
+					}
 				} else {
 					const existing = this.collections.docPages.get(envelope.entityId)
 					if (existing) {
+						const { archived, ...restPatch } = envelope.patch as Omit<UpdateDocPageBody, 'version'>
+						const nowIso = envelope.queuedAt ?? new Date().toISOString()
 						this.collections.docPagesManaged.upsertMany([
-							{ ...existing, ...envelope.patch, updatedAt: new Date().toISOString() }
+							{
+								...existing,
+								...restPatch,
+								...(restPatch.isLocked !== undefined
+									? {
+											isLocked: restPatch.isLocked,
+											lockedBy: restPatch.isLocked ? this.currentUserId : null,
+											lockedAt: restPatch.isLocked ? nowIso : null
+										}
+									: {}),
+								...(archived !== undefined ? { archivedAt: archived ? nowIso : null } : {}),
+								updatedAt: new Date().toISOString()
+							}
 						])
 					}
 				}
@@ -920,6 +974,9 @@ export class HuriroSyncEngine {
 						const scopedSnap = await this.transport.fetchSnapshot(scope)
 						this.collections.applyScopedSnapshot(scopedSnap)
 					}
+					if (this.outbox.getPendingCount() > 0) {
+						this.reapplyPendingOptimisticState()
+					}
 				}
 				this.cursor = page.nextCursor
 				hasMore = page.hasMore
@@ -956,6 +1013,9 @@ export class HuriroSyncEngine {
 			{
 				onApplied: (item, mutationResult) => {
 					this.applyAuthoritativeResult(item, mutationResult)
+					if (this.outbox.hasPendingForEntity(item.envelope.entity, item.envelope.entityId)) {
+						this.reapplyPendingOptimisticState(item.envelope.entity, item.envelope.entityId)
+					}
 				},
 				onConflict: () => {
 					this.emit()
@@ -1159,7 +1219,7 @@ export class HuriroSyncEngine {
 			version: 1
 		}
 
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1185,6 +1245,7 @@ export class HuriroSyncEngine {
 		})
 
 		this.collections.issuesManaged.upsertMany([optimistic])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 
@@ -1213,7 +1274,7 @@ export class HuriroSyncEngine {
 			updatedAt: new Date().toISOString()
 		}
 
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1229,6 +1290,7 @@ export class HuriroSyncEngine {
 		})
 
 		this.collections.issuesManaged.upsertMany([optimistic])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 
@@ -1271,7 +1333,7 @@ export class HuriroSyncEngine {
 			updatedAt: new Date().toISOString()
 		}
 
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1292,6 +1354,7 @@ export class HuriroSyncEngine {
 		})
 
 		this.collections.issuesManaged.upsertMany([optimistic])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 
@@ -1303,7 +1366,7 @@ export class HuriroSyncEngine {
 	async deleteIssue(issueId: string): Promise<void> {
 		const current = this.collections.issues.get(issueId)
 		if (!current) return
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1318,6 +1381,7 @@ export class HuriroSyncEngine {
 			title: current.title
 		})
 		this.collections.issuesManaged.deleteMany([issueId])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) {
@@ -1350,7 +1414,7 @@ export class HuriroSyncEngine {
 			updatedAt: nowIso,
 			version: 1
 		}
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1363,6 +1427,7 @@ export class HuriroSyncEngine {
 			title: input.name
 		})
 		this.collections.initiativesManaged.upsertMany([optimistic])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()
@@ -1378,7 +1443,7 @@ export class HuriroSyncEngine {
 			projectIds: patch.projectIds ?? current.projectIds,
 			updatedAt: new Date().toISOString()
 		}
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1393,6 +1458,7 @@ export class HuriroSyncEngine {
 			title: current.name
 		})
 		this.collections.initiativesManaged.upsertMany([optimistic])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()
@@ -1401,7 +1467,7 @@ export class HuriroSyncEngine {
 	async deleteInitiative(initiativeId: string): Promise<void> {
 		const current = this.collections.initiatives.get(initiativeId)
 		if (!current) return
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1416,6 +1482,7 @@ export class HuriroSyncEngine {
 			title: current.name
 		})
 		this.collections.initiativesManaged.deleteMany([initiativeId])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()
@@ -1446,7 +1513,7 @@ export class HuriroSyncEngine {
 			updatedAt: nowIso,
 			version: 1
 		}
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1459,6 +1526,7 @@ export class HuriroSyncEngine {
 			title: input.name
 		})
 		this.collections.milestonesManaged.upsertMany([optimistic])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()
@@ -1474,7 +1542,7 @@ export class HuriroSyncEngine {
 		if (!current || current.projectId !== projectId)
 			throw new Error(`Milestone "${milestoneId}" not found in local replica`)
 		const optimistic: ProjectMilestoneDto = { ...current, ...patch, updatedAt: new Date().toISOString() }
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1489,6 +1557,7 @@ export class HuriroSyncEngine {
 			title: current.name
 		})
 		this.collections.milestonesManaged.upsertMany([optimistic])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()
@@ -1497,7 +1566,7 @@ export class HuriroSyncEngine {
 	async deleteProjectMilestone(projectId: string, milestoneId: string): Promise<void> {
 		const current = this.collections.projectMilestones.get(milestoneId)
 		if (!current || current.projectId !== projectId) return
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1512,6 +1581,7 @@ export class HuriroSyncEngine {
 			title: current.name
 		})
 		this.collections.milestonesManaged.deleteMany([milestoneId])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()
@@ -1544,7 +1614,7 @@ export class HuriroSyncEngine {
 			updatedAt: nowIso,
 			version: 1
 		}
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1557,6 +1627,7 @@ export class HuriroSyncEngine {
 			title: optimistic.bodyText || optimistic.health
 		})
 		this.collections.projectUpdatesManaged.upsertMany([optimistic])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()
@@ -1591,7 +1662,7 @@ export class HuriroSyncEngine {
 			updatedAt: nowIso,
 			version: 1
 		}
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1610,6 +1681,7 @@ export class HuriroSyncEngine {
 			title: input.name
 		})
 		this.collections.projectsManaged.upsertMany([optimistic])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()
@@ -1641,7 +1713,7 @@ export class HuriroSyncEngine {
 			updatedAt: nowIso,
 			version: 1
 		}
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1654,6 +1726,7 @@ export class HuriroSyncEngine {
 			title: input.name
 		})
 		this.collections.viewsManaged.upsertMany([optimistic])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()
@@ -1664,8 +1737,7 @@ export class HuriroSyncEngine {
 		const current = this.collections.notifications.get(notificationId)
 		if (!current || current.readAt !== null) return
 		const nowIso = new Date().toISOString()
-		this.collections.notificationsManaged.upsertMany([{ ...current, readAt: nowIso }])
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1678,6 +1750,8 @@ export class HuriroSyncEngine {
 			base: current as unknown as Record<string, unknown>,
 			title: current.title
 		})
+		this.collections.notificationsManaged.upsertMany([{ ...current, readAt: nowIso }])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()
@@ -1706,11 +1780,23 @@ export class HuriroSyncEngine {
 			id,
 			workspaceId: this.workspaceId,
 			parentId,
+			teamspaceId: input.teamspaceId !== undefined ? input.teamspaceId : (parent?.teamspaceId ?? null),
 			path: parent ? `${parent.path}/${id}` : id,
 			depth: parent ? parent.depth + 1 : 0,
 			slug,
 			title: input.title,
 			icon: input.icon ?? null,
+			coverFileId: null,
+			coverGradient: input.coverGradient ?? null,
+			coverPositionY: 50,
+			fontStyle: input.fontStyle ?? 'sans',
+			fullWidth: input.fullWidth ?? false,
+			smallText: input.smallText ?? false,
+			isLocked: false,
+			lockedBy: null,
+			lockedAt: null,
+			verificationStatus: null,
+			verificationExpiresAt: null,
 			visibility: input.visibility ?? parent?.visibility ?? 'workspace',
 			isTemplate: input.isTemplate ?? false,
 			isFavorite: false,
@@ -1723,7 +1809,7 @@ export class HuriroSyncEngine {
 			byteSize: 0
 		}
 
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1732,11 +1818,16 @@ export class HuriroSyncEngine {
 				op: 'create',
 				patch: {
 					parentId,
+					...(input.teamspaceId !== undefined ? { teamspaceId: input.teamspaceId } : {}),
 					title: input.title,
 					visibility: optimistic.visibility,
 					position,
 					...(input.slug !== undefined ? { slug: input.slug } : {}),
 					...(input.icon !== undefined ? { icon: input.icon } : {}),
+					...(input.coverGradient !== undefined ? { coverGradient: input.coverGradient } : {}),
+					...(input.fontStyle !== undefined ? { fontStyle: input.fontStyle } : {}),
+					...(input.fullWidth !== undefined ? { fullWidth: input.fullWidth } : {}),
+					...(input.smallText !== undefined ? { smallText: input.smallText } : {}),
 					...(input.isTemplate !== undefined ? { isTemplate: input.isTemplate } : {}),
 					...(input.templateId !== undefined ? { templateId: input.templateId } : {}),
 					...(input.markdown !== undefined ? { markdown: input.markdown } : {})
@@ -1747,6 +1838,7 @@ export class HuriroSyncEngine {
 		})
 
 		this.collections.docPagesManaged.upsertMany([optimistic])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()
@@ -1762,6 +1854,20 @@ export class HuriroSyncEngine {
 			...(patch.title !== undefined ? { title: patch.title } : {}),
 			...(patch.slug !== undefined ? { slug: patch.slug } : {}),
 			...(patch.icon !== undefined ? { icon: patch.icon } : {}),
+			...(patch.teamspaceId !== undefined ? { teamspaceId: patch.teamspaceId } : {}),
+			...(patch.coverFileId !== undefined ? { coverFileId: patch.coverFileId } : {}),
+			...(patch.coverGradient !== undefined ? { coverGradient: patch.coverGradient } : {}),
+			...(patch.coverPositionY !== undefined ? { coverPositionY: patch.coverPositionY } : {}),
+			...(patch.fontStyle !== undefined ? { fontStyle: patch.fontStyle } : {}),
+			...(patch.fullWidth !== undefined ? { fullWidth: patch.fullWidth } : {}),
+			...(patch.smallText !== undefined ? { smallText: patch.smallText } : {}),
+			...(patch.isLocked !== undefined
+				? {
+						isLocked: patch.isLocked,
+						lockedBy: patch.isLocked ? this.currentUserId : null,
+						lockedAt: patch.isLocked ? new Date().toISOString() : null
+					}
+				: {}),
 			...(patch.visibility !== undefined ? { visibility: patch.visibility } : {}),
 			...(patch.isTemplate !== undefined ? { isTemplate: patch.isTemplate } : {}),
 			...(patch.archived !== undefined
@@ -1770,7 +1876,7 @@ export class HuriroSyncEngine {
 			updatedAt: new Date().toISOString()
 		}
 
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1786,6 +1892,7 @@ export class HuriroSyncEngine {
 		})
 
 		this.collections.docPagesManaged.upsertMany([optimistic])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()
@@ -1825,7 +1932,7 @@ export class HuriroSyncEngine {
 			updatedAt: new Date().toISOString()
 		}
 
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1846,6 +1953,7 @@ export class HuriroSyncEngine {
 		})
 
 		this.collections.docPagesManaged.upsertMany([optimistic])
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()
@@ -1854,7 +1962,7 @@ export class HuriroSyncEngine {
 	async deleteDocPage(pageId: string): Promise<void> {
 		const current = this.collections.docPages.get(pageId)
 		if (!current) return
-		await this.outbox.enqueue({
+		const persistOutbox = this.outbox.enqueueImmediate({
 			envelope: {
 				mutationId: generateUuidV7(),
 				workspaceId: this.workspaceId,
@@ -1869,6 +1977,7 @@ export class HuriroSyncEngine {
 			title: current.title
 		})
 		this.collections.purgeDocPageScope(pageId)
+		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()
@@ -1890,8 +1999,14 @@ export class HuriroSyncEngine {
 	}
 
 	async persistReplica(): Promise<void> {
-		const state = this.collections.exportState(this.cursor)
-		await this.storage.set(REPLICA_KEY, JSON.stringify(state))
+		const next = this.replicaPersistChain
+			.catch(() => {})
+			.then(async () => {
+				const state = this.collections.exportState(this.cursor)
+				await this.storage.set(REPLICA_KEY, JSON.stringify(state))
+			})
+		this.replicaPersistChain = next
+		return next
 	}
 
 	private async persistScopeRegistry(entries: readonly PersistedScopeEntry[]): Promise<void> {
@@ -1964,6 +2079,7 @@ export class HuriroSyncEngine {
 			await this.pendingScopeRegistryWrite
 			this.pendingScopeRegistryWrite = null
 		}
+		await this.replicaPersistChain.catch(() => {})
 		await this.outbox.clearAll()
 		this.collections.clearAll()
 		await this.storage.clear()

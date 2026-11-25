@@ -1,10 +1,10 @@
-import { type Extensions, getSchema } from '@tiptap/core'
+import { type AnyExtension, type Extensions, getSchema } from '@tiptap/core'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import Image from '@tiptap/extension-image'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
-import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
+import { Table, TableRow } from '@tiptap/extension-table'
 import { Placeholder } from '@tiptap/extensions'
 import type { Schema } from '@tiptap/pm/model'
 import StarterKit from '@tiptap/starter-kit'
@@ -12,12 +12,30 @@ import { common, createLowlight } from 'lowlight'
 import type * as Y from 'yjs'
 import {
 	BlockIdExtension,
+	BlockStyleExtension,
+	BookmarkCardExtension,
+	ButtonBlockExtension,
 	CalloutExtension,
+	ColumnExtension,
+	ColumnsExtension,
 	CommentAnchorMark,
 	EmbedExtension,
 	EntityMentionExtension,
+	HuriroTableCell,
+	HuriroTableHeader,
+	MathBlockExtension,
+	MathInlineExtension,
+	MermaidBlockExtension,
 	ReferenceBlockExtension,
-	ToggleExtension
+	type SuggestionAuthorType,
+	SuggestionDeleteMark,
+	SuggestionInsertMark,
+	SuggestionModeExtension,
+	SyncedBlockExtension,
+	TableUpgradesExtension,
+	TocBlockExtension,
+	ToggleExtension,
+	ToggleHeadingExtension
 } from './extensions'
 import { isSafeUrl } from './sanitize'
 
@@ -25,6 +43,10 @@ export const DOCUMENT_SIZE_WARN_BYTES = 2 * 1024 * 1024 // 2 MB (§10.2)
 export const DOCUMENT_SIZE_MAX_BYTES = 10 * 1024 * 1024 // 10 MB (§10.2)
 
 const lowlight = createLowlight(common)
+
+export const HuriroCodeBlockExtension = CodeBlockLowlight.configure({
+	lowlight
+})
 
 export interface HuriroExtensionsOptions {
 	readonly collaborative?: boolean | undefined
@@ -35,10 +57,18 @@ export interface HuriroExtensionsOptions {
 	readonly placeholder?: string | undefined
 	/** Localized node-view labels for the collapsible toggle (§17.8). */
 	readonly toggleLabels?: { readonly arrow: string; readonly summary: string } | undefined
+	readonly suggestionAuthor?:
+		| { readonly authorType: SuggestionAuthorType; readonly authorId: string }
+		| undefined
+	/** Optional app-level extensions replacing matching extension names (e.g. React NodeViews). */
+	readonly nodeViewOverrides?: readonly AnyExtension[] | undefined
 }
 
 export function createHuriroExtensions(options: HuriroExtensionsOptions = {}): Extensions {
 	const collaborative = options.collaborative ?? Boolean(options.ydoc)
+	const overrideByName = new Map((options.nodeViewOverrides ?? []).map((ext) => [ext.name, ext]))
+
+	const pick = <T extends AnyExtension>(base: T): AnyExtension => overrideByName.get(base.name) ?? base
 
 	const extensions: Extensions = [
 		StarterKit.configure({
@@ -50,15 +80,14 @@ export function createHuriroExtensions(options: HuriroExtensionsOptions = {}): E
 				isAllowedUri: (url) => isSafeUrl(url)
 			}
 		}),
-		CodeBlockLowlight.configure({
-			lowlight
-		}),
+		pick(HuriroCodeBlockExtension),
 		Table.configure({
-			resizable: false
+			resizable: true
 		}),
 		TableRow,
-		TableHeader,
-		TableCell,
+		HuriroTableHeader,
+		HuriroTableCell,
+		TableUpgradesExtension,
 		TaskList,
 		TaskItem.configure({
 			nested: true
@@ -67,18 +96,47 @@ export function createHuriroExtensions(options: HuriroExtensionsOptions = {}): E
 			allowBase64: false
 		}),
 		Placeholder.configure({
-			placeholder: options.placeholder ?? 'Write or type / for blocks…'
+			placeholder: ({ node }) => {
+				if (node.type.name === 'heading') {
+					const level = Number(node.attrs['level'] ?? 1)
+					if (level === 1) return 'Heading 1'
+					if (level === 2) return 'Heading 2'
+					if (level === 3) return 'Heading 3'
+				}
+				return options.placeholder ?? "Write something, type '/' for commands…"
+			}
 		}),
 		BlockIdExtension,
-		CalloutExtension,
+		BlockStyleExtension,
+		ColumnExtension,
+		ColumnsExtension,
+		pick(CalloutExtension),
 		ToggleExtension.configure({
 			arrowLabel: options.toggleLabels?.arrow ?? 'Toggle collapsible section',
 			summaryLabel: options.toggleLabels?.summary ?? 'Collapsible section title'
 		}),
+		ToggleHeadingExtension.configure({
+			arrowLabel: options.toggleLabels?.arrow ?? 'Toggle heading section',
+			summaryLabel: options.toggleLabels?.summary ?? 'Toggle heading title'
+		}),
 		EntityMentionExtension,
-		EmbedExtension,
+		pick(EmbedExtension),
 		ReferenceBlockExtension,
-		CommentAnchorMark
+		pick(SyncedBlockExtension),
+		pick(MermaidBlockExtension),
+		pick(MathInlineExtension),
+		pick(MathBlockExtension),
+		pick(TocBlockExtension),
+		pick(BookmarkCardExtension),
+		pick(ButtonBlockExtension),
+		CommentAnchorMark,
+		SuggestionInsertMark,
+		SuggestionDeleteMark,
+		SuggestionModeExtension.configure({
+			enabled: false,
+			authorType: options.suggestionAuthor?.authorType ?? 'user',
+			authorId: options.suggestionAuthor?.authorId ?? options.user?.userId ?? ''
+		})
 	]
 
 	if (options.ydoc) {

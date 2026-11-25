@@ -22,6 +22,119 @@ export const MAX_OUTBOX_BYTES = 25 * 1024 * 1024
 const OUTBOX_STORAGE_KEY = 'huriro:outbox:v1'
 const CONFLICTS_STORAGE_KEY = 'huriro:conflicts:v1'
 
+function entityKey(entity: MutationEntity, entityId: string): string {
+	return `${entity}:${entityId}`
+}
+
+function valuesEqual(a: unknown, b: unknown): boolean {
+	if (Object.is(a, b)) return true
+	if (typeof a !== typeof b || a === null || b === null) return false
+	if (typeof a !== 'object') return false
+	if (Array.isArray(a) || Array.isArray(b)) {
+		if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+		return a.every((v, i) => valuesEqual(v, b[i]))
+	}
+	const recA = a as Record<string, unknown>
+	const recB = b as Record<string, unknown>
+	const keysA = Object.keys(recA)
+	const keysB = Object.keys(recB)
+	if (keysA.length !== keysB.length) return false
+	return keysA.every((k) => Object.hasOwn(recB, k) && valuesEqual(recA[k], recB[k]))
+}
+
+/**
+ * Collapse two conflicts targeting the same `(entity, entityId)` so repeated
+ * stale writes (e.g. a dragged slider) never pile up duplicate resolver rows.
+ */
+function mergeConflict(existing: SyncConflict, incoming: SyncConflict): SyncConflict | null {
+	const localValues = { ...existing.localValues, ...incoming.localValues }
+	const baseValues = { ...incoming.baseValues, ...existing.baseValues }
+	const overlappingFields: string[] = []
+	const seen = new Set<string>()
+	for (const field of [...existing.overlappingFields, ...incoming.overlappingFields]) {
+		if (seen.has(field)) continue
+		seen.add(field)
+		if (!valuesEqual(localValues[field], incoming.serverValues[field])) {
+			overlappingFields.push(field)
+		}
+	}
+	if (overlappingFields.length === 0) {
+		return null
+	}
+	const overlappingSet = new Set(overlappingFields)
+	const nonConflictingPatch: Record<string, unknown> = {}
+	for (const [key, val] of Object.entries({
+		...existing.nonConflictingPatch,
+		...incoming.nonConflictingPatch
+	})) {
+		if (overlappingSet.has(key)) continue
+		if (valuesEqual(val, incoming.serverValues[key])) continue
+		nonConflictingPatch[key] = val
+	}
+	return {
+		id: incoming.id,
+		mutationId: incoming.mutationId,
+		entity: incoming.entity,
+		entityId: incoming.entityId,
+		title: incoming.title,
+		overlappingFields,
+		nonConflictingPatch,
+		baseValues,
+		localValues,
+		serverValues: incoming.serverValues,
+		serverVersion: incoming.serverVersion
+	}
+}
+
+function applyConflictUpsert(
+	list: readonly SyncConflict[],
+	incoming: SyncConflict
+): { readonly next: SyncConflict[]; readonly active: SyncConflict | null } {
+	const existing = list.find(
+		(c) => c.id === incoming.id || (c.entity === incoming.entity && c.entityId === incoming.entityId)
+	)
+	if (!existing) {
+		return { next: [...list, incoming], active: incoming }
+	}
+	const merged = mergeConflict(existing, incoming)
+	const filtered = list.filter(
+		(c) => c.id !== incoming.id && !(c.entity === incoming.entity && c.entityId === incoming.entityId)
+	)
+	return merged ? { next: [...filtered, merged], active: merged } : { next: filtered, active: null }
+}
+
+function upsertConflictList(list: readonly SyncConflict[], incoming: SyncConflict): SyncConflict[] {
+	return applyConflictUpsert(list, incoming).next
+}
+
+function dedupeConflicts(list: readonly SyncConflict[]): SyncConflict[] {
+	let acc: SyncConflict[] = []
+	for (const conflict of list) {
+		acc = upsertConflictList(acc, conflict)
+	}
+	return acc
+}
+
+/**
+ * Select a strict-FIFO batch prefix containing at most one version-bumping
+ * mutation (`op !== 'create'`) per entity, avoiding self-inflicted 409s inside
+ * a single `/api/v1/mutations` batch while preserving entity ordering.
+ */
+function selectFlushBatch(due: readonly QueuedMutation[], limit: number): QueuedMutation[] {
+	const batch: QueuedMutation[] = []
+	const versionBumped = new Set<string>()
+	for (const item of due) {
+		if (batch.length >= limit) break
+		const key = entityKey(item.envelope.entity, item.envelope.entityId)
+		if (versionBumped.has(key)) break
+		batch.push(item)
+		if (item.envelope.op !== 'create') {
+			versionBumped.add(key)
+		}
+	}
+	return batch
+}
+
 export interface QueuedMutation {
 	readonly envelope: MutationEnvelope
 	readonly base?: Record<string, unknown> | undefined
@@ -85,6 +198,9 @@ export class HuriroMutationOutbox {
 	private activeFlush: Promise<FlushResult> | null = null
 	private flushRequested = false
 	private forceRequested = false
+	private inFlightMutationIds = new Set<string>()
+	private persistQueueChain: Promise<void> = Promise.resolve()
+	private persistConflictsChain: Promise<void> = Promise.resolve()
 
 	constructor(storage: ReplicaStorage) {
 		this.storage = storage
@@ -104,7 +220,13 @@ export class HuriroMutationOutbox {
 		if (rawConflicts) {
 			try {
 				const parsed = JSON.parse(rawConflicts) as SyncConflict[]
-				if (Array.isArray(parsed)) this.conflicts = parsed
+				if (Array.isArray(parsed)) {
+					const deduped = dedupeConflicts(parsed)
+					this.conflicts = deduped
+					if (deduped.length !== parsed.length) {
+						await this.persistConflicts()
+					}
+				}
 			} catch {
 				this.conflicts = []
 			}
@@ -117,6 +239,10 @@ export class HuriroMutationOutbox {
 
 	getPendingMutations(): readonly QueuedMutation[] {
 		return this.queue
+	}
+
+	hasPendingForEntity(entity: MutationEntity, entityId: string): boolean {
+		return this.queue.some((q) => q.envelope.entity === entity && q.envelope.entityId === entityId)
 	}
 
 	getNextAttemptAt(): number | null {
@@ -132,19 +258,83 @@ export class HuriroMutationOutbox {
 		return this.conflicts
 	}
 
-	private async persistQueue(): Promise<void> {
-		await this.storage.set(OUTBOX_STORAGE_KEY, JSON.stringify(this.queue))
+	private writeStorageSerialized(kind: 'queue' | 'conflicts', payload: string | null): Promise<void> {
+		const key = kind === 'queue' ? OUTBOX_STORAGE_KEY : CONFLICTS_STORAGE_KEY
+		const run = () => (payload === null ? this.storage.delete(key) : this.storage.set(key, payload))
+		if (kind === 'queue') {
+			const next = this.persistQueueChain.catch(() => {}).then(run)
+			this.persistQueueChain = next
+			return next
+		}
+		const next = this.persistConflictsChain.catch(() => {}).then(run)
+		this.persistConflictsChain = next
+		return next
 	}
 
-	private async persistConflicts(): Promise<void> {
-		await this.storage.set(CONFLICTS_STORAGE_KEY, JSON.stringify(this.conflicts))
+	private persistQueue(): Promise<void> {
+		return this.writeStorageSerialized('queue', JSON.stringify(this.queue))
 	}
 
-	async enqueue(item: {
+	private persistConflicts(): Promise<void> {
+		return this.writeStorageSerialized('conflicts', JSON.stringify(this.conflicts))
+	}
+
+	/**
+	 * Synchronously validate, coalesce/append into the in-memory queue, and kick
+	 * off serialized storage persistence so callers can update collections before
+	 * any `await` without reading stale versions.
+	 */
+	enqueueImmediate(item: {
 		readonly envelope: MutationEnvelope
 		readonly base?: Record<string, unknown> | undefined
 		readonly title?: string | undefined
 	}): Promise<void> {
+		let lastEntityIdx = -1
+		for (let i = this.queue.length - 1; i >= 0; i--) {
+			const candidate = this.queue[i]
+			if (
+				candidate &&
+				candidate.envelope.entity === item.envelope.entity &&
+				candidate.envelope.entityId === item.envelope.entityId
+			) {
+				lastEntityIdx = i
+				break
+			}
+		}
+
+		const prev = lastEntityIdx >= 0 ? this.queue[lastEntityIdx] : undefined
+		const canCoalesce =
+			prev !== undefined &&
+			item.envelope.op === 'update' &&
+			prev.envelope.op === 'update' &&
+			prev.retryCount === 0 &&
+			!this.inFlightMutationIds.has(prev.envelope.mutationId) &&
+			prev.envelope.baseVersion === item.envelope.baseVersion
+
+		if (canCoalesce && prev) {
+			const mergedQueuedAt = item.envelope.queuedAt ?? prev.envelope.queuedAt
+			const mergedEntry: QueuedMutation = {
+				...prev,
+				title: item.title ?? prev.title,
+				envelope: {
+					...prev.envelope,
+					mutationId: item.envelope.mutationId,
+					...(mergedQueuedAt !== undefined ? { queuedAt: mergedQueuedAt } : {}),
+					patch: { ...prev.envelope.patch, ...item.envelope.patch }
+				}
+			}
+			const candidate = [...this.queue]
+			candidate[lastEntityIdx] = mergedEntry
+			const serialized = JSON.stringify(candidate)
+			if (new TextEncoder().encode(serialized).byteLength > MAX_OUTBOX_BYTES) {
+				throw new OutboxQuotaError(
+					'Offline queue reached the 25 MB limit. Reconnect to sync pending changes first.'
+				)
+			}
+			this.queue = candidate
+			return this.writeStorageSerialized('queue', serialized)
+		}
+
 		if (this.queue.length >= MAX_OUTBOX_MUTATIONS) {
 			throw new OutboxQuotaError(
 				`Offline queue reached the ${MAX_OUTBOX_MUTATIONS}-mutation limit. Reconnect to sync before adding more changes.`
@@ -165,7 +355,15 @@ export class HuriroMutationOutbox {
 			)
 		}
 		this.queue = candidate
-		await this.storage.set(OUTBOX_STORAGE_KEY, serialized)
+		return this.writeStorageSerialized('queue', serialized)
+	}
+
+	async enqueue(item: {
+		readonly envelope: MutationEnvelope
+		readonly base?: Record<string, unknown> | undefined
+		readonly title?: string | undefined
+	}): Promise<void> {
+		return this.enqueueImmediate(item)
 	}
 
 	async flush(
@@ -221,21 +419,41 @@ export class HuriroMutationOutbox {
 				const due = effectiveForce ? [...this.queue] : this.queue.filter((q) => q.nextAttemptAt <= now)
 				if (due.length === 0) break
 
-				const batch = due.slice(0, 50)
-				const response = await transport.sendBatch(batch.map((b) => b.envelope))
+				const batch = selectFlushBatch(due, 50)
+				for (const item of batch) {
+					this.inFlightMutationIds.add(item.envelope.mutationId)
+				}
+				let response: MutationsBatchResponse
+				try {
+					response = await transport.sendBatch(batch.map((b) => b.envelope))
+				} finally {
+					for (const item of batch) {
+						this.inFlightMutationIds.delete(item.envelope.mutationId)
+					}
+				}
 				if (response.cursor > 0) {
 					maxCursor = maxCursor === null ? response.cursor : Math.max(maxCursor, response.cursor)
 				}
 
+				type QueueEntry =
+					| { readonly kind: 'rebased_automerge'; readonly item: QueuedMutation }
+					| { readonly kind: 'unsettled'; readonly item: QueuedMutation }
+
 				const resultById = new Map(response.results.map((r) => [r.mutationId, r]))
-				const nextQueue: QueuedMutation[] = []
+				const pendingEntries: QueueEntry[] = []
 				const replayedAutoMerges: QueuedMutation[] = []
+				const appliedByEntity = new Map<
+					string,
+					{ readonly data: Record<string, unknown>; readonly version: number }
+				>()
+				const settledCallbacks: (() => void)[] = []
+				let conflictsChanged = false
 				let madeProgress = false
 
 				for (const q of this.queue) {
 					const res = resultById.get(q.envelope.mutationId)
 					if (!res) {
-						nextQueue.push(q)
+						pendingEntries.push({ kind: 'unsettled', item: q })
 						continue
 					}
 
@@ -243,7 +461,13 @@ export class HuriroMutationOutbox {
 					// do not roll back and resurrect stale local rows.
 					if (res.outcome === 'applied' || (res.outcome === 'not_found' && q.envelope.op === 'delete')) {
 						madeProgress = true
-						callbacks.onApplied(q, res)
+						if (res.outcome === 'applied' && res.data && typeof res.data['version'] === 'number') {
+							appliedByEntity.set(entityKey(q.envelope.entity, q.envelope.entityId), {
+								data: res.data,
+								version: res.data['version']
+							})
+						}
+						settledCallbacks.push(() => callbacks.onApplied(q, res))
 						outcomes.push({ kind: 'applied', result: res, item: q })
 						continue
 					}
@@ -257,6 +481,29 @@ export class HuriroMutationOutbox {
 						})
 
 						if (merge.kind === 'auto_merged') {
+							if (
+								q.envelope.op === 'update' &&
+								Object.keys(q.envelope.patch).length > 0 &&
+								Object.keys(merge.mergedPatch).length === 0
+							) {
+								// Server already converged to the local field values; settle without replaying an empty patch.
+								const convergedVersion = res.currentVersion ?? Number(res.currentEntity['version'] ?? 1)
+								const syntheticResult: MutationResultDto = {
+									mutationId: q.envelope.mutationId,
+									status: 200,
+									outcome: 'applied',
+									data: res.currentEntity
+								}
+								madeProgress = true
+								appliedByEntity.set(entityKey(q.envelope.entity, q.envelope.entityId), {
+									data: res.currentEntity,
+									version: convergedVersion
+								})
+								settledCallbacks.push(() => callbacks.onApplied(q, syntheticResult))
+								outcomes.push({ kind: 'applied', result: syntheticResult, item: q })
+								continue
+							}
+
 							// Rebase disjoint changes onto the server's latest version and replay!
 							const rebased: QueuedMutation = {
 								...q,
@@ -270,7 +517,7 @@ export class HuriroMutationOutbox {
 								}
 							}
 							replayedAutoMerges.push(rebased)
-							nextQueue.push(rebased)
+							pendingEntries.push({ kind: 'rebased_automerge', item: rebased })
 							continue
 						}
 
@@ -288,21 +535,52 @@ export class HuriroMutationOutbox {
 							serverValues: res.currentEntity,
 							serverVersion: res.currentVersion ?? Number(res.currentEntity['version'] ?? 1)
 						}
-						this.conflicts = [...this.conflicts.filter((c) => c.id !== conflict.id), conflict]
-						await this.persistConflicts()
-						callbacks.onConflict(conflict)
-						outcomes.push({ kind: 'conflict', conflict })
+						const upserted = applyConflictUpsert(this.conflicts, conflict)
+						this.conflicts = upserted.next
+						conflictsChanged = true
+						if (upserted.active) {
+							const activeConflict = upserted.active
+							settledCallbacks.push(() => callbacks.onConflict(activeConflict))
+							outcomes.push({ kind: 'conflict', conflict: activeConflict })
+						}
 						continue
 					}
 
 					// 403 / 404 / 422 — terminal rejection, roll back optimistic state.
 					madeProgress = true
 					const errorMsg = res.error ?? `Mutation rejected (${res.status})`
-					callbacks.onRejected(q, res.status, errorMsg)
+					settledCallbacks.push(() => callbacks.onRejected(q, res.status, errorMsg))
 					outcomes.push({ kind: 'rejected', item: q, status: res.status, error: errorMsg })
 				}
 
+				// Advance base/baseVersion on any queued follow-ups for an entity that just applied.
+				const nextQueue: QueuedMutation[] = pendingEntries.map((entry) => {
+					if (entry.kind !== 'unsettled' || entry.item.envelope.op === 'create') {
+						return entry.item
+					}
+					const applied = appliedByEntity.get(
+						entityKey(entry.item.envelope.entity, entry.item.envelope.entityId)
+					)
+					if (!applied || (entry.item.envelope.baseVersion ?? 0) > applied.version) {
+						return entry.item
+					}
+					return {
+						...entry.item,
+						base: applied.data,
+						envelope: {
+							...entry.item.envelope,
+							baseVersion: applied.version
+						}
+					}
+				})
+
 				this.queue = nextQueue
+				for (const cb of settledCallbacks) {
+					cb()
+				}
+				if (conflictsChanged) {
+					await this.persistConflicts()
+				}
 				await this.persistQueue()
 
 				if (replayedAutoMerges.length > 0) {
@@ -400,8 +678,10 @@ export class HuriroMutationOutbox {
 	async clearAll(): Promise<void> {
 		this.queue = []
 		this.conflicts = []
-		await this.storage.delete(OUTBOX_STORAGE_KEY)
-		await this.storage.delete(CONFLICTS_STORAGE_KEY)
+		await Promise.all([
+			this.writeStorageSerialized('queue', null),
+			this.writeStorageSerialized('conflicts', null)
+		])
 	}
 }
 

@@ -73,7 +73,11 @@ export function SyncStatusBanner() {
 			{conflicts.length > 0 ? (
 				<div className="flex items-center gap-2 text-destructive">
 					<AlertTriangle className="size-3.5" aria-hidden />
-					<span className="font-medium">{t('sync.conflict.banner', { count: conflicts.length })}</span>
+					<span className="font-medium">
+						{t(conflicts.length === 1 ? 'sync.conflict.banner' : 'sync.conflict.banner.plural', {
+							count: conflicts.length
+						})}
+					</span>
 					<Button
 						size="sm"
 						tone="outline"

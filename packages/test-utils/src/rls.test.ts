@@ -612,4 +612,132 @@ describe('rls coverage', () => {
 			       (${wsA.id}, ${ruleA!.id}, ${eventId}, 'dry_run', true)
 		`
 	}, 30_000)
+
+	test('M9 docs & wiki tables: cross-tenant deny, WITH CHECK, and CHECK/FK constraints', async () => {
+		if (skip()) return
+		const { wsA, wsB, userA, userB } = await seedTwoTenants(db!.owner)
+
+		const [tsA] = await db!.owner<{ id: string }[]>`
+			INSERT INTO teamspaces (workspace_id, name, slug, visibility, position, created_by)
+			VALUES (${wsA.id}, 'Engineering', 'engineering', 'closed', 'V', ${userA.id})
+			RETURNING id
+		`
+		await db!.owner`
+			INSERT INTO teamspace_members (workspace_id, teamspace_id, user_id, role)
+			VALUES (${wsA.id}, ${tsA!.id}, ${userA.id}, 'owner')
+		`
+		const [pageA] = await db!.owner<{ id: string }[]>`
+			INSERT INTO doc_pages (
+				workspace_id, teamspace_id, path, depth, slug, title, position, created_by
+			)
+			VALUES (${wsA.id}, ${tsA!.id}, 'tmp-m9', 0, 'm9-rls-doc', 'M9 RLS Doc', 'V', ${userA.id})
+			RETURNING id
+		`
+		const [syncA] = await db!.owner<{ id: string }[]>`
+			INSERT INTO doc_synced_blocks (
+				workspace_id, title, source_page_id, state, state_vector, byte_size, created_by
+			)
+			VALUES (${wsA.id}, 'Shared Banner', ${pageA!.id}, ${Buffer.from([0])}, ${Buffer.from([0])}, 1, ${userA.id})
+			RETURNING id
+		`
+		await db!.owner`
+			INSERT INTO doc_suggestions (
+				workspace_id, page_id, group_id, kind, author_type, author_id, before_text, after_text
+			)
+			VALUES (${wsA.id}, ${pageA!.id}, 'grp-1', 'replace', 'user', ${userA.id}, 'old', 'new')
+		`
+		await db!.owner`
+			INSERT INTO doc_verifications (workspace_id, page_id, status, verified_by, verified_at)
+			VALUES (${wsA.id}, ${pageA!.id}, 'verified', ${userA.id}, now())
+		`
+		await db!.owner`
+			INSERT INTO doc_public_shares (workspace_id, page_id, public_slug, created_by)
+			VALUES (${wsA.id}, ${pageA!.id}, 'm9-public', ${userA.id})
+		`
+
+		const M9_TABLES = [
+			'teamspaces',
+			'teamspace_members',
+			'doc_synced_blocks',
+			'doc_suggestions',
+			'doc_verifications',
+			'doc_public_shares'
+		] as const
+
+		await withWorkspace(db!.app, { workspaceId: wsB.id, userId: userB.id }, async (tx) => {
+			for (const t of M9_TABLES) {
+				const [r] = await tx.unsafe<{ n: number }[]>(
+					`SELECT count(*)::int AS n FROM ${t} WHERE workspace_id = '${wsA.id}'`
+				)
+				expect(r!.n, `${t} leaked wsA rows into wsB context`).toBe(0)
+				const upd = await tx.unsafe<unknown[]>(
+					`UPDATE ${t} SET workspace_id = workspace_id WHERE workspace_id = '${wsA.id}' RETURNING workspace_id`
+				)
+				expect(upd.length, `${t} allowed UPDATE of wsA rows from wsB`).toBe(0)
+				const del = await tx.unsafe<unknown[]>(
+					`DELETE FROM ${t} WHERE workspace_id = '${wsA.id}' RETURNING workspace_id`
+				)
+				expect(del.length, `${t} allowed DELETE of wsA rows from wsB`).toBe(0)
+			}
+		})
+
+		const crossInsert = async (table: (typeof M9_TABLES)[number]) => {
+			const inserts: Record<(typeof M9_TABLES)[number], string> = {
+				teamspaces: `INSERT INTO teamspaces (workspace_id, name, slug, visibility, position)
+					VALUES ('${wsA.id}', 'Cross', 'cross', 'open', 'X')`,
+				teamspace_members: `INSERT INTO teamspace_members (workspace_id, teamspace_id, user_id, role)
+					VALUES ('${wsA.id}', '${tsA!.id}', '${userB.id}', 'member')`,
+				doc_synced_blocks: `INSERT INTO doc_synced_blocks (workspace_id, title, state, state_vector, byte_size)
+					VALUES ('${wsA.id}', 'Cross', '\\x00', '\\x00', 1)`,
+				doc_suggestions: `INSERT INTO doc_suggestions (workspace_id, page_id, group_id, kind, author_type, author_id)
+					VALUES ('${wsA.id}', '${pageA!.id}', 'grp-x', 'insert', 'user', '${userB.id}')`,
+				doc_verifications: `INSERT INTO doc_verifications (workspace_id, page_id, status)
+					VALUES ('${wsA.id}', '${pageA!.id}', 'stale')`,
+				doc_public_shares: `INSERT INTO doc_public_shares (workspace_id, page_id, public_slug)
+					VALUES ('${wsA.id}', '${pageA!.id}', 'cross-share')`
+			}
+			try {
+				await withWorkspace(db!.app, { workspaceId: wsB.id, userId: userB.id }, async (tx) => {
+					await tx.unsafe(inserts[table])
+				})
+				return null
+			} catch (e) {
+				return e as { code?: string }
+			}
+		}
+		for (const t of M9_TABLES) {
+			const err = await crossInsert(t)
+			expect(err, `${t} accepted a wsA row inside wsB context`).not.toBeNull()
+		}
+
+		const denied = async (q: PromiseLike<unknown>) => {
+			try {
+				await q
+				return null
+			} catch (e) {
+				return e as { code?: string }
+			}
+		}
+		expect(
+			(await denied(db!.owner`UPDATE teamspaces SET visibility = 'bogus' WHERE id = ${tsA!.id}`))?.code
+		).toBe('23514')
+		expect(
+			(
+				await denied(
+					db!
+						.owner`INSERT INTO doc_pages (workspace_id, path, depth, slug, title, font_style, position, created_by)
+						VALUES (${wsA.id}, 'bad', 0, 'bad-font', 'Bad Font', 'comic', 'Z', ${userA.id})`
+				)
+			)?.code
+		).toBe('23514')
+		expect(
+			(
+				await denied(
+					db!
+						.owner`INSERT INTO collab_tickets (workspace_id, room_kind, page_id, synced_block_id, user_id, permission, token_hash, expires_at)
+						VALUES (${wsA.id}, 'synced_block', ${pageA!.id}, ${syncA!.id}, ${userA.id}, 'write', 'bad-xor-hash', now() + interval '1 minute')`
+				)
+			)?.code
+		).toBe('23514')
+	}, 30_000)
 })

@@ -28,6 +28,7 @@ function actor(over: Partial<ActorContext> = {}): ActorContext {
 			'doc.read',
 			'doc.comment',
 			'doc.write',
+			'doc.verify',
 			'channel.read',
 			'channel.post',
 			'file.read',
@@ -593,6 +594,81 @@ const CASES: Case[] = [
 		action: 'automation.manage',
 		resource: privateDoc('manage'),
 		expect: { effect: 'deny', reason: 'insufficient_role' }
+	},
+
+	// --- M9 docs wiki verification, publishing & teamspaces ------------------
+	{
+		name: 'member can verify a workspace-visible doc',
+		actor: actor(),
+		action: 'doc.verify',
+		resource: publicDoc,
+		expect: { effect: 'allow', via: 'role' }
+	},
+	{
+		name: 'member with read ACL cannot verify a private doc',
+		actor: actor(),
+		action: 'doc.verify',
+		resource: privateDoc('read'),
+		expect: { effect: 'deny', reason: 'no_acl' }
+	},
+	{
+		name: 'member with write ACL can verify a private doc',
+		actor: actor(),
+		action: 'doc.verify',
+		resource: privateDoc('write'),
+		expect: { effect: 'allow', via: 'acl' }
+	},
+	{
+		name: 'member cannot publish a workspace-visible doc without doc.publish',
+		actor: actor(),
+		action: 'doc.publish',
+		resource: publicDoc,
+		expect: { effect: 'deny', reason: 'insufficient_role' }
+	},
+	{
+		name: 'admin can publish a doc',
+		actor: adminActor(),
+		action: 'doc.publish',
+		resource: publicDoc,
+		expect: { effect: 'allow', via: 'role' }
+	},
+	{
+		name: 'member with manage ACL can publish private doc',
+		actor: actor(),
+		action: 'doc.publish',
+		resource: privateDoc('manage'),
+		expect: { effect: 'allow', via: 'acl' }
+	},
+	{
+		name: 'member cannot manage an open teamspace without teamspace.manage',
+		actor: actor(),
+		action: 'teamspace.manage',
+		resource: { type: 'teamspace', id: 'ts-1', visibility: 'workspace', acl: null },
+		expect: { effect: 'deny', reason: 'insufficient_role' }
+	},
+	{
+		name: 'admin can manage open or private teamspace',
+		actor: adminActor(),
+		action: 'teamspace.manage',
+		resource: { type: 'teamspace', id: 'ts-1', visibility: 'private', acl: null },
+		expect: { effect: 'allow', via: 'role', auditedBypass: true }
+	},
+	{
+		name: 'guest with read ACL cannot verify private doc',
+		actor: actor({ roleKey: 'guest', roleRank: ROLE_RANKS.guest, permissions: new Set() }),
+		action: 'doc.verify',
+		resource: privateDoc('read'),
+		expect: { effect: 'deny', reason: 'no_acl' }
+	},
+	{
+		name: 'agent with docs.read scope cannot verify a doc',
+		actor: actor({
+			kind: 'agent',
+			agentScopeCeiling: actionsForScopes(['docs.read'], ['docs.read'])
+		}),
+		action: 'doc.verify',
+		resource: publicDoc,
+		expect: { effect: 'deny', reason: 'agent_scope' }
 	}
 ]
 

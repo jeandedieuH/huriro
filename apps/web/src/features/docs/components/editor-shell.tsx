@@ -1,5 +1,11 @@
 import { HocuspocusProvider } from '@hocuspocus/provider'
-import type { DocHeadingDto, DocPageDetailDto } from '@huriro/contracts'
+import type {
+	DocHeadingDto,
+	DocPageDetailDto,
+	DocPageDto,
+	SetDocVerificationBody,
+	UpdateDocPageBody
+} from '@huriro/contracts'
 import {
 	createHuriroExtensions,
 	DOCUMENT_SIZE_WARN_BYTES,
@@ -9,36 +15,49 @@ import {
 } from '@huriro/editor'
 import { t } from '@huriro/i18n'
 import { EditorContent, useEditor } from '@tiptap/react'
-import {
-	AlertTriangle,
-	Download,
-	History,
-	ListTree,
-	MessageSquare,
-	Scissors,
-	Share2,
-	Star
-} from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import type { TaskApiBridge } from '@/lib/sync-bootstrap'
+import { cn } from '@/lib/utils'
 import { type DocSidePanel, useUiStore } from '@/stores/ui-store'
+import { BacklinksSection } from './backlinks-section'
+import { BlockGutterMenu } from './block-gutter-menu'
+import { createBookmarkNodeViewExtension } from './bookmark-node-view'
+import { createButtonNodeViewExtension } from './button-node-view'
+import { CalloutNodeViewExtension } from './callout-node-view'
+import { CodeBlockNodeViewExtension } from './code-block-node-view'
+import { EditorTopBar } from './editor-top-bar'
 import { FloatingToolbar } from './floating-toolbar'
 import { LinkPreviewCard } from './link-preview-card'
+import { MathBlockNodeViewExtension, MathInlineNodeViewExtension } from './math-node-view'
+import { MermaidBlockNodeViewExtension } from './mermaid-node-view'
+import { OutlineFloatingRail } from './outline-floating-rail'
+import { PageHeaderControls } from './page-header-controls'
 import { createSlashCommandExtension } from './slash-command-menu'
+import { createSyncedBlockNodeViewExtension } from './synced-block-node-view'
+import { TableToolbar } from './table-toolbar'
+import { TocBlockNodeViewExtension } from './toc-node-view'
 
 export interface EditorShellProps {
 	readonly detail: DocPageDetailDto
 	readonly api: TaskApiBridge
 	readonly isPreview: boolean
 	readonly userDisplayName: string
+	readonly currentUserId?: string | undefined
+	readonly pages?: readonly DocPageDto[] | undefined
+	readonly openCommentCount?: number | undefined
+	readonly openSuggestionCount?: number | undefined
+	readonly onSelectSlug?: ((slug: string) => void) | undefined
 	readonly onUpdateTitle: (title: string) => Promise<void>
 	readonly onToggleFavorite: (favorite: boolean) => Promise<void>
 	readonly onExportMarkdown: () => Promise<void>
+	readonly onExportHtml?: ((print: boolean) => Promise<void>) | undefined
+	readonly onExportZip?: (() => Promise<void>) | undefined
+	readonly onUpdatePageMeta?: ((patch: Omit<UpdateDocPageBody, 'version'>) => Promise<void>) | undefined
+	readonly onVerifyPage?: ((body: SetDocVerificationBody) => Promise<void>) | undefined
+	readonly onClearVerification?: (() => Promise<void>) | undefined
 	readonly onSplitPage: (title: string) => Promise<void>
 	readonly onStartAnchoredComment: (anchor: EncodedAnchor | null, selectedText: string) => void
 	readonly onHeadingsChange: (headings: DocHeadingDto[]) => void
@@ -54,14 +73,36 @@ function base64ToUint8Array(b64: string): Uint8Array {
 	return out
 }
 
+function scrollAndFlashHashBlock() {
+	if (typeof window === 'undefined' || !window.location.hash.startsWith('#block-')) return
+	const blockId = window.location.hash.slice('#block-'.length)
+	if (!blockId) return
+	const el = document.querySelector(`[data-block-id="${CSS.escape(blockId)}"]`)
+	if (el instanceof HTMLElement) {
+		el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+		el.classList.add('huriro-block-flash')
+		window.setTimeout(() => el.classList.remove('huriro-block-flash'), 1600)
+	}
+}
+
 export function EditorShell({
 	detail,
 	api,
 	isPreview,
 	userDisplayName,
+	currentUserId,
+	pages = [],
+	openCommentCount = 0,
+	openSuggestionCount = 0,
+	onSelectSlug,
 	onUpdateTitle,
 	onToggleFavorite,
 	onExportMarkdown,
+	onExportHtml,
+	onExportZip,
+	onUpdatePageMeta,
+	onVerifyPage,
+	onClearVerification,
 	onSplitPage,
 	onStartAnchoredComment,
 	onHeadingsChange
@@ -69,14 +110,27 @@ export function EditorShell({
 	const activePanel = useUiStore((s) => s.activeDocSidePanel)
 	const setActivePanel = useUiStore((s) => s.setActiveDocSidePanel)
 	const setShareOpen = useUiStore((s) => s.setDocShareOpen)
+	const setPublishOpen = useUiStore((s) => s.setDocPublishOpen)
 
 	const [titleDraft, setTitleDraft] = useState(detail.page.title)
 	const [connStatus, setConnStatus] = useState<string>(isPreview ? 'offline' : 'connecting')
 	const [byteSize, setByteSize] = useState(detail.byteSize)
+	const [suggestingMode, setSuggestingMode] = useState(false)
+	const [liveHeadings, setLiveHeadings] = useState<readonly DocHeadingDto[]>(detail.headings)
+	const [wordCount, setWordCount] = useState(() => {
+		const trimmed = detail.plainText.trim()
+		return trimmed ? trimmed.split(/\s+/).length : 0
+	})
+	const canvasRef = useRef<HTMLDivElement>(null)
+	const bottomSpacerRef = useRef<HTMLDivElement>(null)
 
 	useEffect(() => {
 		setTitleDraft(detail.page.title)
 	}, [detail.page.title])
+
+	useEffect(() => {
+		setLiveHeadings(detail.headings)
+	}, [detail.headings])
 
 	const ydoc = useMemo(() => {
 		const doc = new Y.Doc({ guid: detail.page.id })
@@ -128,6 +182,7 @@ export function EditorShell({
 		const handleUpdate = () => {
 			setByteSize(Y.encodeStateAsUpdate(ydoc).byteLength)
 			const extracted = extractDocumentContent(ydoc)
+			setLiveHeadings(extracted.headings)
 			onHeadingsChange(extracted.headings)
 		}
 		ydoc.on('update', handleUpdate)
@@ -136,6 +191,9 @@ export function EditorShell({
 		}
 	}, [onHeadingsChange, ydoc])
 
+	const effectiveEditable = detail.canWrite && !detail.page.isLocked
+	const authorId = currentUserId ?? detail.page.createdBy
+
 	const extensions = useMemo(
 		() => [
 			...createHuriroExtensions({
@@ -143,20 +201,38 @@ export function EditorShell({
 				ydoc,
 				field: 'default',
 				provider: provider ?? undefined,
-				user: provider ? { name: userDisplayName, color: 'var(--primary)' } : undefined,
+				user: provider ? { name: userDisplayName, color: 'var(--primary)', userId: authorId } : undefined,
+				suggestionAuthor: { authorType: 'user', authorId },
 				placeholder: t('docs.editor.placeholder'),
-				toggleLabels: { arrow: t('docs.editor.toggle-arrow'), summary: t('docs.editor.toggle-summary') }
+				toggleLabels: { arrow: t('docs.editor.toggle-arrow'), summary: t('docs.editor.toggle-summary') },
+				nodeViewOverrides: [
+					CalloutNodeViewExtension,
+					CodeBlockNodeViewExtension,
+					MermaidBlockNodeViewExtension,
+					MathBlockNodeViewExtension,
+					MathInlineNodeViewExtension,
+					TocBlockNodeViewExtension,
+					createBookmarkNodeViewExtension(api),
+					createButtonNodeViewExtension({ api, pageId: detail.page.id }),
+					createSyncedBlockNodeViewExtension({
+						api,
+						workspaceId: detail.page.workspaceId,
+						pageId: detail.page.id,
+						isPreview,
+						userDisplayName
+					})
+				]
 			}),
 			// "/" block picker lives in the app layer — the shared schema stays headless.
 			createSlashCommandExtension()
 		],
-		[provider, userDisplayName, ydoc]
+		[api, authorId, detail.page.id, detail.page.workspaceId, isPreview, provider, userDisplayName, ydoc]
 	)
 
 	const editor = useEditor(
 		{
 			immediatelyRender: false,
-			editable: detail.canWrite,
+			editable: effectiveEditable,
 			editorProps: {
 				attributes: {
 					'aria-label': detail.page.title || t('docs.sidebar.title')
@@ -164,8 +240,49 @@ export function EditorShell({
 			},
 			extensions
 		},
-		[extensions, detail.canWrite, detail.page.title]
+		[extensions, effectiveEditable, detail.page.title]
 	)
+
+	useEffect(() => {
+		if (!editor) return
+		const updateWordCount = () => {
+			const text = editor.getText().trim()
+			setWordCount(text ? text.split(/\s+/).length : 0)
+		}
+		updateWordCount()
+		editor.on('update', updateWordCount)
+		return () => {
+			editor.off('update', updateWordCount)
+		}
+	}, [editor])
+
+	useEffect(() => {
+		if (!editor) return
+		editor.commands.setSuggestionMode(suggestingMode && effectiveEditable, {
+			authorType: 'user',
+			authorId
+		})
+	}, [authorId, editor, effectiveEditable, suggestingMode])
+
+	useEffect(() => {
+		if (!editor) return
+		scrollAndFlashHashBlock()
+		if (typeof window === 'undefined') return
+		window.addEventListener('hashchange', scrollAndFlashHashBlock)
+		return () => {
+			window.removeEventListener('hashchange', scrollAndFlashHashBlock)
+		}
+	}, [editor])
+
+	useEffect(() => {
+		const spacer = bottomSpacerRef.current
+		if (!spacer || !editor || !effectiveEditable) return
+		const handleSpacerClick = (ev: MouseEvent) => {
+			if (ev.target === spacer) editor.commands.focus('end')
+		}
+		spacer.addEventListener('click', handleSpacerClick)
+		return () => spacer.removeEventListener('click', handleSpacerClick)
+	}, [editor, effectiveEditable])
 
 	function togglePanel(panel: Exclude<DocSidePanel, null>) {
 		setActivePanel(activePanel === panel ? null : panel)
@@ -182,115 +299,52 @@ export function EditorShell({
 		onStartAnchoredComment(encoded, selected)
 	}
 
-	const statusBadge = !detail.canWrite
-		? { tone: 'secondary' as const, label: t('docs.editor.read-only') }
-		: isPreview
-			? { tone: 'outline' as const, label: t('docs.editor.offline') }
-			: connStatus === 'connected'
-				? { tone: 'success' as const, label: t('docs.editor.synced') }
-				: { tone: 'info' as const, label: t('docs.editor.connecting') }
+	function handleCommitTitle() {
+		const clean = titleDraft.trim()
+		if (clean && clean !== detail.page.title && effectiveEditable) {
+			void onUpdateTitle(clean)
+		}
+	}
+
+	function handleSplitPage() {
+		const sel = editor
+			? editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, '\n')
+			: ''
+		const splitTitle = sel.trim().slice(0, 80) || `${detail.page.title} (Split)`
+		void onSplitPage(splitTitle)
+	}
+
+	const articleMaxWidth = detail.page.fullWidth ? 'max-w-5xl' : 'max-w-3xl'
 
 	return (
-		<div className="flex min-h-0 flex-1 flex-col">
-			<header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
-				<div className="flex min-w-0 flex-1 items-center gap-2">
-					<Input
-						aria-label={t('docs.create.title-label')}
-						value={titleDraft}
-						readOnly={!detail.canWrite}
-						onChange={(ev) => setTitleDraft(ev.target.value)}
-						onBlur={() => {
-							const clean = titleDraft.trim()
-							if (clean && clean !== detail.page.title && detail.canWrite) {
-								void onUpdateTitle(clean)
-							}
-						}}
-						placeholder={t('docs.editor.title-placeholder')}
-						className="h-8 max-w-md border-transparent bg-transparent px-1 text-base font-semibold focus-visible:border-border"
-					/>
-					<Badge tone={statusBadge.tone}>{statusBadge.label}</Badge>
-				</div>
-
-				<div className="flex flex-wrap items-center gap-1">
-					<Button
-						type="button"
-						size="icon"
-						tone="ghost"
-						aria-label={detail.page.isFavorite ? t('docs.editor.unfavorite') : t('docs.editor.favorite')}
-						onClick={() => void onToggleFavorite(!detail.page.isFavorite)}
-					>
-						<Star
-							className={detail.page.isFavorite ? 'size-4 fill-(--warning) text-(--warning)' : 'size-4'}
-							aria-hidden
-						/>
-					</Button>
-					{detail.canShare ? (
-						<Button
-							type="button"
-							size="sm"
-							tone="outline"
-							onClick={() => setShareOpen(true)}
-							className="h-7 gap-1 px-2 text-xs"
-						>
-							<Share2 className="size-3.5" aria-hidden />
-							<span>{t('docs.editor.share')}</span>
-						</Button>
-					) : null}
-					<Button
-						type="button"
-						size="icon"
-						tone="ghost"
-						aria-label={t('docs.editor.export-md')}
-						onClick={() => void onExportMarkdown()}
-					>
-						<Download className="size-4" aria-hidden />
-					</Button>
-					{detail.canWrite ? (
-						<Button
-							type="button"
-							size="icon"
-							tone="ghost"
-							aria-label={t('docs.editor.split-page')}
-							onClick={() => {
-								const sel = editor
-									? editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, '\n')
-									: ''
-								const splitTitle = sel.trim().slice(0, 80) || `${detail.page.title} (Split)`
-								void onSplitPage(splitTitle)
-							}}
-						>
-							<Scissors className="size-4" aria-hidden />
-						</Button>
-					) : null}
-					<Button
-						type="button"
-						size="icon"
-						tone={activePanel === 'comments' ? 'secondary' : 'ghost'}
-						aria-label={t('docs.panel.comments')}
-						onClick={() => togglePanel('comments')}
-					>
-						<MessageSquare className="size-4" aria-hidden />
-					</Button>
-					<Button
-						type="button"
-						size="icon"
-						tone={activePanel === 'versions' ? 'secondary' : 'ghost'}
-						aria-label={t('docs.panel.versions')}
-						onClick={() => togglePanel('versions')}
-					>
-						<History className="size-4" aria-hidden />
-					</Button>
-					<Button
-						type="button"
-						size="icon"
-						tone={activePanel === 'toc' ? 'secondary' : 'ghost'}
-						aria-label={t('docs.panel.toc')}
-						onClick={() => togglePanel('toc')}
-					>
-						<ListTree className="size-4" aria-hidden />
-					</Button>
-				</div>
-			</header>
+		<div className="flex min-h-0 flex-1 flex-col bg-background">
+			<EditorTopBar
+				page={detail.page}
+				pages={pages}
+				titleDraft={titleDraft}
+				effectiveEditable={effectiveEditable}
+				canShare={detail.canShare}
+				canWrite={detail.canWrite}
+				canPublish={detail.canPublish ?? detail.canShare}
+				isPreview={isPreview}
+				connStatus={connStatus}
+				suggestingMode={suggestingMode}
+				activePanel={activePanel}
+				openCommentCount={openCommentCount}
+				openSuggestionCount={openSuggestionCount}
+				wordCount={wordCount}
+				onSelectSlug={onSelectSlug}
+				onToggleSuggesting={() => setSuggestingMode((prev) => !prev)}
+				onToggleFavorite={() => void onToggleFavorite(!detail.page.isFavorite)}
+				onOpenShare={() => setShareOpen(true)}
+				onTogglePanel={togglePanel}
+				onUpdateMeta={onUpdatePageMeta ?? (async () => {})}
+				onSplitPage={handleSplitPage}
+				onExportMarkdown={onExportMarkdown}
+				onExportHtml={onExportHtml ?? (async () => {})}
+				onExportZip={onExportZip ?? (async () => {})}
+				onOpenPublish={() => setPublishOpen(true)}
+			/>
 
 			{byteSize > DOCUMENT_SIZE_WARN_BYTES ? (
 				<div
@@ -302,21 +356,62 @@ export function EditorShell({
 				</div>
 			) : null}
 
-			<div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-4 py-1.5">
-				<FloatingToolbar
-					editor={editor}
+			<div className="relative min-h-0 flex-1 overflow-y-auto">
+				<PageHeaderControls
+					page={detail.page}
+					verification={detail.verification ?? null}
 					canWrite={detail.canWrite}
-					canComment={true}
+					canShare={detail.canShare}
+					canVerify={detail.canVerify ?? detail.canWrite}
+					canPublish={detail.canPublish ?? detail.canShare}
+					titleDraft={titleDraft}
+					onTitleChange={setTitleDraft}
+					onTitleCommit={handleCommitTitle}
+					onTitleEnter={() => editor?.commands.focus('start')}
 					onAddComment={handleStartComment}
+					articleMaxWidth={articleMaxWidth}
+					showStandaloneUtilities={false}
+					onUpdateMeta={onUpdatePageMeta ?? (async () => {})}
+					onVerify={onVerifyPage ?? (async () => {})}
+					onClearVerification={onClearVerification ?? (async () => {})}
+					onExportMarkdown={onExportMarkdown}
+					onExportHtml={onExportHtml ?? (async () => {})}
+					onExportZip={onExportZip ?? (async () => {})}
+					onOpenPublish={() => setPublishOpen(true)}
 				/>
-			</div>
 
-			<div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
-				<div className="huriro-editor mx-auto max-w-3xl text-sm text-foreground">
-					<EditorContent editor={editor} />
+				<div ref={canvasRef} className={cn('relative mx-auto px-12 pt-2 pb-44 sm:px-16', articleMaxWidth)}>
+					<BlockGutterMenu editor={editor} canWrite={effectiveEditable} containerRef={canvasRef} />
+					<TableToolbar editor={editor} canWrite={effectiveEditable} containerRef={canvasRef} />
+
+					<div
+						data-font-style={detail.page.fontStyle ?? 'sans'}
+						data-small-text={detail.page.smallText ? 'true' : undefined}
+						className="huriro-editor text-foreground"
+					>
+						<EditorContent editor={editor} />
+					</div>
+
+					{/* Bottom canvas hit target lets writers click below the last block to continue writing. */}
+					<div ref={bottomSpacerRef} className="min-h-24 cursor-text" />
+
+					<BacklinksSection
+						api={api}
+						pageId={detail.page.id}
+						pages={pages}
+						onSelectSlug={(slug) => onSelectSlug?.(slug)}
+					/>
 				</div>
+
+				<OutlineFloatingRail headings={liveHeadings} hidden={activePanel !== null} />
 			</div>
 
+			<FloatingToolbar
+				editor={editor}
+				canWrite={effectiveEditable}
+				canComment={true}
+				onAddComment={handleStartComment}
+			/>
 			<LinkPreviewCard editor={editor} />
 		</div>
 	)

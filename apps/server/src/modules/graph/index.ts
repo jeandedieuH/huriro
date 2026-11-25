@@ -10,14 +10,29 @@ import { HttpError } from '../../api/error'
 import type { RealtimePubSub } from '../../realtime/pubsub'
 import type { Auth } from '../identity'
 import { workspaceDerive } from '../tenancy'
-import { CreateEntityLinkBody, GraphLinksQuery, GraphPeekQuery, LinkIdParam } from './schema'
-import { createEntityLink, deleteEntityLinkForActor, listEntityLinksFor, peekEntity } from './service'
+import {
+	CreateEntityLinkBody,
+	GraphLinksQuery,
+	GraphPeekQuery,
+	KnowledgeGraphQuery,
+	LinkIdParam
+} from './schema'
+import {
+	createEntityLink,
+	deleteEntityLinkForActor,
+	getKnowledgeGraph,
+	listEntityLinksFor,
+	peekEntity
+} from './service'
 
 export { listEntityLinksFor } from './service'
 
 export function graphModule(sql: Sql, auth: Auth | null, pubsub?: RealtimePubSub) {
 	return new Elysia({ name: 'huriro.graph' })
 		.derive(workspaceDerive(sql, auth))
+		.get('/graph/knowledge', { query: KnowledgeGraphQuery }, ({ query, inWorkspace }) =>
+			inWorkspace((tx, actor) => getKnowledgeGraph(tx, actor, query))
+		)
 		.post(
 			'/graph/links',
 			{ body: CreateEntityLinkBody },

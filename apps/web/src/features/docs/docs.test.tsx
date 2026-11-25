@@ -74,6 +74,9 @@ describe('DocsWorkspace', () => {
 				{ timeout: 5000 }
 			)
 			expect(screen.getByRole('navigation', { name: 'Workspace pages' })).toBeInTheDocument()
+			const leafPageButton = screen.getByRole('button', { name: 'Incident Response Runbook' })
+			// Leaf-only branches do not reserve a disclosure gutter, keeping their icons aligned with utility actions.
+			expect(leafPageButton.parentElement?.firstElementChild).toBe(leafPageButton)
 			expect(screen.getByText('Let us keep latency under 50ms p95.')).toBeInTheDocument()
 			await expectNoViolations(container)
 		} finally {

@@ -33,6 +33,11 @@ export function isAuthPathname(pathname: string): boolean {
 	return AUTH_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))
 }
 
+/** Public published doc SSR routes (`/p/:workspaceSlug/:publicSlug`) render without workspace bootstrap or auth gates. */
+export function isPublicDocPathname(pathname: string): boolean {
+	return pathname === '/p' || pathname.startsWith('/p/')
+}
+
 /** While signed in without a workspace, `/setup` stays reachable iff instance bootstrap is still pending, and `/verify-email` stays accessible. */
 export function isAllowedOnboardingPath(pathname: string, needsSetup: boolean): boolean {
 	return pathname === '/onboarding' || pathname === '/verify-email' || (needsSetup && pathname === '/setup')

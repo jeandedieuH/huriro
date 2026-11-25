@@ -4,11 +4,28 @@ import { Extension } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
 import { ReactRenderer } from '@tiptap/react'
 import Suggestion, { type SuggestionKeyDownProps, type SuggestionProps } from '@tiptap/suggestion'
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { filterSlashItems, type SlashItem } from './slash-items'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { cn } from '@/lib/utils'
+import {
+	filterSlashItems,
+	getSlashCategoryLabel,
+	SLASH_CATEGORY_ORDER,
+	type SlashCategory,
+	type SlashItem
+} from './slash-items'
 
 interface SlashCommandListHandle {
 	onKeyDown(props: SuggestionKeyDownProps): boolean
+}
+
+interface GroupedSlashEntry {
+	readonly item: SlashItem
+	readonly flatIndex: number
+}
+
+interface SlashGroup {
+	readonly category: SlashCategory
+	readonly entries: readonly GroupedSlashEntry[]
 }
 
 /**
@@ -27,38 +44,62 @@ export const SlashCommandList = forwardRef<SlashCommandListHandle, SuggestionPro
 			setSelectedIndex(0)
 		}
 
+		const { orderedItems, groups } = useMemo(() => {
+			const byCat = new Map<SlashCategory, SlashItem[]>()
+			for (const cat of SLASH_CATEGORY_ORDER) byCat.set(cat, [])
+			for (const item of items) {
+				byCat.get(item.category)?.push(item)
+			}
+			const flat: SlashItem[] = []
+			const grouped: SlashGroup[] = []
+			for (const cat of SLASH_CATEGORY_ORDER) {
+				const list = byCat.get(cat) ?? []
+				if (list.length === 0) continue
+				const entries: GroupedSlashEntry[] = []
+				for (const item of list) {
+					entries.push({ item, flatIndex: flat.length })
+					flat.push(item)
+				}
+				grouped.push({ category: cat, entries })
+			}
+			return { orderedItems: flat, groups: grouped }
+		}, [items])
+
 		// Keep the highlighted option visible while arrowing through the list.
 		useEffect(() => {
-			listRef.current?.children[selectedIndex]?.scrollIntoView({ block: 'nearest' })
+			const activeEl = listRef.current?.querySelector(`[data-slash-index="${selectedIndex}"]`)
+			if (activeEl instanceof HTMLElement) {
+				activeEl.scrollIntoView({ block: 'nearest' })
+			}
 		}, [selectedIndex])
 
 		useImperativeHandle(
 			ref,
 			() => ({
 				onKeyDown({ event }) {
-					if (items.length === 0) return false
+					if (orderedItems.length === 0) return false
 					if (event.key === 'ArrowUp') {
-						setSelectedIndex((index) => (index + items.length - 1) % items.length)
+						setSelectedIndex((index) => (index + orderedItems.length - 1) % orderedItems.length)
 						return true
 					}
 					if (event.key === 'ArrowDown') {
-						setSelectedIndex((index) => (index + 1) % items.length)
+						setSelectedIndex((index) => (index + 1) % orderedItems.length)
 						return true
 					}
 					if (event.key === 'Enter') {
-						const item = items[selectedIndex]
+						const item = orderedItems[selectedIndex]
 						if (item) command(item)
 						return true
 					}
 					return false
 				}
 			}),
-			[items, selectedIndex, command]
+			[orderedItems, selectedIndex, command]
 		)
 
-		if (items.length === 0) {
+		if (orderedItems.length === 0) {
 			return (
-				<div className="w-56 rounded-md border border-border bg-popover px-3 py-2 text-xs text-muted-foreground shadow-md">
+				<div className="w-72 rounded-xl border border-border/90 bg-popover/98 px-3 py-2.5 text-xs text-muted-foreground shadow-(--shadow-3) backdrop-blur-md">
 					{t('docs.slash.empty')}
 				</div>
 			)
@@ -69,32 +110,56 @@ export const SlashCommandList = forwardRef<SlashCommandListHandle, SuggestionPro
 				ref={listRef}
 				role="listbox"
 				aria-label={t('docs.slash.title')}
-				className="max-h-72 w-56 space-y-0.5 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
+				className="max-h-88 w-80 overflow-y-auto rounded-xl border border-border/90 bg-popover/98 p-1.5 text-popover-foreground shadow-(--shadow-3) backdrop-blur-md"
 			>
-				{items.map((item, index) => {
-					const Icon = item.icon
-					const selected = index === selectedIndex
-					return (
-						<button
-							key={item.id}
-							type="button"
-							role="option"
-							aria-selected={selected}
-							// Prevent the editor losing focus before the click lands.
-							onMouseDown={(event) => event.preventDefault()}
-							onClick={() => command(item)}
-							onMouseMove={() => {
-								if (!selected) setSelectedIndex(index)
-							}}
-							className={`flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs ${
-								selected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent hover:text-accent-foreground'
-							}`}
-						>
-							<Icon className="size-3.5 text-muted-foreground" aria-hidden />
-							<span>{item.label}</span>
-						</button>
-					)
-				})}
+				{groups.map((group) => (
+					<fieldset key={group.category} className="m-0 border-0 p-0 py-1 first:pt-0 last:pb-0">
+						<legend className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+							{getSlashCategoryLabel(group.category)}
+						</legend>
+						<div className="space-y-0.5">
+							{group.entries.map(({ item, flatIndex }) => {
+								const Icon = item.icon
+								const selected = flatIndex === selectedIndex
+								return (
+									<button
+										key={item.id}
+										type="button"
+										role="option"
+										aria-selected={selected}
+										aria-label={item.label}
+										data-slash-index={flatIndex}
+										// Prevent the editor losing focus before the click lands.
+										onMouseDown={(event) => event.preventDefault()}
+										onClick={() => command(item)}
+										onMouseMove={() => {
+											if (!selected) setSelectedIndex(flatIndex)
+										}}
+										className={cn(
+											'flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors',
+											selected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/70'
+										)}
+									>
+										<span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground shadow-(--shadow-1)">
+											<Icon className="size-4" aria-hidden />
+										</span>
+										<span className="min-w-0 flex-1">
+											<span className="block truncate text-xs font-medium text-foreground">{item.label}</span>
+											<span className="block truncate text-[11px] text-muted-foreground">
+												{item.description}
+											</span>
+										</span>
+										{item.shortcut ? (
+											<kbd className="shrink-0 rounded border border-border/80 bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+												{item.shortcut}
+											</kbd>
+										) : null}
+									</button>
+								)
+							})}
+						</div>
+					</fieldset>
+				))}
 			</div>
 		)
 	}

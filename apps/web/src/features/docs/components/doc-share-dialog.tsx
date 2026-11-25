@@ -122,7 +122,7 @@ export function DocShareDialog({ api, page, members }: DocShareDialogProps) {
 						</Select>
 					</div>
 
-					<div className="grid grid-cols-[1fr_auto_auto] items-end gap-2">
+					<div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-2">
 						<div className="space-y-1">
 							<span className="text-xs font-medium">{t('docs.share.member')}</span>
 							<Select value={selectedUserId} onValueChange={setSelectedUserId}>
@@ -145,7 +145,7 @@ export function DocShareDialog({ api, page, members }: DocShareDialogProps) {
 								value={permission}
 								onValueChange={(v) => setPermission(v as ResourceAclItemDto['permission'])}
 							>
-								<SelectTrigger aria-label={t('docs.share.permission')} className="w-32">
+								<SelectTrigger aria-label={t('docs.share.permission')} className="w-36">
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>

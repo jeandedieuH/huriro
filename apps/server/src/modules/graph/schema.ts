@@ -5,3 +5,7 @@ export { CreateEntityLinkBody, GraphLinksQuery, GraphPeekQuery } from '@huriro/c
 export const LinkIdParam = Type.Object({
 	linkId: Type.String({ format: 'uuid' })
 })
+
+export const KnowledgeGraphQuery = Type.Object({
+	teamspaceId: Type.Optional(Type.String({ format: 'uuid' }))
+})

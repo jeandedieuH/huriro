@@ -48,6 +48,8 @@ export const ERROR_CODES = [
 	'token_audience_mismatch',
 	// collaborative docs
 	'doc_too_large',
+	'doc_locked',
+	'invalid_public_doc_password',
 	'collab_lease_conflict',
 	'collab_ticket_invalid',
 	// M4 files, chat, SSRF, webhooks
@@ -55,6 +57,7 @@ export const ERROR_CODES = [
 	'file_pending_scan',
 	'file_too_large',
 	'ssrf_blocked',
+	'egress_failed',
 	'webhook_signature_invalid',
 	'channel_archived',
 	// AI gateway (§11.3)

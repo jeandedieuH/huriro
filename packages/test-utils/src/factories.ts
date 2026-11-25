@@ -86,7 +86,7 @@ export async function anAclEntry(
 	sql: Sql,
 	args: {
 		workspaceId: string
-		resourceType: 'project' | 'doc_page' | 'channel' | 'mail_account'
+		resourceType: 'project' | 'doc_page' | 'teamspace' | 'channel' | 'mail_account'
 		resourceId?: string
 		principalType: 'user' | 'role' | 'workspace'
 		principalId?: string | null

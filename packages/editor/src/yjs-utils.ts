@@ -24,11 +24,19 @@ export interface DocMention {
 	readonly label: string
 }
 
+export interface DocReferencedLink {
+	readonly targetType: 'doc' | 'issue'
+	readonly targetRef: string
+	readonly by: 'id' | 'slug'
+}
+
 export interface ExtractedDocumentContent {
 	readonly plainText: string
 	readonly headings: DocHeading[]
 	readonly blocks: DocBlockSnippet[]
 	readonly mentions: DocMention[]
+	readonly referencedLinks: DocReferencedLink[]
+	readonly syncedBlockIds: string[]
 }
 
 const PERSON_HANDLE_RE = /(?:^|[\s(])@([a-zA-Z0-9._-]{2,64})/g
@@ -45,18 +53,58 @@ export function extractPersonHandleMentions(text: string): string[] {
 	return [...found]
 }
 
+function recordInternalLinkHref(href: string, links: Map<string, DocReferencedLink>): void {
+	const clean = href.trim()
+	if (!clean) return
+	const docPrefix = /^doc:([0-9a-f-]{36})$/i.exec(clean)
+	if (docPrefix?.[1]) {
+		links.set(`doc:id:${docPrefix[1]}`, { targetType: 'doc', targetRef: docPrefix[1], by: 'id' })
+		return
+	}
+	const issuePrefix = /^issue:([0-9a-f-]{36})$/i.exec(clean)
+	if (issuePrefix?.[1]) {
+		links.set(`issue:id:${issuePrefix[1]}`, { targetType: 'issue', targetRef: issuePrefix[1], by: 'id' })
+		return
+	}
+	const docSlugPath = /^\/docs\/([a-z0-9-]+)(?:#.*)?$/i.exec(clean)
+	if (docSlugPath?.[1]) {
+		links.set(`doc:slug:${docSlugPath[1]}`, { targetType: 'doc', targetRef: docSlugPath[1], by: 'slug' })
+	}
+}
+
 function collectElementTextAndMentions(
 	node: Y.XmlElement | Y.XmlText | Y.XmlHook,
-	mentions: Map<string, DocMention>
+	mentions: Map<string, DocMention>,
+	links: Map<string, DocReferencedLink>,
+	syncedBlockIds: Set<string>,
+	headings?: DocHeading[],
+	baseOffset = 0
 ): string {
 	if (node instanceof Y.XmlText) {
 		const delta = node.toDelta() as { insert: unknown; attributes?: Record<string, unknown> }[]
 		let text = ''
 		for (const op of delta) {
 			if (typeof op.insert === 'string') {
-				text += op.insert
+				const attrs = op.attributes ?? {}
+				const linkAttr = attrs['link'] as { href?: unknown } | undefined
+				if (linkAttr && typeof linkAttr.href === 'string') {
+					recordInternalLinkHref(linkAttr.href, links)
+				}
+				const isDeletedSuggestion = Object.keys(attrs).some(
+					(k) => k === 'suggestionDelete' || k.startsWith('suggestionDelete--')
+				)
+				if (!isDeletedSuggestion) {
+					text += op.insert
+				}
 			} else if (op.insert instanceof Y.XmlElement) {
-				text += collectElementTextAndMentions(op.insert, mentions)
+				text += collectElementTextAndMentions(
+					op.insert,
+					mentions,
+					links,
+					syncedBlockIds,
+					headings,
+					baseOffset
+				)
 			}
 		}
 		return text
@@ -73,32 +121,89 @@ function collectElementTextAndMentions(
 		const label = String(node.getAttribute('label') ?? '')
 		if (entityId) {
 			mentions.set(`${entityType}:${entityId}`, { entityType, entityId, label })
+			if (entityType === 'doc' || entityType === 'issue') {
+				links.set(`${entityType}:id:${entityId}`, { targetType: entityType, targetRef: entityId, by: 'id' })
+			}
 		}
 		const prefix = entityType === 'person' ? '@' : entityType === 'issue' ? '#' : ''
 		return `${prefix}${label}`
 	}
 
-	if (node.nodeName === 'referenceBlock') {
+	if (name === 'referenceBlock') {
+		const entityTypeRaw = String(node.getAttribute('entityType') ?? 'issue')
+		const entityId = String(node.getAttribute('entityId') ?? '')
+		if (entityId && (entityTypeRaw === 'doc' || entityTypeRaw === 'issue')) {
+			links.set(`${entityTypeRaw}:id:${entityId}`, {
+				targetType: entityTypeRaw,
+				targetRef: entityId,
+				by: 'id'
+			})
+		}
 		const idf = String(node.getAttribute('identifier') ?? '')
 		const title = String(node.getAttribute('title') ?? '')
 		return idf ? `${idf}: ${title}` : title
 	}
 
-	if (node.nodeName === 'embed') {
+	if (name === 'syncedBlock') {
+		const syncedId = String(node.getAttribute('syncedBlockId') ?? '')
+		if (syncedId) syncedBlockIds.add(syncedId)
+		const fallback = String(node.getAttribute('fallbackText') ?? node.getAttribute('title') ?? '')
+		return fallback
+	}
+
+	if (name === 'mermaidBlock') {
+		return String(node.getAttribute('alt') ?? '') || String(node.getAttribute('code') ?? '')
+	}
+
+	if (name === 'mathBlock' || name === 'mathInline') {
+		return String(node.getAttribute('latex') ?? '')
+	}
+
+	if (name === 'bookmarkCard') {
+		const title = String(node.getAttribute('title') ?? '')
+		const url = String(node.getAttribute('url') ?? '')
+		recordInternalLinkHref(url, links)
+		return title || url
+	}
+
+	if (name === 'buttonBlock') {
+		return String(node.getAttribute('label') ?? '')
+	}
+
+	if (name === 'embed') {
 		const title = String(node.getAttribute('title') ?? '')
 		const url = String(node.getAttribute('url') ?? '')
 		return title || url
 	}
 
-	if (node.nodeName === 'hardBreak') return '\n'
+	if (name === 'toggleHeading') {
+		const summary = String(node.getAttribute('summary') ?? '').trim()
+		const rawLevel = Number(node.getAttribute('level') ?? 2)
+		const level = Number.isFinite(rawLevel) ? Math.max(1, Math.min(3, rawLevel)) : 2
+		const rawId = node.getAttribute('blockId')
+		const blockId = typeof rawId === 'string' && rawId.length > 0 ? rawId : `th-${headings?.length ?? 0}`
+		if (summary && headings) {
+			headings.push({ blockId, level, text: summary, offset: baseOffset })
+		}
+		let inner = ''
+		for (const child of node.toArray()) {
+			const part = collectElementTextAndMentions(child, mentions, links, syncedBlockIds, headings, baseOffset)
+			if (part) inner += inner ? `\n${part}` : part
+		}
+		return [summary, inner].filter(Boolean).join('\n')
+	}
+
+	if (name === 'hardBreak') return '\n'
 
 	let out = ''
 	for (const child of node.toArray()) {
-		const part = collectElementTextAndMentions(child, mentions)
+		const part = collectElementTextAndMentions(child, mentions, links, syncedBlockIds, headings, baseOffset)
 		if (part.length > 0) {
 			const isBlockChild =
 				child instanceof Y.XmlElement &&
-				['paragraph', 'heading', 'listItem', 'taskItem', 'tableRow', 'blockquote'].includes(child.nodeName)
+				['paragraph', 'heading', 'listItem', 'taskItem', 'tableRow', 'blockquote', 'column'].includes(
+					child.nodeName
+				)
 			out += out.length > 0 && isBlockChild ? `\n${part}` : part
 		}
 	}
@@ -107,19 +212,28 @@ function collectElementTextAndMentions(
 
 /**
  * Pure, DOM-free extraction of plain text, headings, block snippets (for deep-link search),
- * and entity mentions from a Yjs document (`XmlFragment('default')`).
+ * entity mentions, backlink references, and synced block IDs from a Yjs document.
  */
 export function extractDocumentContent(ydoc: Y.Doc, field = 'default'): ExtractedDocumentContent {
 	const fragment = ydoc.getXmlFragment(field)
 	const headings: DocHeading[] = []
 	const blocks: DocBlockSnippet[] = []
 	const mentions = new Map<string, DocMention>()
+	const links = new Map<string, DocReferencedLink>()
+	const syncedBlockIds = new Set<string>()
 	const blockTexts: string[] = []
 	let cursorOffset = 0
 	let fallbackIdx = 0
 
 	for (const child of fragment.toArray()) {
-		const text = collectElementTextAndMentions(child, mentions).trim()
+		const text = collectElementTextAndMentions(
+			child,
+			mentions,
+			links,
+			syncedBlockIds,
+			headings,
+			cursorOffset
+		).trim()
 		if (text.length === 0) continue
 
 		fallbackIdx += 1
@@ -146,7 +260,9 @@ export function extractDocumentContent(ydoc: Y.Doc, field = 'default'): Extracte
 		plainText: blockTexts.join('\n\n'),
 		headings,
 		blocks,
-		mentions: [...mentions.values()]
+		mentions: [...mentions.values()],
+		referencedLinks: [...links.values()],
+		syncedBlockIds: [...syncedBlockIds]
 	}
 }
 

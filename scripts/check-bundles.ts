@@ -26,6 +26,9 @@ interface ChunkMetric {
 	readonly rawBytes: number
 	readonly gzipBytes: number
 	readonly hasEditorRuntime: boolean
+	readonly hasKatex: boolean
+	readonly hasMermaidRenderer: boolean
+	readonly hasKnowledgeGraph: boolean
 }
 
 const chunks = new Map<string, ChunkMetric>()
@@ -38,7 +41,10 @@ for (const name of readdirSync(PUBLIC_ASSETS_DIR)) {
 		file: name,
 		rawBytes: bytes.byteLength,
 		gzipBytes: gz.byteLength,
-		hasEditorRuntime: /ProseMirror|@tiptap|tiptap|HocuspocusProvider/i.test(text)
+		hasEditorRuntime: /ProseMirror|@tiptap|tiptap|HocuspocusProvider/i.test(text),
+		hasKatex: /katex-html|renderLatexToHtml|__katex/i.test(text),
+		hasMermaidRenderer: /renderFlowchartSvg|renderSequenceSvg|renderMermaidSvg/i.test(text),
+		hasKnowledgeGraph: /layoutGraphNodes/.test(text)
 	})
 }
 
@@ -124,12 +130,36 @@ for (const entry of entryFiles) {
 		console.error(`bundle check: entry chunk ${entry} eagerly bundles editor runtime`)
 		failed = true
 	}
+	if (metric.hasKatex) {
+		console.error(`bundle check: entry chunk ${entry} eagerly bundles KaTeX runtime`)
+		failed = true
+	}
+	if (metric.hasMermaidRenderer) {
+		console.error(`bundle check: entry chunk ${entry} eagerly bundles Mermaid renderer`)
+		failed = true
+	}
+	if (metric.hasKnowledgeGraph) {
+		console.error(`bundle check: entry chunk ${entry} eagerly bundles Knowledge Graph view`)
+		failed = true
+	}
 }
 
 for (const preload of rootPreloadFiles) {
 	const metric = chunks.get(preload)
 	if (metric?.hasEditorRuntime) {
 		console.error(`bundle check: __root__ preload ${preload} eagerly loads editor runtime`)
+		failed = true
+	}
+	if (metric?.hasKatex) {
+		console.error(`bundle check: __root__ preload ${preload} eagerly loads KaTeX runtime`)
+		failed = true
+	}
+	if (metric?.hasMermaidRenderer) {
+		console.error(`bundle check: __root__ preload ${preload} eagerly loads Mermaid renderer`)
+		failed = true
+	}
+	if (metric?.hasKnowledgeGraph) {
+		console.error(`bundle check: __root__ preload ${preload} eagerly loads Knowledge Graph view`)
 		failed = true
 	}
 }
@@ -145,6 +175,19 @@ if (lazyEditorChunks.length === 0) {
 		`  ok: editor runtime split into ${lazyEditorChunks.length} lazy chunk(s) (${lazyEditorChunks.map((c) => c.file).join(', ')})`
 	)
 }
+
+const lazyKatexChunks = sorted.filter(
+	(c) => c.hasKatex && !entryFiles.has(c.file) && !rootPreloadFiles.has(c.file)
+)
+const lazyMermaidChunks = sorted.filter(
+	(c) => c.hasMermaidRenderer && !entryFiles.has(c.file) && !rootPreloadFiles.has(c.file)
+)
+const lazyGraphChunks = sorted.filter(
+	(c) => c.hasKnowledgeGraph && !entryFiles.has(c.file) && !rootPreloadFiles.has(c.file)
+)
+console.log(
+	`  ok: lazy feature chunks katex=${lazyKatexChunks.length}, mermaid=${lazyMermaidChunks.length}, graph=${lazyGraphChunks.length}`
+)
 
 if (failed) process.exit(1)
 console.log('bundle check: passed')

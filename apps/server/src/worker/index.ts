@@ -21,7 +21,7 @@ import {
 } from '../modules/automations'
 import { captureDailyBillingUsageOnce } from '../modules/billing'
 import { processChatLinkPreviewOutboxEvent } from '../modules/chat'
-import { runDocMaintenanceOnce } from '../modules/docs'
+import { runDocMaintenanceOnce, runDocVerificationExpiryCheckOnce } from '../modules/docs'
 import { type BlobStorage, processFileQuarantineOutboxEvent } from '../modules/files'
 import {
 	type GithubApiClient,
@@ -416,6 +416,15 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 		const res = await withSystem(deps.app, (tx) => runDocMaintenanceOnce(tx))
 		if (res.thinnedVersions > 0 || res.deletedTickets > 0) {
 			log.info(res, 'doc version retention & ticket cleanup completed')
+		}
+	})
+
+	await boss.createQueue('doc-verification-expiry')
+	await boss.schedule('doc-verification-expiry', '0 * * * *', {}, { tz: 'UTC' })
+	await boss.work('doc-verification-expiry', async () => {
+		const res = await runDocVerificationExpiryCheckOnce(deps.app, deps.pubsub)
+		if (res.staleMarked > 0 || res.warningsSent > 0) {
+			log.info(res, 'doc verification freshness sweep completed')
 		}
 	})
 

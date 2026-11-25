@@ -65,6 +65,7 @@ export {
 	ensureBootstrapSetupToken,
 	grantAcl,
 	hashSetupToken,
+	listAclEntriesForResource,
 	listWorkspaceMembers,
 	resolveActor,
 	resolveResourceAcl,

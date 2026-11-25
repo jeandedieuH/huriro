@@ -112,7 +112,13 @@ export function ConflictResolverDialog() {
 					<Button
 						type="button"
 						tone="outline"
-						onClick={() => void engine.resolveConflict(active.id, 'keep_server').then(() => setOpen(false))}
+						onClick={() =>
+							void engine.resolveConflict(active.id, 'keep_server').then(() => {
+								if (engine.getConflicts().length === 0) {
+									setOpen(false)
+								}
+							})
+						}
 					>
 						{t('sync.conflict.keep-theirs')}
 					</Button>

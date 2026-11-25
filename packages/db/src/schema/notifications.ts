@@ -37,11 +37,17 @@ export const notifications = pgTable(
 				'doc.commented',
 				'doc.comment_resolved',
 				'doc.access_granted',
+				'doc.verification_expiring',
+				'doc.suggestion_created',
 				'chat.mentioned',
 				'chat.dm',
 				'chat.reply',
 				'chat.message',
-				'channel.access_granted'
+				'channel.access_granted',
+				'approval.requested',
+				'mail.assigned',
+				'mail.mentioned',
+				'mail.reply_needed'
 			]
 		}).notNull(),
 		entityType: text('entity_type').notNull(),

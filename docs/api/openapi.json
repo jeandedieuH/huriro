@@ -122,6 +122,110 @@
 				"operationId": "postApiV1BillingWebhooksIrembopay"
 			}
 		},
+		"/api/v1/public/docs/{workspaceSlug}/{publicSlug}": {
+			"get": {
+				"parameters": [
+					{
+						"name": "workspaceSlug",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 80
+						}
+					},
+					{
+						"name": "publicSlug",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 163
+						}
+					}
+				],
+				"operationId": "getApiV1PublicDocsByWorkspaceSlugByPublicSlug"
+			}
+		},
+		"/api/v1/public/docs/{workspaceSlug}/{publicSlug}/unlock": {
+			"post": {
+				"parameters": [
+					{
+						"name": "workspaceSlug",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 80
+						}
+					},
+					{
+						"name": "publicSlug",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 163
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"password"
+								],
+								"properties": {
+									"password": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"password"
+								],
+								"properties": {
+									"password": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"password"
+								],
+								"properties": {
+									"password": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 128
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1PublicDocsByWorkspaceSlugByPublicSlugUnlock"
+			}
+		},
 		"/api/v1/auth/providers": {
 			"get": {
 				"responses": {
@@ -705,6 +809,7 @@
 							"enum": [
 								"project",
 								"doc_page",
+								"teamspace",
 								"channel",
 								"mail_account"
 							]
@@ -741,6 +846,7 @@
 										"enum": [
 											"project",
 											"doc_page",
+											"teamspace",
 											"channel",
 											"mail_account"
 										]
@@ -791,6 +897,7 @@
 										"enum": [
 											"project",
 											"doc_page",
+											"teamspace",
 											"channel",
 											"mail_account"
 										]
@@ -841,6 +948,7 @@
 										"enum": [
 											"project",
 											"doc_page",
+											"teamspace",
 											"channel",
 											"mail_account"
 										]
@@ -8782,6 +8890,961 @@
 				"operationId": "getApiV1AutomationsRunsByRunId"
 			}
 		},
+		"/api/v1/teamspaces": {
+			"get": {
+				"operationId": "getApiV1Teamspaces"
+			},
+			"post": {
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"name"
+								],
+								"properties": {
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 120
+									},
+									"slug": {
+										"type": "string",
+										"pattern": "^[a-z0-9][a-z0-9-]{0,118}[a-z0-9]$|^[a-z0-9]$"
+									},
+									"icon": {
+										"type": [
+											"string",
+											"null"
+										],
+										"maxLength": 32
+									},
+									"description": {
+										"type": "string",
+										"maxLength": 500
+									},
+									"visibility": {
+										"type": "string",
+										"enum": [
+											"open",
+											"closed",
+											"private"
+										]
+									},
+									"defaultAcl": {
+										"type": "array",
+										"items": {
+											"type": "object",
+											"required": [
+												"principalType",
+												"principalId",
+												"permission"
+											],
+											"properties": {
+												"principalType": {
+													"type": "string",
+													"enum": [
+														"user",
+														"role",
+														"workspace"
+													]
+												},
+												"principalId": {
+													"type": [
+														"string",
+														"null"
+													],
+													"format": "uuid"
+												},
+												"permission": {
+													"type": "string",
+													"enum": [
+														"read",
+														"comment",
+														"write",
+														"manage"
+													]
+												}
+											}
+										}
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"name"
+								],
+								"properties": {
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 120
+									},
+									"slug": {
+										"type": "string",
+										"pattern": "^[a-z0-9][a-z0-9-]{0,118}[a-z0-9]$|^[a-z0-9]$"
+									},
+									"icon": {
+										"type": [
+											"string",
+											"null"
+										],
+										"maxLength": 32
+									},
+									"description": {
+										"type": "string",
+										"maxLength": 500
+									},
+									"visibility": {
+										"type": "string",
+										"enum": [
+											"open",
+											"closed",
+											"private"
+										]
+									},
+									"defaultAcl": {
+										"type": "array",
+										"items": {
+											"type": "object",
+											"required": [
+												"principalType",
+												"principalId",
+												"permission"
+											],
+											"properties": {
+												"principalType": {
+													"type": "string",
+													"enum": [
+														"user",
+														"role",
+														"workspace"
+													]
+												},
+												"principalId": {
+													"type": [
+														"string",
+														"null"
+													],
+													"format": "uuid"
+												},
+												"permission": {
+													"type": "string",
+													"enum": [
+														"read",
+														"comment",
+														"write",
+														"manage"
+													]
+												}
+											}
+										}
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"name"
+								],
+								"properties": {
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 120
+									},
+									"slug": {
+										"type": "string",
+										"pattern": "^[a-z0-9][a-z0-9-]{0,118}[a-z0-9]$|^[a-z0-9]$"
+									},
+									"icon": {
+										"type": [
+											"string",
+											"null"
+										],
+										"maxLength": 32
+									},
+									"description": {
+										"type": "string",
+										"maxLength": 500
+									},
+									"visibility": {
+										"type": "string",
+										"enum": [
+											"open",
+											"closed",
+											"private"
+										]
+									},
+									"defaultAcl": {
+										"type": "array",
+										"items": {
+											"type": "object",
+											"required": [
+												"principalType",
+												"principalId",
+												"permission"
+											],
+											"properties": {
+												"principalType": {
+													"type": "string",
+													"enum": [
+														"user",
+														"role",
+														"workspace"
+													]
+												},
+												"principalId": {
+													"type": [
+														"string",
+														"null"
+													],
+													"format": "uuid"
+												},
+												"permission": {
+													"type": "string",
+													"enum": [
+														"read",
+														"comment",
+														"write",
+														"manage"
+													]
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1Teamspaces"
+			}
+		},
+		"/api/v1/teamspaces/{id}": {
+			"patch": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"version"
+								],
+								"properties": {
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 120
+									},
+									"slug": {
+										"type": "string",
+										"pattern": "^[a-z0-9][a-z0-9-]{0,118}[a-z0-9]$|^[a-z0-9]$"
+									},
+									"icon": {
+										"type": [
+											"string",
+											"null"
+										],
+										"maxLength": 32
+									},
+									"description": {
+										"type": "string",
+										"maxLength": 500
+									},
+									"visibility": {
+										"type": "string",
+										"enum": [
+											"open",
+											"closed",
+											"private"
+										]
+									},
+									"defaultAcl": {
+										"type": "array",
+										"items": {
+											"type": "object",
+											"required": [
+												"principalType",
+												"principalId",
+												"permission"
+											],
+											"properties": {
+												"principalType": {
+													"type": "string",
+													"enum": [
+														"user",
+														"role",
+														"workspace"
+													]
+												},
+												"principalId": {
+													"type": [
+														"string",
+														"null"
+													],
+													"format": "uuid"
+												},
+												"permission": {
+													"type": "string",
+													"enum": [
+														"read",
+														"comment",
+														"write",
+														"manage"
+													]
+												}
+											}
+										}
+									},
+									"archived": {
+										"type": "boolean"
+									},
+									"version": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"version"
+								],
+								"properties": {
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 120
+									},
+									"slug": {
+										"type": "string",
+										"pattern": "^[a-z0-9][a-z0-9-]{0,118}[a-z0-9]$|^[a-z0-9]$"
+									},
+									"icon": {
+										"type": [
+											"string",
+											"null"
+										],
+										"maxLength": 32
+									},
+									"description": {
+										"type": "string",
+										"maxLength": 500
+									},
+									"visibility": {
+										"type": "string",
+										"enum": [
+											"open",
+											"closed",
+											"private"
+										]
+									},
+									"defaultAcl": {
+										"type": "array",
+										"items": {
+											"type": "object",
+											"required": [
+												"principalType",
+												"principalId",
+												"permission"
+											],
+											"properties": {
+												"principalType": {
+													"type": "string",
+													"enum": [
+														"user",
+														"role",
+														"workspace"
+													]
+												},
+												"principalId": {
+													"type": [
+														"string",
+														"null"
+													],
+													"format": "uuid"
+												},
+												"permission": {
+													"type": "string",
+													"enum": [
+														"read",
+														"comment",
+														"write",
+														"manage"
+													]
+												}
+											}
+										}
+									},
+									"archived": {
+										"type": "boolean"
+									},
+									"version": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"version"
+								],
+								"properties": {
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 120
+									},
+									"slug": {
+										"type": "string",
+										"pattern": "^[a-z0-9][a-z0-9-]{0,118}[a-z0-9]$|^[a-z0-9]$"
+									},
+									"icon": {
+										"type": [
+											"string",
+											"null"
+										],
+										"maxLength": 32
+									},
+									"description": {
+										"type": "string",
+										"maxLength": 500
+									},
+									"visibility": {
+										"type": "string",
+										"enum": [
+											"open",
+											"closed",
+											"private"
+										]
+									},
+									"defaultAcl": {
+										"type": "array",
+										"items": {
+											"type": "object",
+											"required": [
+												"principalType",
+												"principalId",
+												"permission"
+											],
+											"properties": {
+												"principalType": {
+													"type": "string",
+													"enum": [
+														"user",
+														"role",
+														"workspace"
+													]
+												},
+												"principalId": {
+													"type": [
+														"string",
+														"null"
+													],
+													"format": "uuid"
+												},
+												"permission": {
+													"type": "string",
+													"enum": [
+														"read",
+														"comment",
+														"write",
+														"manage"
+													]
+												}
+											}
+										}
+									},
+									"archived": {
+										"type": "boolean"
+									},
+									"version": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "patchApiV1TeamspacesById"
+			},
+			"delete": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					},
+					{
+						"name": "version",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "integer",
+							"minimum": 1
+						}
+					}
+				],
+				"operationId": "deleteApiV1TeamspacesById"
+			}
+		},
+		"/api/v1/teamspaces/{id}/members": {
+			"get": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "getApiV1TeamspacesByIdMembers"
+			},
+			"post": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"userId"
+								],
+								"properties": {
+									"userId": {
+										"type": "string",
+										"format": "uuid"
+									},
+									"role": {
+										"type": "string",
+										"enum": [
+											"owner",
+											"member",
+											"viewer"
+										]
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"userId"
+								],
+								"properties": {
+									"userId": {
+										"type": "string",
+										"format": "uuid"
+									},
+									"role": {
+										"type": "string",
+										"enum": [
+											"owner",
+											"member",
+											"viewer"
+										]
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"userId"
+								],
+								"properties": {
+									"userId": {
+										"type": "string",
+										"format": "uuid"
+									},
+									"role": {
+										"type": "string",
+										"enum": [
+											"owner",
+											"member",
+											"viewer"
+										]
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1TeamspacesByIdMembers"
+			}
+		},
+		"/api/v1/teamspaces/{id}/members/{userId}": {
+			"delete": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					},
+					{
+						"name": "userId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "deleteApiV1TeamspacesByIdMembersByUserId"
+			}
+		},
+		"/api/v1/docs/synced-blocks": {
+			"get": {
+				"operationId": "getApiV1DocsSynced-blocks"
+			},
+			"post": {
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"title": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"sourcePageId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"markdown": {
+										"type": "string"
+									},
+									"prosemirrorJson": {
+										"type": "object",
+										"patternProperties": {
+											"^.*$": {}
+										}
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"title": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"sourcePageId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"markdown": {
+										"type": "string"
+									},
+									"prosemirrorJson": {
+										"type": "object",
+										"patternProperties": {
+											"^.*$": {}
+										}
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"title": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"sourcePageId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"markdown": {
+										"type": "string"
+									},
+									"prosemirrorJson": {
+										"type": "object",
+										"patternProperties": {
+											"^.*$": {}
+										}
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1DocsSynced-blocks"
+			}
+		},
+		"/api/v1/docs/synced-blocks/{id}": {
+			"get": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "getApiV1DocsSynced-blocksById"
+			},
+			"patch": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"version"
+								],
+								"properties": {
+									"title": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"markdown": {
+										"type": "string"
+									},
+									"archived": {
+										"type": "boolean"
+									},
+									"version": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"version"
+								],
+								"properties": {
+									"title": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"markdown": {
+										"type": "string"
+									},
+									"archived": {
+										"type": "boolean"
+									},
+									"version": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"version"
+								],
+								"properties": {
+									"title": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 160
+									},
+									"markdown": {
+										"type": "string"
+									},
+									"archived": {
+										"type": "boolean"
+									},
+									"version": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "patchApiV1DocsSynced-blocksById"
+			},
+			"delete": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					},
+					{
+						"name": "version",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "integer",
+							"minimum": 1
+						}
+					}
+				],
+				"operationId": "deleteApiV1DocsSynced-blocksById"
+			}
+		},
+		"/api/v1/docs/synced-blocks/{id}/collab-ticket": {
+			"post": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "postApiV1DocsSynced-blocksByIdCollab-ticket"
+			}
+		},
+		"/api/v1/docs/bookmarks/unfurl": {
+			"post": {
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"url"
+								],
+								"properties": {
+									"url": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2048
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"url"
+								],
+								"properties": {
+									"url": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2048
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"url"
+								],
+								"properties": {
+									"url": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2048
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1DocsBookmarksUnfurl"
+			}
+		},
 		"/api/v1/docs": {
 			"get": {
 				"parameters": [
@@ -8803,6 +9866,15 @@
 					},
 					{
 						"name": "parentId",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					},
+					{
+						"name": "teamspaceId",
 						"in": "query",
 						"required": false,
 						"schema": {
@@ -8835,6 +9907,13 @@
 										],
 										"format": "uuid"
 									},
+									"teamspaceId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
 									"title": {
 										"type": "string",
 										"minLength": 1,
@@ -8850,6 +9929,33 @@
 											"null"
 										],
 										"maxLength": 32
+									},
+									"coverGradient": {
+										"type": [
+											"string",
+											"null"
+										],
+										"enum": [
+											"sunrise",
+											"ocean",
+											"forest",
+											"slate",
+											"plum"
+										]
+									},
+									"fontStyle": {
+										"type": "string",
+										"enum": [
+											"sans",
+											"serif",
+											"mono"
+										]
+									},
+									"fullWidth": {
+										"type": "boolean"
+									},
+									"smallText": {
+										"type": "boolean"
 									},
 									"visibility": {
 										"type": "string",
@@ -8895,6 +10001,13 @@
 										],
 										"format": "uuid"
 									},
+									"teamspaceId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
 									"title": {
 										"type": "string",
 										"minLength": 1,
@@ -8910,6 +10023,33 @@
 											"null"
 										],
 										"maxLength": 32
+									},
+									"coverGradient": {
+										"type": [
+											"string",
+											"null"
+										],
+										"enum": [
+											"sunrise",
+											"ocean",
+											"forest",
+											"slate",
+											"plum"
+										]
+									},
+									"fontStyle": {
+										"type": "string",
+										"enum": [
+											"sans",
+											"serif",
+											"mono"
+										]
+									},
+									"fullWidth": {
+										"type": "boolean"
+									},
+									"smallText": {
+										"type": "boolean"
 									},
 									"visibility": {
 										"type": "string",
@@ -8955,6 +10095,13 @@
 										],
 										"format": "uuid"
 									},
+									"teamspaceId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
 									"title": {
 										"type": "string",
 										"minLength": 1,
@@ -8970,6 +10117,33 @@
 											"null"
 										],
 										"maxLength": 32
+									},
+									"coverGradient": {
+										"type": [
+											"string",
+											"null"
+										],
+										"enum": [
+											"sunrise",
+											"ocean",
+											"forest",
+											"slate",
+											"plum"
+										]
+									},
+									"fontStyle": {
+										"type": "string",
+										"enum": [
+											"sans",
+											"serif",
+											"mono"
+										]
+									},
+									"fullWidth": {
+										"type": "boolean"
+									},
+									"smallText": {
+										"type": "boolean"
 									},
 									"visibility": {
 										"type": "string",
@@ -9021,6 +10195,13 @@
 										],
 										"format": "uuid"
 									},
+									"teamspaceId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
 									"title": {
 										"type": "string",
 										"minLength": 1,
@@ -9054,6 +10235,13 @@
 										],
 										"format": "uuid"
 									},
+									"teamspaceId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
 									"title": {
 										"type": "string",
 										"minLength": 1,
@@ -9081,6 +10269,13 @@
 								],
 								"properties": {
 									"parentId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"teamspaceId": {
 										"type": [
 											"string",
 											"null"
@@ -9182,6 +10377,55 @@
 										],
 										"maxLength": 32
 									},
+									"teamspaceId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"coverFileId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"coverGradient": {
+										"type": [
+											"string",
+											"null"
+										],
+										"enum": [
+											"sunrise",
+											"ocean",
+											"forest",
+											"slate",
+											"plum"
+										]
+									},
+									"coverPositionY": {
+										"type": "integer",
+										"minimum": 0,
+										"maximum": 100
+									},
+									"fontStyle": {
+										"type": "string",
+										"enum": [
+											"sans",
+											"serif",
+											"mono"
+										]
+									},
+									"fullWidth": {
+										"type": "boolean"
+									},
+									"smallText": {
+										"type": "boolean"
+									},
+									"isLocked": {
+										"type": "boolean"
+									},
 									"visibility": {
 										"type": "string",
 										"enum": [
@@ -9225,6 +10469,55 @@
 										],
 										"maxLength": 32
 									},
+									"teamspaceId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"coverFileId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"coverGradient": {
+										"type": [
+											"string",
+											"null"
+										],
+										"enum": [
+											"sunrise",
+											"ocean",
+											"forest",
+											"slate",
+											"plum"
+										]
+									},
+									"coverPositionY": {
+										"type": "integer",
+										"minimum": 0,
+										"maximum": 100
+									},
+									"fontStyle": {
+										"type": "string",
+										"enum": [
+											"sans",
+											"serif",
+											"mono"
+										]
+									},
+									"fullWidth": {
+										"type": "boolean"
+									},
+									"smallText": {
+										"type": "boolean"
+									},
+									"isLocked": {
+										"type": "boolean"
+									},
 									"visibility": {
 										"type": "string",
 										"enum": [
@@ -9267,6 +10560,55 @@
 											"null"
 										],
 										"maxLength": 32
+									},
+									"teamspaceId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"coverFileId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"coverGradient": {
+										"type": [
+											"string",
+											"null"
+										],
+										"enum": [
+											"sunrise",
+											"ocean",
+											"forest",
+											"slate",
+											"plum"
+										]
+									},
+									"coverPositionY": {
+										"type": "integer",
+										"minimum": 0,
+										"maximum": 100
+									},
+									"fontStyle": {
+										"type": "string",
+										"enum": [
+											"sans",
+											"serif",
+											"mono"
+										]
+									},
+									"fullWidth": {
+										"type": "boolean"
+									},
+									"smallText": {
+										"type": "boolean"
+									},
+									"isLocked": {
+										"type": "boolean"
 									},
 									"visibility": {
 										"type": "string",
@@ -9664,7 +11006,20 @@
 						"required": false,
 						"schema": {
 							"type": "string",
-							"const": "markdown"
+							"enum": [
+								"markdown",
+								"html",
+								"pdf-html",
+								"zip"
+							]
+						}
+					},
+					{
+						"name": "includeChildren",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "boolean"
 						}
 					}
 				],
@@ -9685,6 +11040,746 @@
 					}
 				],
 				"operationId": "postApiV1DocsByIdCollab-ticket"
+			}
+		},
+		"/api/v1/docs/{id}/button-trigger": {
+			"post": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"buttonId",
+									"label",
+									"actionKind"
+								],
+								"properties": {
+									"buttonId": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 120
+									},
+									"label": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 120
+									},
+									"actionKind": {
+										"type": "string",
+										"enum": [
+											"append_template",
+											"run_automation"
+										]
+									},
+									"automationRuleId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"payload": {
+										"type": "object",
+										"patternProperties": {
+											"^.*$": {}
+										}
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"buttonId",
+									"label",
+									"actionKind"
+								],
+								"properties": {
+									"buttonId": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 120
+									},
+									"label": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 120
+									},
+									"actionKind": {
+										"type": "string",
+										"enum": [
+											"append_template",
+											"run_automation"
+										]
+									},
+									"automationRuleId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"payload": {
+										"type": "object",
+										"patternProperties": {
+											"^.*$": {}
+										}
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"buttonId",
+									"label",
+									"actionKind"
+								],
+								"properties": {
+									"buttonId": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 120
+									},
+									"label": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 120
+									},
+									"actionKind": {
+										"type": "string",
+										"enum": [
+											"append_template",
+											"run_automation"
+										]
+									},
+									"automationRuleId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"payload": {
+										"type": "object",
+										"patternProperties": {
+											"^.*$": {}
+										}
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1DocsByIdButton-trigger"
+			}
+		},
+		"/api/v1/docs/{id}/suggestions": {
+			"get": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "getApiV1DocsByIdSuggestions"
+			},
+			"post": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"kind"
+								],
+								"properties": {
+									"kind": {
+										"type": "string",
+										"enum": [
+											"insert",
+											"delete",
+											"replace"
+										]
+									},
+									"anchorBlockId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"maxLength": 120
+									},
+									"targetText": {
+										"type": "string",
+										"maxLength": 2000
+									},
+									"replacementText": {
+										"type": "string",
+										"maxLength": 8000
+									},
+									"groupId": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 80
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"kind"
+								],
+								"properties": {
+									"kind": {
+										"type": "string",
+										"enum": [
+											"insert",
+											"delete",
+											"replace"
+										]
+									},
+									"anchorBlockId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"maxLength": 120
+									},
+									"targetText": {
+										"type": "string",
+										"maxLength": 2000
+									},
+									"replacementText": {
+										"type": "string",
+										"maxLength": 8000
+									},
+									"groupId": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 80
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"kind"
+								],
+								"properties": {
+									"kind": {
+										"type": "string",
+										"enum": [
+											"insert",
+											"delete",
+											"replace"
+										]
+									},
+									"anchorBlockId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"maxLength": 120
+									},
+									"targetText": {
+										"type": "string",
+										"maxLength": 2000
+									},
+									"replacementText": {
+										"type": "string",
+										"maxLength": 8000
+									},
+									"groupId": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 80
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1DocsByIdSuggestions"
+			}
+		},
+		"/api/v1/docs/{id}/suggestions/decide-all": {
+			"post": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"decision"
+								],
+								"properties": {
+									"decision": {
+										"type": "string",
+										"enum": [
+											"accept",
+											"reject"
+										]
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"decision"
+								],
+								"properties": {
+									"decision": {
+										"type": "string",
+										"enum": [
+											"accept",
+											"reject"
+										]
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"decision"
+								],
+								"properties": {
+									"decision": {
+										"type": "string",
+										"enum": [
+											"accept",
+											"reject"
+										]
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1DocsByIdSuggestionsDecide-all"
+			}
+		},
+		"/api/v1/docs/{id}/suggestions/{groupId}/decision": {
+			"post": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					},
+					{
+						"name": "groupId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 80
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"decision"
+								],
+								"properties": {
+									"decision": {
+										"type": "string",
+										"enum": [
+											"accept",
+											"reject"
+										]
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"decision"
+								],
+								"properties": {
+									"decision": {
+										"type": "string",
+										"enum": [
+											"accept",
+											"reject"
+										]
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"decision"
+								],
+								"properties": {
+									"decision": {
+										"type": "string",
+										"enum": [
+											"accept",
+											"reject"
+										]
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1DocsByIdSuggestionsByGroupIdDecision"
+			}
+		},
+		"/api/v1/docs/{id}/verification": {
+			"get": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "getApiV1DocsByIdVerification"
+			},
+			"put": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"status": {
+										"type": "string",
+										"enum": [
+											"verified",
+											"stale",
+											"unverified"
+										]
+									},
+									"ttlDays": {
+										"type": [
+											"integer",
+											"null"
+										],
+										"minimum": 1,
+										"maximum": 3650
+									},
+									"expiresAt": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"note": {
+										"type": "string",
+										"maxLength": 500
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"status": {
+										"type": "string",
+										"enum": [
+											"verified",
+											"stale",
+											"unverified"
+										]
+									},
+									"ttlDays": {
+										"type": [
+											"integer",
+											"null"
+										],
+										"minimum": 1,
+										"maximum": 3650
+									},
+									"expiresAt": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"note": {
+										"type": "string",
+										"maxLength": 500
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"status": {
+										"type": "string",
+										"enum": [
+											"verified",
+											"stale",
+											"unverified"
+										]
+									},
+									"ttlDays": {
+										"type": [
+											"integer",
+											"null"
+										],
+										"minimum": 1,
+										"maximum": 3650
+									},
+									"expiresAt": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"note": {
+										"type": "string",
+										"maxLength": 500
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "putApiV1DocsByIdVerification"
+			},
+			"delete": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "deleteApiV1DocsByIdVerification"
+			}
+		},
+		"/api/v1/docs/{id}/public-share": {
+			"get": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "getApiV1DocsByIdPublic-share"
+			},
+			"put": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"publicSlug": {
+										"type": "string",
+										"pattern": "^[a-z0-9][a-z0-9-]{0,118}[a-z0-9]$|^[a-z0-9]$"
+									},
+									"includeChildren": {
+										"type": "boolean"
+									},
+									"allowSearchIndexing": {
+										"type": "boolean"
+									},
+									"password": {
+										"type": [
+											"string",
+											"null"
+										],
+										"minLength": 4,
+										"maxLength": 128
+									},
+									"expiresAt": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"publicSlug": {
+										"type": "string",
+										"pattern": "^[a-z0-9][a-z0-9-]{0,118}[a-z0-9]$|^[a-z0-9]$"
+									},
+									"includeChildren": {
+										"type": "boolean"
+									},
+									"allowSearchIndexing": {
+										"type": "boolean"
+									},
+									"password": {
+										"type": [
+											"string",
+											"null"
+										],
+										"minLength": 4,
+										"maxLength": 128
+									},
+									"expiresAt": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"publicSlug": {
+										"type": "string",
+										"pattern": "^[a-z0-9][a-z0-9-]{0,118}[a-z0-9]$|^[a-z0-9]$"
+									},
+									"includeChildren": {
+										"type": "boolean"
+									},
+									"allowSearchIndexing": {
+										"type": "boolean"
+									},
+									"password": {
+										"type": [
+											"string",
+											"null"
+										],
+										"minLength": 4,
+										"maxLength": 128
+									},
+									"expiresAt": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "putApiV1DocsByIdPublic-share"
+			},
+			"delete": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "deleteApiV1DocsByIdPublic-share"
 			}
 		},
 		"/api/v1/docs/{id}/versions": {
@@ -10212,6 +12307,22 @@
 					}
 				},
 				"operationId": "postApiV1DocsByIdCommentsByCommentIdResolve"
+			}
+		},
+		"/api/v1/graph/knowledge": {
+			"get": {
+				"parameters": [
+					{
+						"name": "teamspaceId",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "getApiV1GraphKnowledge"
 			}
 		},
 		"/api/v1/graph/links": {

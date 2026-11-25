@@ -58,7 +58,7 @@ export function aclSatisfies(granted: AclLevel, required: AclLevel): boolean {
 }
 
 /** Resources that can carry an ACL (§8.3 acl_entries.resource_type). */
-export const ACL_RESOURCE_TYPES = ['project', 'doc_page', 'channel', 'mail_account'] as const
+export const ACL_RESOURCE_TYPES = ['project', 'doc_page', 'teamspace', 'channel', 'mail_account'] as const
 export type AclResourceType = (typeof ACL_RESOURCE_TYPES)[number]
 
 /** What the action targets. `acl` is the actor's effective grant resolved by the service. */
@@ -107,6 +107,7 @@ const WORKSPACE_ACTIONS = new Set<Action>([
 const RESOURCE_MANAGE_PERMISSION: Record<AclResourceType, Action> = {
 	project: 'project.manage',
 	doc_page: 'doc.share',
+	teamspace: 'teamspace.manage',
 	channel: 'channel.manage',
 	mail_account: 'mail.assign'
 }
@@ -123,6 +124,9 @@ const ACTION_ACL_LEVEL: Partial<Record<Action, AclLevel>> = {
 	'doc.comment': 'comment',
 	'doc.write': 'write',
 	'doc.share': 'manage',
+	'doc.verify': 'write',
+	'doc.publish': 'manage',
+	'teamspace.manage': 'manage',
 	'channel.read': 'read',
 	'channel.post': 'write',
 	'channel.manage': 'manage',

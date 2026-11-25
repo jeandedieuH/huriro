@@ -44,3 +44,20 @@ export async function listEntityLinksTouching(
 		ORDER BY created_at ASC, id ASC
 	`
 }
+
+export async function listEntityLinksForDocSources(
+	tx: Queryable,
+	workspaceId: string,
+	docIds: readonly string[]
+): Promise<EntityLinkDto[]> {
+	if (docIds.length === 0) return []
+	return tx<EntityLinkDto[]>`
+		SELECT ${tx.unsafe(LINK_COLUMNS)}
+		FROM entity_links
+		WHERE workspace_id = ${workspaceId}
+			AND source_type = 'doc_page'
+			AND source_id = ANY(${[...docIds]}::uuid[])
+		ORDER BY created_at ASC, id ASC
+		LIMIT 1000
+	`
+}

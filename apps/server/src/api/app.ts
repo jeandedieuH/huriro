@@ -15,7 +15,7 @@ import { aiModule } from '../modules/ai'
 import { automationsModule } from '../modules/automations'
 import { type BillingModuleConfig, billingModule, billingWebhookPublicModule } from '../modules/billing'
 import { chatModule } from '../modules/chat'
-import { type CollabDirectBridge, docsModule } from '../modules/docs'
+import { type CollabDirectBridge, docsModule, docsPublicModule } from '../modules/docs'
 import { type BlobStorage, filesModule, MemoryBlobStorage } from '../modules/files'
 import { governanceModule } from '../modules/governance'
 import { graphModule } from '../modules/graph'
@@ -256,6 +256,7 @@ export function createApp(deps: AppDeps) {
 				// Unauthenticated webhook receivers verify HMAC signatures before CSRF/workspace guards.
 				.use(githubWebhookPublicModule(sql, integrationOpts))
 				.use(billingWebhookPublicModule(sql, billingCfg))
+				.use(docsPublicModule(sql))
 				// Global read-only maintenance guard, rate limiting, and CSRF gate (§12.6, §20.3).
 				.onBeforeHandle(({ request, set }) => {
 					const path = new URL(request.url).pathname
@@ -294,15 +295,26 @@ export function createApp(deps: AppDeps) {
 					) {
 						return
 					}
-					// Mail webhooks are token-authed pre-tenant routes (§14.2) — no cookies involved.
-					if (path.startsWith('/api/v1/mail/inbound/') || path.startsWith('/api/v1/mail/webhook/')) return
+					// Mail webhooks and public published docs unlock do not rely on cookie CSRF tokens.
+					if (
+						path.startsWith('/api/v1/mail/inbound/') ||
+						path.startsWith('/api/v1/mail/webhook/') ||
+						path.startsWith('/api/v1/public/docs/')
+					) {
+						return
+					}
 					assertCookieCsrf(request, deps.allowedOrigins)
 				})
 				.use(identityModule(auth))
 				.use(tenancyModule(sql, mode, auth, pubsub, { email: deps.email }))
 				.use(tasksModule(sql, auth, pubsub))
 				.use(automationsModule(sql, auth))
-				.use(docsModule(sql, auth, pubsub, collabBridge, collabTicketSecret))
+				.use(
+					docsModule(sql, auth, pubsub, collabBridge, collabTicketSecret, {
+						...(deps.egressFetch ? { fetcher: deps.egressFetch } : {}),
+						...(deps.egressResolver ? { resolver: deps.egressResolver } : {})
+					})
+				)
 				.use(graphModule(sql, auth, pubsub))
 				.use(syncModule(sql, auth, pubsub))
 				.use(searchModule(sql, auth))

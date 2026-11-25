@@ -58,6 +58,7 @@ export const AclListQuery = Type.Object({
 	resourceType: Type.Union([
 		Type.Literal('project'),
 		Type.Literal('doc_page'),
+		Type.Literal('teamspace'),
 		Type.Literal('channel'),
 		Type.Literal('mail_account')
 	]),
@@ -72,6 +73,7 @@ export const GrantAclBody = Type.Object({
 	resourceType: Type.Union([
 		Type.Literal('project'),
 		Type.Literal('doc_page'),
+		Type.Literal('teamspace'),
 		Type.Literal('channel'),
 		Type.Literal('mail_account')
 	]),

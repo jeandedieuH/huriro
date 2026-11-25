@@ -31,7 +31,7 @@ export type SettingsSection =
 	| 'mail'
 	| 'appearance'
 export type TasksLayout = 'list' | 'board' | 'my-work' | 'timeline' | 'calendar'
-export type DocSidePanel = 'comments' | 'versions' | 'toc' | null
+export type DocSidePanel = 'comments' | 'suggestions' | 'versions' | 'toc' | null
 export type DisplayDensity = 'compact' | 'comfortable'
 export type ThemeMode = 'light' | 'dark'
 
@@ -123,6 +123,10 @@ export interface UiState {
 	createDocOpen: boolean
 	docShareOpen: boolean
 	docImportOpen: boolean
+	docPublishOpen: boolean
+	teamspaceManagerOpen: boolean
+	docsGraphOpen: boolean
+	activeTeamspaceId: string | null
 	selectedCommentThreadId: string | null
 
 	// Ephemeral toast stack (§17.8)
@@ -168,6 +172,10 @@ export interface UiState {
 	setCreateDocOpen: (open: boolean) => void
 	setDocShareOpen: (open: boolean) => void
 	setDocImportOpen: (open: boolean) => void
+	setDocPublishOpen: (open: boolean) => void
+	setTeamspaceManagerOpen: (open: boolean) => void
+	setDocsGraphOpen: (open: boolean) => void
+	setActiveTeamspaceId: (teamspaceId: string | null) => void
 	setSelectedCommentThreadId: (commentId: string | null) => void
 	pushToast: (toast: {
 		readonly title: string
@@ -219,10 +227,14 @@ export const useUiStore = create<UiState>((set, get) => ({
 	serverReadOnly: false,
 
 	docsSidebarOpen: true,
-	activeDocSidePanel: 'comments',
+	activeDocSidePanel: null,
 	createDocOpen: false,
 	docShareOpen: false,
 	docImportOpen: false,
+	docPublishOpen: false,
+	teamspaceManagerOpen: false,
+	docsGraphOpen: false,
+	activeTeamspaceId: null,
 	selectedCommentThreadId: null,
 
 	toasts: [],
@@ -323,6 +335,10 @@ export const useUiStore = create<UiState>((set, get) => ({
 	setCreateDocOpen: (createDocOpen) => set({ createDocOpen }),
 	setDocShareOpen: (docShareOpen) => set({ docShareOpen }),
 	setDocImportOpen: (docImportOpen) => set({ docImportOpen }),
+	setDocPublishOpen: (docPublishOpen) => set({ docPublishOpen }),
+	setTeamspaceManagerOpen: (teamspaceManagerOpen) => set({ teamspaceManagerOpen }),
+	setDocsGraphOpen: (docsGraphOpen) => set({ docsGraphOpen }),
+	setActiveTeamspaceId: (activeTeamspaceId) => set({ activeTeamspaceId }),
 	setSelectedCommentThreadId: (selectedCommentThreadId) => set({ selectedCommentThreadId }),
 	pushToast: (toast) => {
 		toastSeq += 1

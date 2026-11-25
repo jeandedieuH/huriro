@@ -27,6 +27,7 @@ import { Route as VerifyEmailRouteImport } from './routes/verify-email'
 import { Route as DocsIndexRouteImport } from './routes/docs.index'
 import { Route as DocsSlugRouteImport } from './routes/docs.$slug'
 import { Route as OauthConsentRouteImport } from './routes/oauth/consent'
+import { Route as PWorkspaceSlugPublicSlugRouteImport } from './routes/p.$workspaceSlug.$publicSlug'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -118,6 +119,12 @@ const OauthConsentRoute = OauthConsentRouteImport.update({
   path: '/oauth/consent',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PWorkspaceSlugPublicSlugRoute =
+  PWorkspaceSlugPublicSlugRouteImport.update({
+    id: '/p/$workspaceSlug/$publicSlug',
+    path: '/p/$workspaceSlug/$publicSlug',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -138,6 +145,7 @@ export interface FileRoutesByFullPath {
   '/docs/$slug': typeof DocsSlugRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/docs/': typeof DocsIndexRoute
+  '/p/$workspaceSlug/$publicSlug': typeof PWorkspaceSlugPublicSlugRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -157,6 +165,7 @@ export interface FileRoutesByTo {
   '/docs/$slug': typeof DocsSlugRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/docs': typeof DocsIndexRoute
+  '/p/$workspaceSlug/$publicSlug': typeof PWorkspaceSlugPublicSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -178,6 +187,7 @@ export interface FileRoutesById {
   '/docs/$slug': typeof DocsSlugRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/docs/': typeof DocsIndexRoute
+  '/p/$workspaceSlug/$publicSlug': typeof PWorkspaceSlugPublicSlugRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -200,6 +210,7 @@ export interface FileRouteTypes {
     | '/docs/$slug'
     | '/oauth/consent'
     | '/docs/'
+    | '/p/$workspaceSlug/$publicSlug'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -219,6 +230,7 @@ export interface FileRouteTypes {
     | '/docs/$slug'
     | '/oauth/consent'
     | '/docs'
+    | '/p/$workspaceSlug/$publicSlug'
   id:
     | '__root__'
     | '/'
@@ -239,6 +251,7 @@ export interface FileRouteTypes {
     | '/docs/$slug'
     | '/oauth/consent'
     | '/docs/'
+    | '/p/$workspaceSlug/$publicSlug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -258,6 +271,7 @@ export interface RootRouteChildren {
   TasksRoute: typeof TasksRoute
   VerifyEmailRoute: typeof VerifyEmailRoute
   OauthConsentRoute: typeof OauthConsentRoute
+  PWorkspaceSlugPublicSlugRoute: typeof PWorkspaceSlugPublicSlugRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -388,6 +402,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OauthConsentRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/p/$workspaceSlug/$publicSlug': {
+      id: '/p/$workspaceSlug/$publicSlug'
+      path: '/p/$workspaceSlug/$publicSlug'
+      fullPath: '/p/$workspaceSlug/$publicSlug'
+      preLoaderRoute: typeof PWorkspaceSlugPublicSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -420,6 +441,7 @@ const rootRouteChildren: RootRouteChildren = {
   TasksRoute: TasksRoute,
   VerifyEmailRoute: VerifyEmailRoute,
   OauthConsentRoute: OauthConsentRoute,
+  PWorkspaceSlugPublicSlugRoute: PWorkspaceSlugPublicSlugRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

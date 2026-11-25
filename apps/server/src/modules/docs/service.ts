@@ -3,7 +3,6 @@
  *   authorize → validate/version check → domain rows + outbox + audit
  *   → change_log cursor LAST in the same transaction.
  */
-import { createHash, createHmac, hkdfSync, timingSafeEqual } from 'node:crypto'
 import type {
 	CollabTicketResponse,
 	CreateDocCommentBody,
@@ -14,6 +13,9 @@ import type {
 	DocImportMarkdownBody,
 	DocPageDetailDto,
 	DocPageDto,
+	DocPublicShareDto,
+	DocSuggestionDto,
+	DocVerificationDto,
 	DocVersionDetailDto,
 	DocVersionDto,
 	MoveDocPageBody,
@@ -22,13 +24,11 @@ import type {
 	UpdateDocCommentBody,
 	UpdateDocPageBody
 } from '@huriro/contracts'
-import { isAcceptableClientId, type Queryable, uuid7 } from '@huriro/db'
+import { type Queryable, uuid7 } from '@huriro/db'
 import { type ActorContext, generateKeyBetween, needsRebalance, rebalanceKeys } from '@huriro/domain'
 import {
 	appendProseMirrorNodesToYDoc,
 	createEmptyYDocState,
-	DOCUMENT_SIZE_MAX_BYTES,
-	DOCUMENT_SIZE_WARN_BYTES,
 	diffVersionText,
 	extractDocumentContent,
 	extractPersonHandleMentions,
@@ -46,9 +46,28 @@ import * as Y from 'yjs'
 import { appendChange, appendChanges, type ChangeLogEntry } from '../../api/changelog'
 import { deleteEntityLinksFor } from '../../api/entity-links'
 import { HttpError } from '../../api/error'
-import { log } from '../../api/observability'
 import { grantAcl, resolveResourceAcl } from '../tenancy'
+import {
+	type CollabDirectBridge,
+	type CollabTicketClaims,
+	deriveCollabTicketKey,
+	hashCollabTicket,
+	signCollabTicket,
+	TICKET_TTL_MS,
+	verifyCollabTicketSignature
+} from './collab-ticket'
 import { DOCS_EVENTS } from './events'
+import {
+	assertPageUnlocked,
+	assertPrivateTeamspaceMembershipIfApplicable,
+	assertValidClientId,
+	assertWithinMaxDocSize,
+	authorizeWorkspaceDocAction,
+	ensureUniqueDocSlug,
+	requireDocPageAccess,
+	slugifyDocTitle,
+	throwStaleVersion
+} from './page-access'
 import { authorizeDocPage, canActorDocPage, isAdminDocBypass } from './policy'
 import {
 	acquireOrRenewRoomLease,
@@ -56,7 +75,6 @@ import {
 	auditDocsAction,
 	consumeCollabTicketRow,
 	deleteExpiredCollabTickets,
-	docSlugExists,
 	emitDocsEvent,
 	expireRoomLease,
 	getDocCommentById,
@@ -89,166 +107,22 @@ import {
 	updateDocPageRow,
 	updateDocPositionOnly
 } from './repo'
+import { getDocPublicShareByPageId, getDocVerificationRow, listDocSuggestionRows } from './repo-m9'
+import { syncDocSuggestionsFromYDoc } from './service-suggestions'
+import { applyTeamspaceDefaultAcls, requireTeamspaceWriteAccess } from './service-teamspaces'
+import { reconcileDocBacklinks } from './service-wiki'
 
 const MAX_DOC_DEPTH = 20
 const AUTO_VERSION_INTERVAL_MS = 10 * 60 * 1000
-const TICKET_TTL_MS = 60 * 1000
-const HKDF_SALT = Buffer.from('huriro-collab-ticket-salt', 'utf8')
-const HKDF_INFO = Buffer.from('huriro-collab-ticket-v1', 'utf8')
 
-export interface CollabDirectBridge {
-	readonly replaceDocument?: (
-		workspaceId: string,
-		pageId: string,
-		snapshotState: Uint8Array,
-		origin: string,
-		actorId?: string | null
-	) => Promise<boolean>
-	readonly appendNodes?: (
-		workspaceId: string,
-		pageId: string,
-		nodes: readonly ProseMirrorNodeJson[],
-		origin: string,
-		actorId?: string | null
-	) => Promise<boolean>
-	readonly isRoomLoaded?: (workspaceId: string, pageId: string) => boolean
-}
-
-export interface CollabTicketClaims {
-	readonly jti: string
-	readonly ws: string
-	readonly page: string
-	readonly uid: string
-	readonly perm: 'read' | 'write'
-	readonly exp: number
-}
-
-export function deriveCollabTicketKey(rawSecret: string): Buffer {
-	return Buffer.from(hkdfSync('sha256', Buffer.from(rawSecret, 'utf8'), HKDF_SALT, HKDF_INFO, 32))
-}
-
-function hashCollabTicket(token: string): string {
-	return createHash('sha256').update(token, 'utf8').digest('hex')
-}
-
-export function signCollabTicket(key: Buffer, claims: CollabTicketClaims): string {
-	const payloadB64 = Buffer.from(JSON.stringify(claims), 'utf8').toString('base64url')
-	const sigB64 = createHmac('sha256', key).update(payloadB64, 'utf8').digest('base64url')
-	return `${payloadB64}.${sigB64}`
-}
-
-export function verifyCollabTicketSignature(rawSecret: string, token: string): CollabTicketClaims | null {
-	const dot = token.indexOf('.')
-	if (dot <= 0 || dot === token.length - 1) return null
-	const payloadB64 = token.slice(0, dot)
-	const sigB64 = token.slice(dot + 1)
-	const key = deriveCollabTicketKey(rawSecret)
-	const expectedSig = createHmac('sha256', key).update(payloadB64, 'utf8').digest()
-	let providedSig: Buffer
-	try {
-		providedSig = Buffer.from(sigB64, 'base64url')
-	} catch {
-		return null
-	}
-	if (expectedSig.length !== providedSig.length || !timingSafeEqual(expectedSig, providedSig)) {
-		return null
-	}
-	try {
-		const parsed = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as CollabTicketClaims
-		if (
-			typeof parsed.jti !== 'string' ||
-			typeof parsed.ws !== 'string' ||
-			typeof parsed.page !== 'string' ||
-			typeof parsed.uid !== 'string' ||
-			(parsed.perm !== 'read' && parsed.perm !== 'write') ||
-			typeof parsed.exp !== 'number'
-		) {
-			return null
-		}
-		if (parsed.exp <= Date.now()) return null
-		return parsed
-	} catch {
-		return null
-	}
-}
-
-function assertValidClientId(id: string | undefined, label: string): void {
-	if (id !== undefined && !isAcceptableClientId(id)) {
-		throw new HttpError(
-			422,
-			'validation_failed',
-			`Invalid client-supplied ${label}: must be UUIDv7 within ±24h window`
-		)
-	}
-}
-
-function throwStaleVersion(
-	entityLabel: string,
-	currentVersion: number,
-	yourVersion: number,
-	currentEntity: Record<string, unknown>,
-	changedFields?: string[]
-): never {
-	throw new HttpError(409, 'stale_version', `${entityLabel} changed since you loaded it`, undefined, {
-		currentVersion,
-		yourVersion,
-		currentEntity,
-		...(changedFields ? { changedFields } : {})
-	})
-}
-
-export function slugifyDocTitle(title: string): string {
-	const slug = title
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-+|-+$/g, '')
-		.slice(0, 100)
-		.replace(/-+$/g, '')
-	return slug.length > 0 ? slug : 'untitled'
-}
-
-async function ensureUniqueDocSlug(
-	tx: Queryable,
-	workspaceId: string,
-	requestedSlug: string | undefined,
-	title: string,
-	pageId: string
-): Promise<string> {
-	if (requestedSlug !== undefined) {
-		const conflict = await docSlugExists(tx, workspaceId, requestedSlug, pageId)
-		if (conflict) {
-			throw new HttpError(409, 'conflict', `Document slug "${requestedSlug}" is already in use`)
-		}
-		return requestedSlug
-	}
-	const base = slugifyDocTitle(title)
-	if (!(await docSlugExists(tx, workspaceId, base, pageId))) {
-		return base
-	}
-	for (let i = 2; i <= 20; i++) {
-		const candidate = `${base.slice(0, 96)}-${i}`
-		if (!(await docSlugExists(tx, workspaceId, candidate, pageId))) {
-			return candidate
-		}
-	}
-	return `${base.slice(0, 90)}-${pageId.slice(0, 8)}`
-}
-
-async function authorizeWorkspaceDocAction(
-	tx: Queryable,
-	actor: ActorContext,
-	action: 'doc.read' | 'doc.write'
-): Promise<void> {
-	await authorizeDocPage(tx, actor, action, { id: actor.workspaceId, visibility: 'workspace' }, null)
-}
-
-function assertWithinMaxDocSize(bytes: Uint8Array): void {
-	if (bytes.byteLength > DOCUMENT_SIZE_MAX_BYTES) {
-		throw new HttpError(413, 'doc_too_large', `Document size (${bytes.byteLength} bytes) exceeds 10 MB limit`)
-	}
-	if (bytes.byteLength > DOCUMENT_SIZE_WARN_BYTES) {
-		log.warn({ byteSize: bytes.byteLength }, 'document exceeds 2 MB soft size threshold')
-	}
+export {
+	type CollabDirectBridge,
+	type CollabTicketClaims,
+	deriveCollabTicketKey,
+	requireDocPageAccess,
+	signCollabTicket,
+	slugifyDocTitle,
+	verifyCollabTicketSignature
 }
 
 async function rebalanceDocSiblings(
@@ -268,30 +142,6 @@ async function rebalanceDocSiblings(
 	}
 }
 
-export async function requireDocPageAccess(
-	tx: Queryable,
-	actor: ActorContext,
-	pageId: string,
-	action: 'doc.read' | 'doc.comment' | 'doc.write' | 'doc.share'
-): Promise<{ readonly page: DocPageDto; readonly canWrite: boolean; readonly canShare: boolean }> {
-	const page = await getDocPageById(tx, actor.workspaceId, pageId, actor.userId)
-	if (!page || page.archivedAt !== null) {
-		throw new HttpError(404, 'not_found', 'Document page not found')
-	}
-	const acl = await resolveResourceAcl(tx, {
-		workspaceId: actor.workspaceId,
-		resourceType: 'doc_page',
-		resourceId: page.id,
-		userId: actor.userId
-	})
-	await authorizeDocPage(tx, actor, action, page, acl)
-	return {
-		page,
-		canWrite: canActorDocPage(actor, 'doc.write', page, acl),
-		canShare: canActorDocPage(actor, 'doc.share', page, acl)
-	}
-}
-
 function buildDetailDto(args: {
 	readonly page: DocPageDto
 	readonly state: Buffer | Uint8Array
@@ -302,6 +152,11 @@ function buildDetailDto(args: {
 	readonly comments: DocCommentDto[]
 	readonly canWrite: boolean
 	readonly canShare: boolean
+	readonly canVerify: boolean
+	readonly canPublish: boolean
+	readonly verification: DocVerificationDto | null
+	readonly publicShare: DocPublicShareDto | null
+	readonly suggestions: DocSuggestionDto[]
 }): DocPageDetailDto {
 	return {
 		page: args.page,
@@ -312,7 +167,12 @@ function buildDetailDto(args: {
 		headings: [...args.headings],
 		comments: args.comments,
 		canWrite: args.canWrite,
-		canShare: args.canShare
+		canShare: args.canShare,
+		canVerify: args.canVerify,
+		canPublish: args.canPublish,
+		verification: args.verification,
+		publicShare: args.publicShare,
+		suggestions: args.suggestions
 	}
 }
 
@@ -325,6 +185,7 @@ export async function listAccessibleDocPages(
 		readonly includeArchived?: boolean
 		readonly includeTemplates?: boolean
 		readonly parentId?: string
+		readonly teamspaceId?: string
 	}
 ): Promise<DocPageDto[]> {
 	if (actor.membership !== 'active') return []
@@ -335,7 +196,8 @@ export async function listAccessibleDocPages(
 		bypassAcl: isAdminDocBypass(actor),
 		includeArchived: query?.includeArchived ?? false,
 		includeTemplates: query?.includeTemplates ?? false,
-		parentId: query?.parentId
+		parentId: query?.parentId,
+		teamspaceId: query?.teamspaceId
 	})
 }
 
@@ -363,10 +225,18 @@ export async function getDocPageDetail(
 	actor: ActorContext,
 	pageId: string
 ): Promise<DocPageDetailDto> {
-	const { page, canWrite, canShare } = await requireDocPageAccess(tx, actor, pageId, 'doc.read')
-	const [stateRow, comments] = await Promise.all([
+	const { page, canWrite, canShare, canVerify, canPublish } = await requireDocPageAccess(
+		tx,
+		actor,
+		pageId,
+		'doc.read'
+	)
+	const [stateRow, comments, verification, publicShare, suggestions] = await Promise.all([
 		getDocStateRow(tx, actor.workspaceId, page.id),
-		listDocCommentsForPage(tx, actor.workspaceId, page.id)
+		listDocCommentsForPage(tx, actor.workspaceId, page.id),
+		getDocVerificationRow(tx, actor.workspaceId, page.id),
+		getDocPublicShareByPageId(tx, actor.workspaceId, page.id),
+		listDocSuggestionRows(tx, actor.workspaceId, page.id)
 	])
 	if (!stateRow) {
 		const empty = createEmptyYDocState()
@@ -379,7 +249,12 @@ export async function getDocPageDetail(
 			headings: [],
 			comments,
 			canWrite,
-			canShare
+			canShare,
+			canVerify,
+			canPublish,
+			verification,
+			publicShare,
+			suggestions
 		})
 	}
 	return buildDetailDto({
@@ -391,7 +266,12 @@ export async function getDocPageDetail(
 		headings: stateRow.headings,
 		comments,
 		canWrite,
-		canShare
+		canShare,
+		canVerify,
+		canPublish,
+		verification,
+		publicShare,
+		suggestions
 	})
 }
 
@@ -410,13 +290,19 @@ export async function getDocPageBySlugDetail(
 		resourceId: page.id,
 		userId: actor.userId
 	})
+	await assertPrivateTeamspaceMembershipIfApplicable(tx, actor, page, acl)
 	await authorizeDocPage(tx, actor, 'doc.read', page, acl)
-	const [stateRow, comments] = await Promise.all([
+	const [stateRow, comments, verification, publicShare, suggestions] = await Promise.all([
 		getDocStateRow(tx, actor.workspaceId, page.id),
-		listDocCommentsForPage(tx, actor.workspaceId, page.id)
+		listDocCommentsForPage(tx, actor.workspaceId, page.id),
+		getDocVerificationRow(tx, actor.workspaceId, page.id),
+		getDocPublicShareByPageId(tx, actor.workspaceId, page.id),
+		listDocSuggestionRows(tx, actor.workspaceId, page.id)
 	])
-	const canWrite = canActorDocPage(actor, 'doc.write', page, acl)
+	const canWrite = canActorDocPage(actor, 'doc.write', page, acl) && !(page.isLocked ?? false)
 	const canShare = canActorDocPage(actor, 'doc.share', page, acl)
+	const canVerify = canActorDocPage(actor, 'doc.verify', page, acl)
+	const canPublish = canActorDocPage(actor, 'doc.publish', page, acl)
 	if (!stateRow) {
 		const empty = createEmptyYDocState()
 		return buildDetailDto({
@@ -428,7 +314,12 @@ export async function getDocPageBySlugDetail(
 			headings: [],
 			comments,
 			canWrite,
-			canShare
+			canShare,
+			canVerify,
+			canPublish,
+			verification,
+			publicShare,
+			suggestions
 		})
 	}
 	return buildDetailDto({
@@ -440,7 +331,12 @@ export async function getDocPageBySlugDetail(
 		headings: stateRow.headings,
 		comments,
 		canWrite,
-		canShare
+		canShare,
+		canVerify,
+		canPublish,
+		verification,
+		publicShare,
+		suggestions
 	})
 }
 
@@ -463,6 +359,11 @@ export async function createDocPage(
 		}
 	} else {
 		await authorizeWorkspaceDocAction(tx, actor, 'doc.write')
+	}
+
+	const teamspaceId = input.teamspaceId === undefined ? (parent?.teamspaceId ?? null) : input.teamspaceId
+	if (teamspaceId) {
+		await requireTeamspaceWriteAccess(tx, actor, teamspaceId)
 	}
 
 	const pageId = input.id ?? uuid7()
@@ -520,11 +421,16 @@ export async function createDocPage(
 		id: pageId,
 		workspaceId: actor.workspaceId,
 		parentId: input.parentId ?? null,
+		teamspaceId,
 		path,
 		depth,
 		slug,
 		title: input.title,
 		icon: input.icon ?? null,
+		coverGradient: input.coverGradient ?? null,
+		fontStyle: input.fontStyle ?? 'sans',
+		fullWidth: input.fullWidth ?? false,
+		smallText: input.smallText ?? false,
 		visibility,
 		isTemplate: input.isTemplate ?? false,
 		position,
@@ -540,6 +446,14 @@ export async function createDocPage(
 		byteSize: stateBytes.byteLength,
 		plainText: extracted.plainText,
 		headings: extracted.headings
+	})
+
+	await reconcileDocBacklinks(tx, {
+		workspaceId: actor.workspaceId,
+		pageId: page.id,
+		referencedLinks: extracted.referencedLinks,
+		mentions: extracted.mentions,
+		actorId: actor.principalId
 	})
 
 	await emitDocsEvent(tx, {
@@ -566,7 +480,7 @@ export async function createDocPage(
 		action: 'doc.page.created',
 		targetType: 'doc_page',
 		targetId: page.id,
-		metadata: { slug: page.slug, visibility: page.visibility }
+		metadata: { slug: page.slug, visibility: page.visibility, teamspaceId }
 	})
 
 	if (visibility === 'private' && actor.kind === 'user') {
@@ -579,6 +493,10 @@ export async function createDocPage(
 			permission: 'manage',
 			grantedBy: actor.userId
 		})
+	}
+
+	if (teamspaceId) {
+		await applyTeamspaceDefaultAcls(tx, actor.workspaceId, teamspaceId, page.id, actor.userId)
 	}
 
 	const cursor = opts?.skipChangeLog
@@ -604,11 +522,23 @@ export async function updateDocPage(
 	actor: ActorContext,
 	pageId: string,
 	input: UpdateDocPageBody
-): Promise<{ readonly data: DocPageDto; readonly cursor: number }> {
+): Promise<{ readonly data: DocPageDto; readonly cursor: number; readonly lockedTransition?: boolean }> {
 	const { page } = await requireDocPageAccess(tx, actor, pageId, 'doc.write')
+
+	if (page.isLocked && input.isLocked !== false) {
+		assertPageUnlocked(page)
+	}
 
 	if (input.visibility !== undefined && input.visibility !== page.visibility) {
 		await requireDocPageAccess(tx, actor, pageId, 'doc.share')
+	}
+
+	if (
+		input.teamspaceId !== undefined &&
+		input.teamspaceId !== page.teamspaceId &&
+		input.teamspaceId !== null
+	) {
+		await requireTeamspaceWriteAccess(tx, actor, input.teamspaceId)
 	}
 
 	if (page.version !== input.version) {
@@ -628,15 +558,31 @@ export async function updateDocPage(
 	const nextVisibility = input.visibility ?? page.visibility
 	const nextArchivedAt =
 		input.archived === true ? new Date().toISOString() : input.archived === false ? null : page.archivedAt
+	const nextIsLocked = input.isLocked === undefined ? (page.isLocked ?? false) : input.isLocked
+	const lockedTransition = !(page.isLocked ?? false) && nextIsLocked
+	const nextLockedBy =
+		input.isLocked === undefined ? (page.lockedBy ?? null) : nextIsLocked ? actor.userId : null
+	const nextLockedAt =
+		input.isLocked === undefined ? (page.lockedAt ?? null) : nextIsLocked ? new Date().toISOString() : null
 
 	const updated = await updateDocPageRow(tx, {
 		workspaceId: actor.workspaceId,
 		pageId: page.id,
 		userId: actor.userId,
 		expectedVersion: input.version,
+		teamspaceId: input.teamspaceId === undefined ? (page.teamspaceId ?? null) : input.teamspaceId,
 		title: input.title ?? page.title,
 		slug: nextSlug,
 		icon: input.icon === undefined ? page.icon : input.icon,
+		coverFileId: input.coverFileId === undefined ? (page.coverFileId ?? null) : input.coverFileId,
+		coverGradient: input.coverGradient === undefined ? (page.coverGradient ?? null) : input.coverGradient,
+		coverPositionY: input.coverPositionY ?? page.coverPositionY ?? 50,
+		fontStyle: input.fontStyle ?? page.fontStyle ?? 'sans',
+		fullWidth: input.fullWidth ?? page.fullWidth ?? false,
+		smallText: input.smallText ?? page.smallText ?? false,
+		isLocked: nextIsLocked,
+		lockedBy: nextLockedBy,
+		lockedAt: nextLockedAt,
 		visibility: nextVisibility,
 		isTemplate: input.isTemplate ?? page.isTemplate,
 		archivedAt: nextArchivedAt
@@ -675,6 +621,7 @@ export async function updateDocPage(
 			title: updated.title,
 			slug: updated.slug,
 			visibility: updated.visibility,
+			isLocked: updated.isLocked ?? false,
 			plainText: stateRow?.plainText ?? '',
 			headings: stateRow?.headings ?? [],
 			actorId: actor.principalId
@@ -688,7 +635,7 @@ export async function updateDocPage(
 		action: 'doc.page.updated',
 		targetType: 'doc_page',
 		targetId: updated.id,
-		metadata: { slug: updated.slug, visibility: updated.visibility }
+		metadata: { slug: updated.slug, visibility: updated.visibility, isLocked: updated.isLocked ?? false }
 	})
 
 	const isNewlyArchived = page.archivedAt === null && updated.archivedAt !== null
@@ -705,7 +652,7 @@ export async function updateDocPage(
 		actorId: actor.principalId
 	})
 
-	return { data: updated, cursor }
+	return { data: updated, cursor, lockedTransition }
 }
 
 export async function moveDocPage(
@@ -940,6 +887,7 @@ export async function splitDocPage(
 	input: SplitDocPageBody
 ): Promise<{ readonly data: DocPageDto; readonly cursor: number }> {
 	const { page } = await requireDocPageAccess(tx, actor, pageId, 'doc.write')
+	assertPageUnlocked(page)
 	let markdown = input.markdown ?? ''
 	if (!markdown && input.headingBlockId) {
 		const stateRow = await getDocStateRow(tx, actor.workspaceId, page.id)
@@ -966,6 +914,7 @@ export async function splitDocPage(
 
 	const created = await createDocPage(tx, actor, {
 		parentId: page.depth < MAX_DOC_DEPTH ? page.id : page.parentId,
+		teamspaceId: page.teamspaceId ?? null,
 		title: input.title,
 		visibility: page.visibility,
 		...(markdown.length > 0 ? { markdown } : {})
@@ -985,6 +934,7 @@ export async function appendToDocPage(
 	readonly appliedInDb: boolean
 }> {
 	const { page } = await requireDocPageAccess(tx, actor, pageId, 'doc.write')
+	assertPageUnlocked(page)
 	const pmJson = markdownToProseMirrorJson(input.markdown, `append:${pageId}:${Date.now()}`)
 	const nodes = Array.isArray(pmJson['content']) ? (pmJson['content'] as ProseMirrorNodeJson[]) : []
 
@@ -1115,6 +1065,7 @@ export async function importDocPageMarkdown(
 	}
 	return createDocPage(tx, actor, {
 		parentId: input.parentId ?? null,
+		teamspaceId: input.teamspaceId ?? null,
 		title: inferredTitle.slice(0, 200),
 		visibility: input.visibility ?? 'workspace',
 		markdown: input.markdown
@@ -1131,7 +1082,7 @@ export async function issueCollabTicket(
 	collabPath = '/collab'
 ): Promise<CollabTicketResponse> {
 	const { page, canWrite } = await requireDocPageAccess(tx, actor, pageId, 'doc.read')
-	const permission: 'read' | 'write' = canWrite ? 'write' : 'read'
+	const permission: 'read' | 'write' = canWrite && !(page.isLocked ?? false) ? 'write' : 'read'
 	const jti = uuid7()
 	const expiresAt = new Date(Date.now() + TICKET_TTL_MS)
 	const key = deriveCollabTicketKey(rawSecret)
@@ -1139,6 +1090,7 @@ export async function issueCollabTicket(
 		jti,
 		ws: actor.workspaceId,
 		page: page.id,
+		kind: 'doc_page',
 		uid: actor.principalId,
 		perm: permission,
 		exp: expiresAt.getTime()
@@ -1147,7 +1099,9 @@ export async function issueCollabTicket(
 	await insertCollabTicketRow(tx, {
 		id: jti,
 		workspaceId: actor.workspaceId,
+		roomKind: 'doc_page',
 		pageId: page.id,
+		syncedBlockId: null,
 		userId: actor.userId,
 		permission,
 		tokenHash: hashCollabTicket(ticket),
@@ -1172,6 +1126,7 @@ export async function consumeAndAuthorizeCollabTicket(
 	const consumed = await consumeCollabTicketRow(tx, {
 		workspaceId: claims.ws,
 		ticketId: claims.jti,
+		roomKind: 'doc_page',
 		pageId: claims.page,
 		userId: claims.uid,
 		tokenHash: hashCollabTicket(rawToken)
@@ -1180,8 +1135,9 @@ export async function consumeAndAuthorizeCollabTicket(
 		throw new HttpError(401, 'collab_ticket_invalid', 'Collaboration ticket is invalid, expired, or reused')
 	}
 
-	const { canWrite } = await requireDocPageAccess(tx, actor, claims.page, 'doc.read')
-	const effectivePerm: 'read' | 'write' = canWrite && consumed.permission === 'write' ? 'write' : 'read'
+	const { page, canWrite } = await requireDocPageAccess(tx, actor, claims.page, 'doc.read')
+	const effectivePerm: 'read' | 'write' =
+		canWrite && !(page.isLocked ?? false) && consumed.permission === 'write' ? 'write' : 'read'
 	return {
 		permission: effectivePerm,
 		readOnly: effectivePerm !== 'write'
@@ -1194,8 +1150,8 @@ export async function verifyLiveCollabSessionAccess(
 	pageId: string
 ): Promise<{ readonly allowed: boolean; readonly canWrite: boolean }> {
 	try {
-		const { canWrite } = await requireDocPageAccess(tx, actor, pageId, 'doc.read')
-		return { allowed: true, canWrite }
+		const { page, canWrite } = await requireDocPageAccess(tx, actor, pageId, 'doc.read')
+		return { allowed: true, canWrite: canWrite && !(page.isLocked ?? false) }
 	} catch {
 		return { allowed: false, canWrite: false }
 	}
@@ -1318,8 +1274,10 @@ export async function persistCollabDocumentState(
 		return { fenced: true, currentEpoch: saved.currentEpoch, cursor: null }
 	}
 
-	const [page] = await tx<{ id: string; title: string; slug: string; visibility: 'workspace' | 'private' }[]>`
-		SELECT id, title, slug, visibility
+	const [page] = await tx<
+		{ id: string; title: string; slug: string; visibility: 'workspace' | 'private'; createdBy: string }[]
+	>`
+		SELECT id, title, slug, visibility, created_by AS "createdBy"
 		FROM doc_pages
 		WHERE workspace_id = ${args.workspaceId} AND id = ${args.pageId} AND archived_at IS NULL
 	`
@@ -1348,6 +1306,21 @@ export async function persistCollabDocumentState(
 	}
 
 	await syncCommentAnchorOrphanStates(tx, args.workspaceId, args.pageId, args.ydoc)
+	await syncDocSuggestionsFromYDoc(tx, {
+		workspaceId: args.workspaceId,
+		pageId: args.pageId,
+		pageTitle: page.title,
+		pageCreatedBy: page.createdBy,
+		ydoc: args.ydoc,
+		fallbackActorId: args.actorId
+	})
+	await reconcileDocBacklinks(tx, {
+		workspaceId: args.workspaceId,
+		pageId: args.pageId,
+		referencedLinks: extracted.referencedLinks,
+		mentions: extracted.mentions,
+		actorId: args.actorId
+	})
 
 	const nextMentionUserIds = extracted.mentions
 		.filter((m) => m.entityType === 'person' && !prevMentions.has(m.entityId))
@@ -1496,6 +1469,7 @@ export async function prepareRestoreDocVersion(
 	readonly appliedInDb: boolean
 }> {
 	const { page } = await requireDocPageAccess(tx, actor, pageId, 'doc.write')
+	assertPageUnlocked(page)
 	const targetVer = await getDocVersionWithState(tx, actor.workspaceId, page.id, versionId)
 	if (!targetVer) throw new HttpError(404, 'not_found', 'Document version not found')
 

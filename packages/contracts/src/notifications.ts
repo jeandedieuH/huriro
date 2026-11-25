@@ -10,6 +10,8 @@ export const NotificationKind = Type.Union([
 	Type.Literal('doc.commented'),
 	Type.Literal('doc.comment_resolved'),
 	Type.Literal('doc.access_granted'),
+	Type.Literal('doc.verification_expiring'),
+	Type.Literal('doc.suggestion_created'),
 	Type.Literal('chat.mentioned'),
 	Type.Literal('chat.dm'),
 	Type.Literal('chat.reply'),

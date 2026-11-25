@@ -14,6 +14,10 @@ import type {
 	DocCommentDto,
 	DocPageDetailDto,
 	DocPageDto,
+	DocPublicShareDto,
+	DocSuggestionDto,
+	DocSyncedBlockDto,
+	DocVerificationDto,
 	DocVersionDto,
 	EmailPipelineStatusDto,
 	EntityLinkDto,
@@ -23,6 +27,7 @@ import type {
 	IssueCommentDto,
 	IssueGithubLinkDto,
 	IssueRelationDto,
+	KnowledgeGraphResponse,
 	MailAccountDto,
 	MailConversationDto,
 	MailConversationEventDto,
@@ -39,6 +44,8 @@ import type {
 	ProjectUpdateDto,
 	SearchHitDto,
 	SendTestEmailResponse,
+	TeamspaceDto,
+	TeamspaceMemberDto,
 	WebhookDeliveryDto,
 	WebhookEndpointDto,
 	WebPushSubscriptionDto,
@@ -46,11 +53,18 @@ import type {
 } from '@huriro/contracts'
 import { computeDmKey, extractRichLinks, parseSearchQuery } from '@huriro/domain'
 import {
+	applyAllSuggestionsDecisionToYDoc,
+	applySuggestionDecisionToYDoc,
 	diffVersionText,
 	extractDocumentContent,
+	extractSuggestionsFromYDoc,
 	markdownToProseMirrorJson,
+	proposeSuggestionOnYDoc,
+	proseMirrorJsonToSafeHtml,
 	prosemirrorJsonToYDoc,
-	ydocToMarkdown
+	renderStandaloneHtmlDocument,
+	ydocToMarkdown,
+	ydocToProseMirrorJson
 } from '@huriro/editor'
 import {
 	generateUuidV7,
@@ -403,6 +417,26 @@ export function createPreviewSeedSnapshot() {
 		}
 	]
 
+	const PREVIEW_TEAMSPACE_ENG_ID = '0190a0b1-0000-7000-8000-000000000680'
+	const teamspaces: TeamspaceDto[] = [
+		{
+			id: PREVIEW_TEAMSPACE_ENG_ID,
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			name: 'Engineering',
+			slug: 'engineering',
+			icon: '⚙️',
+			description: 'Core architecture, specs, and operational runbooks.',
+			visibility: 'open',
+			defaultAcl: [{ principalType: 'workspace', principalId: null, permission: 'write' }],
+			position: 'F',
+			archivedAt: null,
+			createdBy: PREVIEW_USER_ID,
+			createdAt: now,
+			updatedAt: now,
+			version: 1
+		}
+	]
+
 	const docRootId = '0190a0b1-0000-7000-8000-000000000601'
 	const docRfcId = '0190a0b1-0000-7000-8000-000000000602'
 	const docSecId = '0190a0b1-0000-7000-8000-000000000603'
@@ -411,11 +445,19 @@ export function createPreviewSeedSnapshot() {
 			id: docRootId,
 			workspaceId: PREVIEW_WORKSPACE_ID,
 			parentId: null,
+			teamspaceId: PREVIEW_TEAMSPACE_ENG_ID,
 			path: docRootId,
 			depth: 0,
 			slug: 'engineering-handbook',
 			title: 'Engineering Handbook',
 			icon: '📘',
+			coverGradient: 'ocean',
+			coverPositionY: 50,
+			fontStyle: 'sans',
+			fullWidth: false,
+			smallText: false,
+			isLocked: false,
+			verificationStatus: 'verified',
 			visibility: 'workspace',
 			isTemplate: false,
 			isFavorite: true,
@@ -431,6 +473,7 @@ export function createPreviewSeedSnapshot() {
 			id: docRfcId,
 			workspaceId: PREVIEW_WORKSPACE_ID,
 			parentId: docRootId,
+			teamspaceId: PREVIEW_TEAMSPACE_ENG_ID,
 			path: `${docRootId}/${docRfcId}`,
 			depth: 1,
 			slug: 'rfc-crdt-collab',
@@ -451,6 +494,7 @@ export function createPreviewSeedSnapshot() {
 			id: docSecId,
 			workspaceId: PREVIEW_WORKSPACE_ID,
 			parentId: null,
+			teamspaceId: null,
 			path: docSecId,
 			depth: 0,
 			slug: 'incident-runbook',
@@ -509,7 +553,8 @@ export function createPreviewSeedSnapshot() {
 			}
 		],
 		notifications,
-		docPages
+		docPages,
+		teamspaces
 	}
 }
 
@@ -587,6 +632,67 @@ export function createPreviewApiBridge(
 	const docCommentsByPage = new Map<string, DocCommentDto[]>()
 	const docVersionsByPage = new Map<string, Array<DocVersionDto & { state: Uint8Array }>>()
 	const docAclsByResource = new Map<string, ResourceAclItemDto[]>()
+	const previewTeamspaceMembers = new Map<string, TeamspaceMemberDto[]>()
+	const previewSyncedBlocks = new Map<string, DocSyncedBlockDto & { state: Uint8Array }>()
+	const previewSuggestionsByPage = new Map<string, DocSuggestionDto[]>()
+	const previewVerificationsByPage = new Map<string, DocVerificationDto>()
+	const previewPublicSharesByPage = new Map<string, DocPublicShareDto>()
+
+	// Seed preview teamspace membership, synced block, verification, and public share for M9.
+	const seedNow = '2026-11-22T12:00:00Z'
+	const seedSyncedId = '0190a0b1-0000-7000-8000-000000000690'
+	const seedSyncedState = buildPreviewYDocState(
+		'> Shared rollout checklist across engineering runbooks.',
+		'synced-seed'
+	)
+	previewSyncedBlocks.set(seedSyncedId, {
+		id: seedSyncedId,
+		workspaceId: PREVIEW_WORKSPACE_ID,
+		title: 'Rollout Checklist',
+		sourcePageId: '0190a0b1-0000-7000-8000-000000000601',
+		stateBase64: bytesToBase64(seedSyncedState.state),
+		stateVectorBase64: bytesToBase64(seedSyncedState.stateVector),
+		byteSize: seedSyncedState.state.byteLength,
+		plainText: seedSyncedState.extracted.plainText,
+		createdBy: PREVIEW_USER_ID,
+		archivedAt: null,
+		createdAt: seedNow,
+		updatedAt: seedNow,
+		version: 1,
+		state: seedSyncedState.state
+	})
+	previewTeamspaceMembers.set('0190a0b1-0000-7000-8000-000000000680', [
+		{
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			teamspaceId: '0190a0b1-0000-7000-8000-000000000680',
+			userId: PREVIEW_USER_ID,
+			role: 'owner',
+			createdAt: seedNow
+		}
+	])
+	previewVerificationsByPage.set('0190a0b1-0000-7000-8000-000000000601', {
+		id: '0190a0b1-0000-7000-8000-000000000695',
+		workspaceId: PREVIEW_WORKSPACE_ID,
+		pageId: '0190a0b1-0000-7000-8000-000000000601',
+		status: 'verified',
+		verifiedBy: PREVIEW_USER_ID,
+		verifiedAt: seedNow,
+		expiresAt: '2027-02-20T12:00:00Z',
+		note: 'Verified architecture overview',
+		createdAt: seedNow,
+		updatedAt: seedNow,
+		version: 1
+	})
+
+	function buildPreviewM9Extras(pageId: string) {
+		return {
+			canVerify: true,
+			canPublish: true,
+			verification: previewVerificationsByPage.get(pageId) ?? null,
+			publicShare: previewPublicSharesByPage.get(pageId) ?? null,
+			suggestions: previewSuggestionsByPage.get(pageId) ?? []
+		}
+	}
 
 	// M4 Preview State: members, channels, messages, files, prefs, webhooks & GitHub sync
 	const now = '2026-11-22T12:00:00Z'
@@ -1607,7 +1713,8 @@ export function createPreviewApiBridge(
 				headings: st.headings,
 				comments: docCommentsByPage.get(page.id) ?? [],
 				canWrite: true,
-				canShare: true
+				canShare: true,
+				...buildPreviewM9Extras(page.id)
 			}
 		},
 		async getDocDetail(pageId) {
@@ -1627,7 +1734,8 @@ export function createPreviewApiBridge(
 				headings: st.headings,
 				comments: docCommentsByPage.get(page.id) ?? [],
 				canWrite: true,
-				canShare: true
+				canShare: true,
+				...buildPreviewM9Extras(page.id)
 			}
 		},
 		async issueCollabTicket(pageId) {
@@ -1767,7 +1875,8 @@ export function createPreviewApiBridge(
 					headings: extracted.headings,
 					comments: docCommentsByPage.get(pageId) ?? [],
 					canWrite: true,
-					canShare: true
+					canShare: true,
+					...buildPreviewM9Extras(pageId)
 				}
 			}
 		},
@@ -2914,6 +3023,560 @@ export function createPreviewApiBridge(
 				}
 			}
 			return null
+		},
+		async listTeamspaces() {
+			return engine.collections.teamspaces.toArray.filter((ts) => ts.archivedAt === null)
+		},
+		async createTeamspace(body) {
+			const tsNow = new Date().toISOString()
+			const id = generateUuidV7()
+			const slugBase =
+				body.name
+					.toLowerCase()
+					.replace(/[^a-z0-9]+/g, '-')
+					.replace(/^-+|-+$/g, '') || `teamspace-${id.slice(0, 6)}`
+			const created: TeamspaceDto = {
+				id,
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				name: body.name,
+				slug: body.slug ?? slugBase,
+				icon: body.icon ?? '📁',
+				description: body.description ?? '',
+				visibility: body.visibility ?? 'open',
+				defaultAcl: body.defaultAcl ?? [
+					{ principalType: 'workspace', principalId: null, permission: 'write' }
+				],
+				position: `z${Date.now()}`,
+				archivedAt: null,
+				createdBy: PREVIEW_USER_ID,
+				createdAt: tsNow,
+				updatedAt: tsNow,
+				version: 1
+			}
+			engine.collections.teamspacesManaged.upsertMany([created])
+			previewTeamspaceMembers.set(id, [
+				{
+					workspaceId: PREVIEW_WORKSPACE_ID,
+					teamspaceId: id,
+					userId: PREVIEW_USER_ID,
+					role: 'owner',
+					createdAt: tsNow
+				}
+			])
+			return created
+		},
+		async updateTeamspace(id, body) {
+			const existing = engine.collections.teamspaces.get(id)
+			if (!existing) throw new Error('Teamspace not found')
+			const updated: TeamspaceDto = {
+				...existing,
+				...(body.name !== undefined ? { name: body.name } : {}),
+				...(body.slug !== undefined ? { slug: body.slug } : {}),
+				...(body.icon !== undefined ? { icon: body.icon } : {}),
+				...(body.description !== undefined ? { description: body.description } : {}),
+				...(body.visibility !== undefined ? { visibility: body.visibility } : {}),
+				...(body.defaultAcl !== undefined ? { defaultAcl: body.defaultAcl } : {}),
+				...(body.archived !== undefined
+					? { archivedAt: body.archived ? new Date().toISOString() : null }
+					: {}),
+				updatedAt: new Date().toISOString(),
+				version: existing.version + 1
+			}
+			engine.collections.teamspacesManaged.upsertMany([updated])
+			return updated
+		},
+		async archiveTeamspace(id) {
+			const existing = engine.collections.teamspaces.get(id)
+			if (!existing) return
+			engine.collections.teamspacesManaged.upsertMany([
+				{
+					...existing,
+					archivedAt: new Date().toISOString(),
+					updatedAt: new Date().toISOString(),
+					version: existing.version + 1
+				}
+			])
+		},
+		async listTeamspaceMembers(id) {
+			return previewTeamspaceMembers.get(id) ?? []
+		},
+		async addTeamspaceMember(id, body) {
+			const list = [...(previewTeamspaceMembers.get(id) ?? [])]
+			const next: TeamspaceMemberDto = {
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				teamspaceId: id,
+				userId: body.userId,
+				role: body.role ?? 'member',
+				createdAt: new Date().toISOString()
+			}
+			const filtered = list.filter((m) => m.userId !== body.userId)
+			filtered.push(next)
+			previewTeamspaceMembers.set(id, filtered)
+			return next
+		},
+		async removeTeamspaceMember(id, userId) {
+			const list = previewTeamspaceMembers.get(id) ?? []
+			previewTeamspaceMembers.set(
+				id,
+				list.filter((m) => m.userId !== userId)
+			)
+		},
+		async listSyncedBlocks() {
+			return [...previewSyncedBlocks.values()]
+				.filter((b) => b.archivedAt === null)
+				.map(({ state: _s, ...dto }) => dto)
+		},
+		async createSyncedBlock(body) {
+			const id = generateUuidV7()
+			const sbNow = new Date().toISOString()
+			const ydoc = body.prosemirrorJson
+				? prosemirrorJsonToYDoc(body.prosemirrorJson as Parameters<typeof prosemirrorJsonToYDoc>[0])
+				: (() => {
+						const doc = new Y.Doc()
+						const built = buildPreviewYDocState(body.markdown ?? '> Shared block content', `synced-${id}`)
+						Y.applyUpdate(doc, built.state)
+						return doc
+					})()
+			const state = Y.encodeStateAsUpdate(ydoc)
+			const stateVector = Y.encodeStateVector(ydoc)
+			const extracted = extractDocumentContent(ydoc)
+			const entry: DocSyncedBlockDto & { state: Uint8Array } = {
+				id,
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				title: body.title ?? 'Synced block',
+				sourcePageId: body.sourcePageId ?? null,
+				stateBase64: bytesToBase64(state),
+				stateVectorBase64: bytesToBase64(stateVector),
+				byteSize: state.byteLength,
+				plainText: extracted.plainText,
+				createdBy: PREVIEW_USER_ID,
+				archivedAt: null,
+				createdAt: sbNow,
+				updatedAt: sbNow,
+				version: 1,
+				state
+			}
+			previewSyncedBlocks.set(id, entry)
+			const { state: _s, ...dto } = entry
+			return dto
+		},
+		async getSyncedBlock(id) {
+			const entry = previewSyncedBlocks.get(id)
+			if (!entry || entry.archivedAt !== null) {
+				const err = new Error('Synced block not found') as Error & { status?: number }
+				err.status = 404
+				throw err
+			}
+			const { state: _s, ...dto } = entry
+			return dto
+		},
+		async updateSyncedBlock(id, body) {
+			const entry = previewSyncedBlocks.get(id)
+			if (!entry) throw new Error('Synced block not found')
+			let nextState = entry.state
+			let nextSv = entry.stateVectorBase64
+			let nextText = entry.plainText
+			if (body.markdown !== undefined) {
+				const built = buildPreviewYDocState(body.markdown, `synced-${id}`)
+				nextState = built.state
+				nextSv = bytesToBase64(built.stateVector)
+				nextText = built.extracted.plainText
+			}
+			const updated: DocSyncedBlockDto & { state: Uint8Array } = {
+				...entry,
+				...(body.title !== undefined ? { title: body.title } : {}),
+				...(body.archived !== undefined
+					? { archivedAt: body.archived ? new Date().toISOString() : null }
+					: {}),
+				state: nextState,
+				stateBase64: bytesToBase64(nextState),
+				stateVectorBase64: nextSv,
+				byteSize: nextState.byteLength,
+				plainText: nextText,
+				updatedAt: new Date().toISOString(),
+				version: entry.version + 1
+			}
+			previewSyncedBlocks.set(id, updated)
+			const { state: _s, ...dto } = updated
+			return dto
+		},
+		async issueSyncedBlockCollabTicket(id) {
+			return {
+				ticket: `preview-synced-${id}`,
+				documentName: `synced_block:${PREVIEW_WORKSPACE_ID}:${id}`,
+				permission: 'write',
+				expiresAt: new Date(Date.now() + 60_000).toISOString(),
+				collabUrl: '/collab'
+			}
+		},
+		async listDocSuggestions(pageId) {
+			const page = engine.collections.docPages.get(pageId)
+			if (!page) return previewSuggestionsByPage.get(pageId) ?? []
+			const st = ensurePreviewDocState(page)
+			const ydoc = new Y.Doc()
+			if (st.state.byteLength > 0) Y.applyUpdate(ydoc, st.state)
+			const live = extractSuggestionsFromYDoc(ydoc)
+			const existing = previewSuggestionsByPage.get(pageId) ?? []
+			const existingByGroup = new Map(existing.map((s) => [s.groupId, s]))
+			const merged: DocSuggestionDto[] = existing.filter(
+				(s) => s.status !== 'open' || live.some((l) => l.groupId === s.groupId)
+			)
+			for (const g of live) {
+				if (!existingByGroup.has(g.groupId)) {
+					merged.push({
+						id: generateUuidV7(),
+						workspaceId: PREVIEW_WORKSPACE_ID,
+						pageId,
+						groupId: g.groupId,
+						kind: g.kind,
+						authorType: g.authorType,
+						authorId: g.authorId || PREVIEW_USER_ID,
+						anchorBlockId: g.anchorBlockId,
+						beforeText: g.beforeText,
+						afterText: g.afterText,
+						status: 'open',
+						resolvedBy: null,
+						resolvedAt: null,
+						createdAt: g.createdAt || new Date().toISOString(),
+						updatedAt: g.createdAt || new Date().toISOString(),
+						version: 1
+					})
+				}
+			}
+			previewSuggestionsByPage.set(pageId, merged)
+			return merged
+		},
+		async proposeDocSuggestion(pageId, body) {
+			const page = engine.collections.docPages.get(pageId)
+			if (!page) throw new Error('Document not found')
+			const st = ensurePreviewDocState(page)
+			const ydoc = new Y.Doc()
+			if (st.state.byteLength > 0) Y.applyUpdate(ydoc, st.state)
+			const result = proposeSuggestionOnYDoc(ydoc, {
+				kind: body.kind,
+				authorType: 'user',
+				authorId: PREVIEW_USER_ID,
+				anchorBlockId: body.anchorBlockId ?? null,
+				targetText: body.targetText,
+				replacementText: body.replacementText,
+				groupId: body.groupId
+			})
+			const nextState = Y.encodeStateAsUpdate(ydoc)
+			const extracted = extractDocumentContent(ydoc)
+			docStatesByPage.set(pageId, {
+				state: nextState,
+				stateVector: Y.encodeStateVector(ydoc),
+				plainText: extracted.plainText,
+				headings: extracted.headings
+			})
+			const sgNow = new Date().toISOString()
+			const dto: DocSuggestionDto = {
+				id: generateUuidV7(),
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				pageId,
+				groupId: result.groupId,
+				kind: body.kind,
+				authorType: 'user',
+				authorId: PREVIEW_USER_ID,
+				anchorBlockId: body.anchorBlockId ?? null,
+				beforeText: body.targetText ?? '',
+				afterText: body.replacementText ?? '',
+				status: 'open',
+				resolvedBy: null,
+				resolvedAt: null,
+				createdAt: sgNow,
+				updatedAt: sgNow,
+				version: 1
+			}
+			const list = previewSuggestionsByPage.get(pageId) ?? []
+			previewSuggestionsByPage.set(pageId, [dto, ...list.filter((s) => s.groupId !== result.groupId)])
+			return dto
+		},
+		async decideDocSuggestion(pageId, groupId, decision) {
+			const page = engine.collections.docPages.get(pageId)
+			if (!page) throw new Error('Document not found')
+			const st = ensurePreviewDocState(page)
+			const ydoc = new Y.Doc()
+			if (st.state.byteLength > 0) Y.applyUpdate(ydoc, st.state)
+			applySuggestionDecisionToYDoc(ydoc, groupId, decision)
+			const nextState = Y.encodeStateAsUpdate(ydoc)
+			const extracted = extractDocumentContent(ydoc)
+			docStatesByPage.set(pageId, {
+				state: nextState,
+				stateVector: Y.encodeStateVector(ydoc),
+				plainText: extracted.plainText,
+				headings: extracted.headings
+			})
+			const list = previewSuggestionsByPage.get(pageId) ?? []
+			const dNow = new Date().toISOString()
+			const nextStatus = decision === 'accept' ? 'accepted' : 'rejected'
+			let updatedDto: DocSuggestionDto | null = null
+			const nextList = list.map((s) => {
+				if (s.groupId !== groupId) return s
+				updatedDto = {
+					...s,
+					status: nextStatus,
+					resolvedBy: PREVIEW_USER_ID,
+					resolvedAt: dNow,
+					updatedAt: dNow,
+					version: s.version + 1
+				}
+				return updatedDto
+			})
+			if (!updatedDto) {
+				updatedDto = {
+					id: generateUuidV7(),
+					workspaceId: PREVIEW_WORKSPACE_ID,
+					pageId,
+					groupId,
+					kind: 'replace',
+					authorType: 'user',
+					authorId: PREVIEW_USER_ID,
+					anchorBlockId: null,
+					beforeText: '',
+					afterText: '',
+					status: nextStatus,
+					resolvedBy: PREVIEW_USER_ID,
+					resolvedAt: dNow,
+					createdAt: dNow,
+					updatedAt: dNow,
+					version: 1
+				}
+				nextList.unshift(updatedDto)
+			}
+			previewSuggestionsByPage.set(pageId, nextList)
+			return updatedDto
+		},
+		async decideAllDocSuggestions(pageId, decision) {
+			const page = engine.collections.docPages.get(pageId)
+			if (!page) return { updatedCount: 0 }
+			const st = ensurePreviewDocState(page)
+			const ydoc = new Y.Doc()
+			if (st.state.byteLength > 0) Y.applyUpdate(ydoc, st.state)
+			applyAllSuggestionsDecisionToYDoc(ydoc, decision)
+			const nextState = Y.encodeStateAsUpdate(ydoc)
+			const extracted = extractDocumentContent(ydoc)
+			docStatesByPage.set(pageId, {
+				state: nextState,
+				stateVector: Y.encodeStateVector(ydoc),
+				plainText: extracted.plainText,
+				headings: extracted.headings
+			})
+			const list = previewSuggestionsByPage.get(pageId) ?? []
+			const dNow = new Date().toISOString()
+			const nextStatus = decision === 'accept' ? 'accepted' : 'rejected'
+			let updatedCount = 0
+			previewSuggestionsByPage.set(
+				pageId,
+				list.map((s) => {
+					if (s.status !== 'open') return s
+					updatedCount += 1
+					return {
+						...s,
+						status: nextStatus,
+						resolvedBy: PREVIEW_USER_ID,
+						resolvedAt: dNow,
+						updatedAt: dNow,
+						version: s.version + 1
+					}
+				})
+			)
+			return { updatedCount }
+		},
+		async getDocVerification(pageId) {
+			return previewVerificationsByPage.get(pageId) ?? null
+		},
+		async setDocVerification(pageId, body) {
+			const page = engine.collections.docPages.get(pageId)
+			if (!page) throw new Error('Document not found')
+			const vNow = new Date().toISOString()
+			const existing = previewVerificationsByPage.get(pageId)
+			const expiresAt =
+				body.expiresAt !== undefined
+					? body.expiresAt
+					: body.ttlDays
+						? new Date(Date.now() + body.ttlDays * 86_400_000).toISOString()
+						: null
+			const next: DocVerificationDto = {
+				id: existing?.id ?? generateUuidV7(),
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				pageId,
+				status: body.status ?? 'verified',
+				verifiedBy: PREVIEW_USER_ID,
+				verifiedAt: vNow,
+				expiresAt,
+				note: body.note ?? '',
+				createdAt: existing?.createdAt ?? vNow,
+				updatedAt: vNow,
+				version: (existing?.version ?? 0) + 1
+			}
+			previewVerificationsByPage.set(pageId, next)
+			engine.collections.docPagesManaged.upsertMany([
+				{
+					...page,
+					verificationStatus: next.status,
+					verificationExpiresAt: next.expiresAt,
+					updatedAt: vNow
+				}
+			])
+			return next
+		},
+		async clearDocVerification(pageId) {
+			previewVerificationsByPage.delete(pageId)
+			const page = engine.collections.docPages.get(pageId)
+			if (page) {
+				engine.collections.docPagesManaged.upsertMany([
+					{
+						...page,
+						verificationStatus: 'unverified',
+						verificationExpiresAt: null,
+						updatedAt: new Date().toISOString()
+					}
+				])
+			}
+		},
+		async getDocPublicShare(pageId) {
+			return previewPublicSharesByPage.get(pageId) ?? null
+		},
+		async upsertDocPublicShare(pageId, body) {
+			const page = engine.collections.docPages.get(pageId)
+			if (!page) throw new Error('Document not found')
+			const existing = previewPublicSharesByPage.get(pageId)
+			const psNow = new Date().toISOString()
+			const next: DocPublicShareDto = {
+				id: existing?.id ?? generateUuidV7(),
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				pageId,
+				publicSlug: body.publicSlug ?? existing?.publicSlug ?? page.slug,
+				includeChildren: body.includeChildren ?? existing?.includeChildren ?? false,
+				allowSearchIndexing: body.allowSearchIndexing ?? existing?.allowSearchIndexing ?? false,
+				hasPassword: body.password === null ? false : Boolean(body.password || existing?.hasPassword),
+				expiresAt: body.expiresAt !== undefined ? body.expiresAt : (existing?.expiresAt ?? null),
+				revokedAt: null,
+				createdBy: existing?.createdBy ?? PREVIEW_USER_ID,
+				createdAt: existing?.createdAt ?? psNow,
+				updatedAt: psNow,
+				version: (existing?.version ?? 0) + 1
+			}
+			previewPublicSharesByPage.set(pageId, next)
+			return next
+		},
+		async revokeDocPublicShare(pageId) {
+			previewPublicSharesByPage.delete(pageId)
+		},
+		async exportDocHtml(pageId, print) {
+			const page = engine.collections.docPages.get(pageId)
+			if (!page) throw new Error('Document not found')
+			const st = ensurePreviewDocState(page)
+			const ydoc = new Y.Doc()
+			if (st.state.byteLength > 0) Y.applyUpdate(ydoc, st.state)
+			const bodyHtml = proseMirrorJsonToSafeHtml(ydocToProseMirrorJson(ydoc))
+			const html = renderStandaloneHtmlDocument({
+				title: page.title,
+				html: bodyHtml,
+				fontStyle: page.fontStyle ?? 'sans',
+				fullWidth: page.fullWidth ?? false,
+				smallText: page.smallText ?? false,
+				printAuto: Boolean(print)
+			})
+			return { pageId: page.id, slug: page.slug, title: page.title, html }
+		},
+		async exportDocZip(pageId, includeChildren) {
+			const page = engine.collections.docPages.get(pageId)
+			if (!page) throw new Error('Document not found')
+			const { zipSync, strToU8 } = await import('fflate')
+			const pagesToPack = [page]
+			if (includeChildren) {
+				for (const p of engine.collections.docPages.toArray) {
+					if (p.id !== page.id && p.archivedAt === null && p.path.startsWith(`${page.path}/`)) {
+						pagesToPack.push(p)
+					}
+				}
+			}
+			const files: Record<string, Uint8Array> = {}
+			for (const p of pagesToPack) {
+				const st = ensurePreviewDocState(p)
+				const ydoc = new Y.Doc()
+				if (st.state.byteLength > 0) Y.applyUpdate(ydoc, st.state)
+				files[`${p.slug}.md`] = strToU8(ydocToMarkdown(ydoc))
+			}
+			const zipped = zipSync(files)
+			const ab = new ArrayBuffer(zipped.byteLength)
+			new Uint8Array(ab).set(zipped)
+			return new Blob([ab], { type: 'application/zip' })
+		},
+		async unfurlBookmark(url) {
+			const parsed = new URL(url)
+			return {
+				url: parsed.toString(),
+				title: parsed.hostname,
+				description: 'Preview bookmark card',
+				siteName: parsed.hostname,
+				faviconUrl: null,
+				imageUrl: null
+			}
+		},
+		async triggerDocButton() {},
+		async getKnowledgeGraph(teamspaceId) {
+			const teamspaces = engine.collections.teamspaces.toArray.filter((t) => t.archivedAt === null)
+			const pages = engine.collections.docPages.toArray.filter(
+				(p) => p.archivedAt === null && !p.isTemplate && (!teamspaceId || p.teamspaceId === teamspaceId)
+			)
+			const pageIds = new Set(pages.map((p) => p.id))
+			const nodes: KnowledgeGraphResponse['nodes'] = [
+				...teamspaces
+					.filter((ts) => !teamspaceId || ts.id === teamspaceId)
+					.map((ts) => ({
+						id: ts.id,
+						kind: 'teamspace' as const,
+						label: ts.name,
+						subtitle: ts.visibility,
+						slug: ts.slug,
+						teamspaceId: ts.id,
+						verificationStatus: null
+					})),
+				...pages.map((p) => ({
+					id: p.id,
+					kind: 'doc_page' as const,
+					label: p.title,
+					subtitle: p.slug,
+					slug: p.slug,
+					teamspaceId: p.teamspaceId ?? null,
+					verificationStatus: p.verificationStatus ?? null
+				}))
+			]
+			const edges: KnowledgeGraphResponse['edges'] = []
+			for (const p of pages) {
+				if (p.parentId && pageIds.has(p.parentId)) {
+					edges.push({
+						id: `parent:${p.parentId}:${p.id}`,
+						sourceId: p.parentId,
+						targetId: p.id,
+						relationKind: 'contains'
+					})
+				} else if (p.teamspaceId) {
+					edges.push({
+						id: `ts:${p.teamspaceId}:${p.id}`,
+						sourceId: p.teamspaceId,
+						targetId: p.id,
+						relationKind: 'teamspace'
+					})
+				}
+			}
+			for (const link of previewEntityLinks) {
+				if (
+					(link.sourceType === 'doc_page' && pageIds.has(link.sourceId)) ||
+					(link.targetType === 'doc_page' && pageIds.has(link.targetId))
+				) {
+					edges.push({
+						id: link.id,
+						sourceId: link.sourceId,
+						targetId: link.targetId,
+						relationKind: link.relationKind
+					})
+				}
+			}
+			return { nodes, edges }
 		}
 	}
 }

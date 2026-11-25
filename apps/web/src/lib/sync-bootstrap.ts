@@ -12,6 +12,7 @@ import type {
 	AiSettingsResponse,
 	BillingPortalDto,
 	BillingSummaryResponse,
+	BookmarkMetadataDto,
 	BulkIssuesResponse,
 	ChannelChangesResponse,
 	ChatChannelDto,
@@ -23,9 +24,14 @@ import type {
 	CreateWebhookResponse,
 	CycleDailySnapshotDto,
 	DocCommentDto,
+	DocExportHtmlResponse,
 	DocExportMarkdownResponse,
 	DocPageDetailDto,
 	DocPageDto,
+	DocPublicShareDto,
+	DocSuggestionDto,
+	DocSyncedBlockDto,
+	DocVerificationDto,
 	DocVersionDetailDto,
 	DocVersionDto,
 	EmailPipelineStatusDto,
@@ -39,6 +45,7 @@ import type {
 	IssueDto,
 	IssueGithubLinkDto,
 	IssueRelationDto,
+	KnowledgeGraphResponse,
 	ListMessagesResponse,
 	MailAccountDto,
 	MailConversationDto,
@@ -51,6 +58,8 @@ import type {
 	PeekCardDto,
 	SearchResponse,
 	SendTestEmailResponse,
+	TeamspaceDto,
+	TeamspaceMemberDto,
 	TriageSuggestionsDto,
 	WebhookDeliveryDto,
 	WebhookEndpointDto,
@@ -860,6 +869,157 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 				if ((err as { status?: number }).status === 404) return null
 				throw err
 			}
+		},
+		async listTeamspaces() {
+			const res = await apiFetch<{ data: TeamspaceDto[] }>('/api/v1/teamspaces')
+			return res.data
+		},
+		async createTeamspace(body) {
+			return apiFetch<TeamspaceDto>('/api/v1/teamspaces', {
+				method: 'POST',
+				headers: { 'idempotency-key': generateUuidV7() },
+				body: JSON.stringify(body)
+			})
+		},
+		async updateTeamspace(id, body) {
+			return apiFetch<TeamspaceDto>(`/api/v1/teamspaces/${encodeURIComponent(id)}`, {
+				method: 'PATCH',
+				body: JSON.stringify(body)
+			})
+		},
+		async archiveTeamspace(id, version) {
+			const q = version !== undefined ? `?version=${version}` : ''
+			await apiFetch(`/api/v1/teamspaces/${encodeURIComponent(id)}${q}`, { method: 'DELETE' })
+		},
+		async listTeamspaceMembers(id) {
+			const res = await apiFetch<{ data: TeamspaceMemberDto[] }>(
+				`/api/v1/teamspaces/${encodeURIComponent(id)}/members`
+			)
+			return res.data
+		},
+		async addTeamspaceMember(id, body) {
+			return apiFetch<TeamspaceMemberDto>(`/api/v1/teamspaces/${encodeURIComponent(id)}/members`, {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async removeTeamspaceMember(id, userId) {
+			await apiFetch(`/api/v1/teamspaces/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`, {
+				method: 'DELETE'
+			})
+		},
+		async listSyncedBlocks() {
+			const res = await apiFetch<{ data: DocSyncedBlockDto[] }>('/api/v1/docs/synced-blocks')
+			return res.data
+		},
+		async createSyncedBlock(body) {
+			return apiFetch<DocSyncedBlockDto>('/api/v1/docs/synced-blocks', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async getSyncedBlock(id) {
+			return apiFetch<DocSyncedBlockDto>(`/api/v1/docs/synced-blocks/${encodeURIComponent(id)}`)
+		},
+		async updateSyncedBlock(id, body) {
+			return apiFetch<DocSyncedBlockDto>(`/api/v1/docs/synced-blocks/${encodeURIComponent(id)}`, {
+				method: 'PATCH',
+				body: JSON.stringify(body)
+			})
+		},
+		async issueSyncedBlockCollabTicket(id) {
+			return apiFetch<CollabTicketResponse>(
+				`/api/v1/docs/synced-blocks/${encodeURIComponent(id)}/collab-ticket`,
+				{ method: 'POST' }
+			)
+		},
+		async listDocSuggestions(pageId) {
+			const res = await apiFetch<{ data: DocSuggestionDto[] }>(
+				`/api/v1/docs/${encodeURIComponent(pageId)}/suggestions`
+			)
+			return res.data
+		},
+		async proposeDocSuggestion(pageId, body) {
+			return apiFetch<DocSuggestionDto>(`/api/v1/docs/${encodeURIComponent(pageId)}/suggestions`, {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async decideDocSuggestion(pageId, groupId, decision) {
+			return apiFetch<DocSuggestionDto>(
+				`/api/v1/docs/${encodeURIComponent(pageId)}/suggestions/${encodeURIComponent(groupId)}/decision`,
+				{ method: 'POST', body: JSON.stringify({ decision }) }
+			)
+		},
+		async decideAllDocSuggestions(pageId, decision) {
+			return apiFetch<{ readonly updatedCount: number }>(
+				`/api/v1/docs/${encodeURIComponent(pageId)}/suggestions/decide-all`,
+				{ method: 'POST', body: JSON.stringify({ decision }) }
+			)
+		},
+		async getDocVerification(pageId) {
+			const res = await apiFetch<{ verification: DocVerificationDto | null }>(
+				`/api/v1/docs/${encodeURIComponent(pageId)}/verification`
+			)
+			return res.verification
+		},
+		async setDocVerification(pageId, body) {
+			return apiFetch<DocVerificationDto>(`/api/v1/docs/${encodeURIComponent(pageId)}/verification`, {
+				method: 'PUT',
+				body: JSON.stringify(body)
+			})
+		},
+		async clearDocVerification(pageId) {
+			await apiFetch(`/api/v1/docs/${encodeURIComponent(pageId)}/verification`, { method: 'DELETE' })
+		},
+		async getDocPublicShare(pageId) {
+			const res = await apiFetch<{ share: DocPublicShareDto | null }>(
+				`/api/v1/docs/${encodeURIComponent(pageId)}/public-share`
+			)
+			return res.share
+		},
+		async upsertDocPublicShare(pageId, body) {
+			return apiFetch<DocPublicShareDto>(`/api/v1/docs/${encodeURIComponent(pageId)}/public-share`, {
+				method: 'PUT',
+				body: JSON.stringify(body)
+			})
+		},
+		async revokeDocPublicShare(pageId) {
+			await apiFetch(`/api/v1/docs/${encodeURIComponent(pageId)}/public-share`, { method: 'DELETE' })
+		},
+		async exportDocHtml(pageId, print = false) {
+			const format = print ? 'pdf-html' : 'html'
+			return apiFetch<DocExportHtmlResponse>(
+				`/api/v1/docs/${encodeURIComponent(pageId)}/export?format=${format}`
+			)
+		},
+		async exportDocZip(pageId, includeChildren = true) {
+			const url = `${API_BASE}/api/v1/docs/${encodeURIComponent(pageId)}/export?format=zip${includeChildren ? '&includeChildren=true' : ''}`
+			const res = await fetch(url, {
+				method: 'GET',
+				credentials: 'include',
+				headers: { 'x-workspace-id': workspaceId }
+			})
+			if (!res.ok) {
+				throw new Error(`Export ZIP failed (${res.status})`)
+			}
+			return res.blob()
+		},
+		async unfurlBookmark(url) {
+			return apiFetch<BookmarkMetadataDto>('/api/v1/docs/bookmarks/unfurl', {
+				method: 'POST',
+				body: JSON.stringify({ url })
+			})
+		},
+		async triggerDocButton(pageId, body) {
+			await apiFetch(`/api/v1/docs/${encodeURIComponent(pageId)}/button-trigger`, {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async getKnowledgeGraph(teamspaceId) {
+			const qs = teamspaceId ? `?teamspaceId=${encodeURIComponent(teamspaceId)}` : ''
+			return apiFetch<KnowledgeGraphResponse>(`/api/v1/graph/knowledge${qs}`)
 		}
 	}
 }

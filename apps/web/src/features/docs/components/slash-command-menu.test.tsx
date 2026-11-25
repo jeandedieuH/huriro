@@ -58,9 +58,10 @@ describe('slash command menu', () => {
 			await type(editor, '/head')
 
 			await waitFor(() => {
-				expect(screen.getAllByRole('option').length).toBe(3)
+				expect(screen.getAllByRole('option').length).toBe(6)
 			})
 			expect(screen.getByRole('option', { name: 'Heading 1' })).toBeInTheDocument()
+			expect(screen.getByRole('option', { name: 'Toggle Heading 1' })).toBeInTheDocument()
 			expect(screen.queryByRole('option', { name: 'Table (3×3)' })).not.toBeInTheDocument()
 
 			const listbox = screen.getByRole('listbox')

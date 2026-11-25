@@ -1,12 +1,12 @@
 /**
- * Hocuspocus v4 collaborative editing runtime (§10, §10.5):
+ * Hocuspocus v4 collaborative editing runtime (§10, §10.5, M9 synced blocks):
  *   - Single-use HKDF collab ticket auth via MessageType.Auth (never URL query)
- *   - Single-homed room leases in `doc_room_leases` with epoch fencing
+ *   - Single-homed room leases in `doc_room_leases` / `doc_synced_blocks` with epoch fencing
  *   - Live `readOnly` enforcement + mid-session revocation (`4003` close on lose-read,
- *     read-only downgrade on lose-write)
+ *     read-only downgrade on lose-write or page lock)
  *   - 2 MB warn / 10 MB hard document size guard
  *   - Fenced Y.Doc persistence + auto version checkpoints + anchor orphan sync
- *   - `openDirectConnection` bridge for server/API writes and non-destructive restore
+ *   - `openDirectConnection` bridge for server/API writes, suggestions & non-destructive restore
  *   - Graceful `SIGTERM` flush + unload + lease release
  */
 import { randomUUID } from 'node:crypto'
@@ -29,13 +29,19 @@ import {
 } from '../api/observability'
 import {
 	acquireCollabRoomAndState,
+	acquireSyncedBlockRoomAndState,
 	type CollabDirectBridge,
 	consumeAndAuthorizeCollabTicket,
+	consumeAndAuthorizeSyncedBlockTicket,
 	persistCollabDocumentState,
+	persistSyncedBlockCollabState,
 	releaseCollabRoomLease,
+	releaseSyncedBlockRoomLease,
 	renewCollabRoomLease,
+	renewSyncedBlockRoomLease,
 	verifyCollabTicketSignature,
-	verifyLiveCollabSessionAccess
+	verifyLiveCollabSessionAccess,
+	verifyLiveSyncedBlockAccess
 } from '../modules/docs'
 import { resolveActor } from '../modules/tenancy'
 import type { RealtimePubSub } from './pubsub'
@@ -46,10 +52,13 @@ export interface CollabWebSocketLike {
 	readonly readyState: number
 }
 
+export type CollabRoomKind = 'doc_page' | 'synced_block'
+
 export interface CollabContext {
 	readonly userId: string
 	readonly workspaceId: string
 	readonly pageId: string
+	readonly kind?: CollabRoomKind | undefined
 	readonly permission: 'read' | 'write'
 	readonly readOnly: boolean
 	readonly socketId: string
@@ -57,6 +66,7 @@ export interface CollabContext {
 }
 
 interface RoomLeaseState {
+	readonly kind: CollabRoomKind
 	readonly workspaceId: string
 	readonly pageId: string
 	epoch: number
@@ -67,6 +77,8 @@ interface RoomLeaseState {
 }
 
 interface ActiveCollabConnection {
+	readonly kind: CollabRoomKind
+	readonly documentName: string
 	readonly socketId: string
 	readonly workspaceId: string
 	readonly pageId: string
@@ -101,14 +113,25 @@ export interface CollabRuntime {
 	readonly stop: () => Promise<void>
 }
 
-function parseDocumentName(documentName: string): { readonly workspaceId: string; readonly pageId: string } {
+function parseDocumentName(documentName: string): {
+	readonly kind: CollabRoomKind
+	readonly workspaceId: string
+	readonly pageId: string
+} {
 	const parts = documentName.split(':')
+	if (parts.length === 3 && parts[0] === 'synced_block') {
+		const workspaceId = parts[1] ?? ''
+		const blockId = parts[2] ?? ''
+		if (isUuid(workspaceId) && isUuid(blockId)) {
+			return { kind: 'synced_block', workspaceId, pageId: blockId }
+		}
+	}
 	const workspaceId = parts[0] ?? ''
 	const pageId = parts[1] ?? ''
-	if (parts.length !== 2 || !isUuid(workspaceId) || !isUuid(pageId)) {
-		throw new Error('Invalid document room name; expected <workspaceId>:<pageId>')
+	if (parts.length === 2 && isUuid(workspaceId) && isUuid(pageId)) {
+		return { kind: 'doc_page', workspaceId, pageId }
 	}
-	return { workspaceId, pageId }
+	throw new Error('Invalid document room name; expected <workspaceId>:<pageId> or synced_block:<ws>:<id>')
 }
 
 export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
@@ -149,7 +172,9 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 					{ workspaceId: conn.workspaceId, userId: conn.userId },
 					async (tx) => {
 						const actor = await resolveActor(tx, { workspaceId: conn.workspaceId, userId: conn.userId })
-						return verifyLiveCollabSessionAccess(tx, actor, conn.pageId)
+						return conn.kind === 'synced_block'
+							? verifyLiveSyncedBlockAccess(tx, actor, conn.pageId)
+							: verifyLiveCollabSessionAccess(tx, actor, conn.pageId)
 					}
 				)
 				if (!access.allowed) {
@@ -159,7 +184,7 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 				}
 				if (!access.canWrite && !conn.readOnly) {
 					conn.readOnly = true
-					const doc = hocuspocus.documents.get(`${conn.workspaceId}:${conn.pageId}`)
+					const doc = hocuspocus.documents.get(conn.documentName)
 					if (doc) {
 						for (const c of doc.getConnections()) {
 							if (c.socketId === conn.socketId) {
@@ -189,7 +214,10 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 		for (const conn of [...activeConnections.values()]) {
 			void withWorkspace(deps.sql, { workspaceId: conn.workspaceId, userId: conn.userId }, async (tx) => {
 				const actor = await resolveActor(tx, { workspaceId: conn.workspaceId, userId: conn.userId })
-				const access = await verifyLiveCollabSessionAccess(tx, actor, conn.pageId)
+				const access =
+					conn.kind === 'synced_block'
+						? await verifyLiveSyncedBlockAccess(tx, actor, conn.pageId)
+						: await verifyLiveCollabSessionAccess(tx, actor, conn.pageId)
 				if (!access.allowed) {
 					conn.ws.close(4003, 'access_revoked')
 					activeConnections.delete(conn.socketId)
@@ -198,7 +226,7 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 				}
 				if (!access.canWrite && !conn.readOnly) {
 					conn.readOnly = true
-					const doc = hocuspocus.documents.get(`${conn.workspaceId}:${conn.pageId}`)
+					const doc = hocuspocus.documents.get(conn.documentName)
 					if (doc) {
 						for (const c of doc.getConnections()) {
 							if (c.socketId === conn.socketId) c.readOnly = true
@@ -219,7 +247,7 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 
 		async onAuthenticate(data) {
 			if (stopped) throw new Error('server_shutting_down')
-			const { workspaceId, pageId } = parseDocumentName(data.documentName)
+			const { kind, workspaceId, pageId } = parseDocumentName(data.documentName)
 			const reqUrl = new URL(data.request.url, 'http://localhost')
 			if (reqUrl.searchParams.has('ticket') || reqUrl.searchParams.has('token')) {
 				throw new Error('ticket_in_query_forbidden')
@@ -229,7 +257,12 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 			if (!token) throw new Error('collab_ticket_required')
 
 			const claims = verifyCollabTicketSignature(deps.ticketSecret, token)
-			if (!claims || claims.ws !== workspaceId || claims.page !== pageId) {
+			if (
+				!claims ||
+				claims.ws !== workspaceId ||
+				claims.page !== pageId ||
+				(claims.kind ?? 'doc_page') !== kind
+			) {
 				throw new Error('collab_ticket_invalid')
 			}
 
@@ -238,7 +271,9 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 				{ workspaceId: claims.ws, userId: claims.uid },
 				async (tx) => {
 					const actor = await resolveActor(tx, { workspaceId: claims.ws, userId: claims.uid })
-					return consumeAndAuthorizeCollabTicket(tx, actor, claims, token)
+					return kind === 'synced_block'
+						? consumeAndAuthorizeSyncedBlockTicket(tx, actor, claims, token)
+						: consumeAndAuthorizeCollabTicket(tx, actor, claims, token)
 				}
 			)
 
@@ -247,6 +282,8 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 			if (socketLike) {
 				pendingSockets.delete(data.socketId)
 				activeConnections.set(data.socketId, {
+					kind,
+					documentName: data.documentName,
 					socketId: data.socketId,
 					workspaceId,
 					pageId,
@@ -261,6 +298,7 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 				userId: claims.uid,
 				workspaceId,
 				pageId,
+				kind,
 				permission: authRes.permission,
 				readOnly: authRes.readOnly,
 				socketId: data.socketId
@@ -269,7 +307,7 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 
 		async onLoadDocument(data) {
 			if (stopped) throw new Error('server_shutting_down')
-			const { workspaceId, pageId } = parseDocumentName(data.documentName)
+			const { kind, workspaceId, pageId } = parseDocumentName(data.documentName)
 			const actorUserId =
 				data.context?.userId && isUuid(data.context.userId) ? data.context.userId : undefined
 
@@ -277,12 +315,19 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 				deps.sql,
 				actorUserId ? { workspaceId, userId: actorUserId } : { workspaceId },
 				(tx) =>
-					acquireCollabRoomAndState(tx, {
-						workspaceId,
-						pageId,
-						nodeId,
-						ttlMs: leaseTtlMs
-					})
+					kind === 'synced_block'
+						? acquireSyncedBlockRoomAndState(tx, {
+								workspaceId,
+								blockId: pageId,
+								nodeId,
+								ttlMs: leaseTtlMs
+							})
+						: acquireCollabRoomAndState(tx, {
+								workspaceId,
+								pageId,
+								nodeId,
+								ttlMs: leaseTtlMs
+							})
 			)
 
 			if (!acquired.acquired) {
@@ -296,6 +341,7 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 			}
 
 			const roomState: RoomLeaseState = {
+				kind,
 				workspaceId,
 				pageId,
 				epoch: acquired.epoch,
@@ -308,7 +354,9 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 			roomState.renewTimer = setInterval(() => {
 				if (stopped || roomState.leaseLost) return
 				void withWorkspace(deps.sql, { workspaceId }, (tx) =>
-					renewCollabRoomLease(tx, { workspaceId, pageId, nodeId, ttlMs: leaseTtlMs })
+					kind === 'synced_block'
+						? renewSyncedBlockRoomLease(tx, { workspaceId, blockId: pageId, nodeId, ttlMs: leaseTtlMs })
+						: renewCollabRoomLease(tx, { workspaceId, pageId, nodeId, ttlMs: leaseTtlMs })
 				)
 					.then((res) => {
 						if (!res.acquired || res.epoch !== roomState.epoch) {
@@ -383,6 +431,34 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 				return
 			}
 
+			if (room.kind === 'synced_block') {
+				const res = await withWorkspace(
+					deps.sql,
+					primaryActorId
+						? { workspaceId: room.workspaceId, userId: primaryActorId }
+						: { workspaceId: room.workspaceId },
+					(tx) =>
+						persistSyncedBlockCollabState(tx, {
+							workspaceId: room.workspaceId,
+							blockId: room.pageId,
+							nodeId,
+							leaseEpoch: room.epoch,
+							ydoc: data.document
+						})
+				)
+				collabStoreDurationSeconds.observe((performance.now() - startedAt) / 1000)
+				collabStateBytesHistogram.observe(stateSize)
+				if (res.fenced) {
+					room.leaseLost = true
+					stopRenewTimer(room)
+					collabLeaseConflictsTotal.inc()
+					hocuspocus.closeConnections(data.documentName)
+					return
+				}
+				room.lastByteSize = stateSize
+				return
+			}
+
 			const res = await withWorkspace(
 				deps.sql,
 				primaryActorId
@@ -432,29 +508,38 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 
 			if (!stopped && !room.leaseLost) {
 				await withWorkspace(deps.sql, { workspaceId: room.workspaceId }, (tx) =>
-					releaseCollabRoomLease(tx, {
-						workspaceId: room.workspaceId,
-						pageId: room.pageId,
-						nodeId,
-						epoch: room.epoch
-					})
+					room.kind === 'synced_block'
+						? releaseSyncedBlockRoomLease(tx, {
+								workspaceId: room.workspaceId,
+								blockId: room.pageId,
+								nodeId,
+								epoch: room.epoch
+							})
+						: releaseCollabRoomLease(tx, {
+								workspaceId: room.workspaceId,
+								pageId: room.pageId,
+								nodeId,
+								epoch: room.epoch
+							})
 				).catch(() => {})
 			}
 		}
 	})
 
 	async function runDirectDocumentMutation(
+		documentName: string,
 		workspaceId: string,
 		pageId: string,
+		kind: CollabRoomKind,
 		origin: string,
 		actorId: string | null | undefined,
 		mutate: (liveDoc: Y.Doc) => void
 	): Promise<boolean> {
-		const documentName = `${workspaceId}:${pageId}`
 		const directCtx: CollabContext = {
 			userId: actorId ?? '',
 			workspaceId,
 			pageId,
+			kind,
 			permission: 'write',
 			readOnly: false,
 			socketId: `direct:${randomUUID()}`,
@@ -495,16 +580,56 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 			const targetDoc = new Y.Doc()
 			Y.applyUpdate(targetDoc, snapshotState)
 			const targetJson = ydocToProseMirrorJson(targetDoc)
-			return runDirectDocumentMutation(workspaceId, pageId, origin, actorId, (liveDoc) => {
-				replaceYDocContent(liveDoc, targetJson, origin)
-			})
+			return runDirectDocumentMutation(
+				`${workspaceId}:${pageId}`,
+				workspaceId,
+				pageId,
+				'doc_page',
+				origin,
+				actorId,
+				(liveDoc) => {
+					replaceYDocContent(liveDoc, targetJson, origin)
+				}
+			)
 		},
 
 		async appendNodes(workspaceId, pageId, nodes, origin, actorId) {
 			if (nodes.length === 0) return true
-			return runDirectDocumentMutation(workspaceId, pageId, origin, actorId, (liveDoc) => {
-				appendProseMirrorNodesToYDoc(liveDoc, nodes as unknown as Record<string, unknown>[], origin)
-			})
+			return runDirectDocumentMutation(
+				`${workspaceId}:${pageId}`,
+				workspaceId,
+				pageId,
+				'doc_page',
+				origin,
+				actorId,
+				(liveDoc) => {
+					appendProseMirrorNodesToYDoc(liveDoc, nodes as unknown as Record<string, unknown>[], origin)
+				}
+			)
+		},
+
+		async applyYDocTransform(workspaceId, pageId, origin, actorId, transform) {
+			return runDirectDocumentMutation(
+				`${workspaceId}:${pageId}`,
+				workspaceId,
+				pageId,
+				'doc_page',
+				origin,
+				actorId,
+				transform
+			)
+		},
+
+		async applySyncedBlockTransform(workspaceId, syncedBlockId, origin, actorId, transform) {
+			return runDirectDocumentMutation(
+				`synced_block:${workspaceId}:${syncedBlockId}`,
+				workspaceId,
+				syncedBlockId,
+				'synced_block',
+				origin,
+				actorId,
+				transform
+			)
 		}
 	}
 
@@ -556,9 +681,8 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 				clearInterval(reauthTimer)
 				unsubscribePubSub()
 
-				// Flush every dirty document BEFORE closing connections so afterUnloadDocument
-				// does not evict `rooms` entries prior to storeDocumentHooks completing.
 				const leaseReleases: Array<{
+					readonly kind: CollabRoomKind
 					readonly workspaceId: string
 					readonly pageId: string
 					readonly epoch: number
@@ -585,6 +709,7 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 						stopRenewTimer(room)
 						if (!room.leaseLost) {
 							leaseReleases.push({
+								kind: room.kind,
 								workspaceId: room.workspaceId,
 								pageId: room.pageId,
 								epoch: room.epoch
@@ -601,12 +726,19 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 				}
 				for (const rel of leaseReleases) {
 					await withWorkspace(deps.sql, { workspaceId: rel.workspaceId }, (tx) =>
-						releaseCollabRoomLease(tx, {
-							workspaceId: rel.workspaceId,
-							pageId: rel.pageId,
-							nodeId,
-							epoch: rel.epoch
-						})
+						rel.kind === 'synced_block'
+							? releaseSyncedBlockRoomLease(tx, {
+									workspaceId: rel.workspaceId,
+									blockId: rel.pageId,
+									nodeId,
+									epoch: rel.epoch
+								})
+							: releaseCollabRoomLease(tx, {
+									workspaceId: rel.workspaceId,
+									pageId: rel.pageId,
+									nodeId,
+									epoch: rel.epoch
+								})
 					).catch(() => {})
 				}
 				await hocuspocus.hooks('onDestroy', { instance: hocuspocus }).catch(() => {})

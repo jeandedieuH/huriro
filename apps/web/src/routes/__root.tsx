@@ -39,6 +39,7 @@ import {
 	destinationFromPathname,
 	isAllowedOnboardingPath,
 	isAuthPathname,
+	isPublicDocPathname,
 	registerAppNavigator,
 	registerChatNavigator,
 	registerDocNavigator,
@@ -139,8 +140,9 @@ function RootComponent() {
 	// OAuth pages carry server-signed query params (consent, device codes) that
 	// must survive the auth-gate bounce to /sign-in and back.
 	const locationSearch = useRouterState({ select: (s) => s.location.searchStr })
+	const isPublicDoc = isPublicDocPathname(pathname)
 	useEffect(() => {
-		if (isAuthPathname(pathname)) return
+		if (isAuthPathname(pathname) || isPublicDoc) return
 		const dest = destinationFromPathname(pathname)
 		const nextInboxPane = pathname === '/mail' || pathname.startsWith('/mail/') ? 'mail' : 'notifications'
 		const current = useUiStore.getState()
@@ -153,7 +155,7 @@ function RootComponent() {
 		} else if (dest === 'inbox' && current.inboxPane !== nextInboxPane) {
 			useUiStore.setState({ inboxPane: nextInboxPane })
 		}
-	}, [pathname])
+	}, [isPublicDoc, pathname])
 
 	// Bridge store-mediated navigation (sidebar, palette, G-chords, docs, chat, mail) to the router.
 	useEffect(() => {
@@ -211,6 +213,7 @@ function RootComponent() {
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: bootAttempt is the re-run trigger bumped by auth/onboarding actions, not a referenced value
 	useEffect(() => {
+		if (isPublicDoc) return
 		let cancelled = false
 		let activeBoot: BootstrappedWorkspace | null = null
 		void bootstrapWorkspace({
@@ -248,10 +251,11 @@ function RootComponent() {
 			cancelled = true
 			activeBoot?.engine.dispose()
 		}
-	}, [bootAttempt])
+	}, [bootAttempt, isPublicDoc])
 
 	// Keep the browser URL synchronized with the current auth/onboarding/workspace phase.
 	useEffect(() => {
+		if (isPublicDoc) return
 		if (phase.kind === 'auth') {
 			if (!isAuthPathname(pathname) || pathname === '/onboarding') {
 				const redirectTarget =
@@ -289,7 +293,7 @@ function RootComponent() {
 			pendingRedirectRef.current = null
 			void navigate({ href: target, replace: true })
 		}
-	}, [phase, pathname, locationSearch, navigate])
+	}, [phase, pathname, locationSearch, navigate, isPublicDoc])
 
 	function handleAuthenticated(redirectTo?: string) {
 		// OAuth authorize flow lands on /sign-in with a server-signed query.
@@ -395,6 +399,14 @@ function RootComponent() {
 						<WorkspaceFrame />
 					</WorkspaceProvider>
 				</SyncProvider>
+			</I18nProvider>
+		)
+	}
+
+	if (isPublicDoc) {
+		return (
+			<I18nProvider i18n={i18n}>
+				<Outlet />
 			</I18nProvider>
 		)
 	}

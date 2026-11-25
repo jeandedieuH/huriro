@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { DatePicker } from '@/components/ui/date-picker'
 import {
 	Dialog,
 	DialogContent,
@@ -160,12 +161,7 @@ export function InitiativeDialog({
 							<label htmlFor="initiative-target-date" className="text-xs font-medium">
 								{t('tasks.planning.target-date')}
 							</label>
-							<Input
-								id="initiative-target-date"
-								type="date"
-								value={targetDate}
-								onChange={(event) => setTargetDate(event.target.value)}
-							/>
+							<DatePicker id="initiative-target-date" value={targetDate} onChange={setTargetDate} />
 						</div>
 					</div>
 					<div className="space-y-1">
@@ -337,12 +333,7 @@ export function MilestoneDialog({
 							<label htmlFor="milestone-target-date" className="text-xs font-medium">
 								{t('tasks.planning.target-date')}
 							</label>
-							<Input
-								id="milestone-target-date"
-								type="date"
-								value={targetDate}
-								onChange={(event) => setTargetDate(event.target.value)}
-							/>
+							<DatePicker id="milestone-target-date" value={targetDate} onChange={setTargetDate} />
 						</div>
 						<div className="space-y-1">
 							<span className="text-xs font-medium">{t('tasks.planning.milestone-status')}</span>

@@ -1,12 +1,17 @@
 import { mergeAttributes, Node } from '@tiptap/core'
 import { isSafeUrl } from '../sanitize'
 
-export type EmbedKind = 'file' | 'image' | 'video' | 'figma' | 'loom' | 'link'
+export type EmbedKind = 'file' | 'image' | 'video' | 'audio' | 'pdf' | 'figma' | 'loom' | 'link'
 
 declare module '@tiptap/core' {
 	interface Commands<ReturnType> {
 		embed: {
-			setEmbed: (attrs: { url: string; kind?: EmbedKind; title?: string }) => ReturnType
+			setEmbed: (attrs: {
+				url: string
+				kind?: EmbedKind
+				title?: string
+				fileId?: string | null
+			}) => ReturnType
 		}
 	}
 }
@@ -38,6 +43,11 @@ export const EmbedExtension = Node.create({
 				default: '',
 				parseHTML: (el) => el.getAttribute('data-embed-title') ?? '',
 				renderHTML: (attrs) => ({ 'data-embed-title': String(attrs['title'] ?? '') })
+			},
+			fileId: {
+				default: null,
+				parseHTML: (el) => el.getAttribute('data-embed-file-id') || null,
+				renderHTML: (attrs) => (attrs['fileId'] ? { 'data-embed-file-id': String(attrs['fileId']) } : {})
 			}
 		}
 	},
@@ -65,7 +75,12 @@ export const EmbedExtension = Node.create({
 					if (!isSafeUrl(attrs.url)) return false
 					return commands.insertContent({
 						type: this.name,
-						attrs: { url: attrs.url, kind: attrs.kind ?? 'link', title: attrs.title ?? attrs.url }
+						attrs: {
+							url: attrs.url,
+							kind: attrs.kind ?? 'link',
+							title: attrs.title ?? attrs.url,
+							fileId: attrs.fileId ?? null
+						}
 					})
 				}
 		}

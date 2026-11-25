@@ -16,6 +16,7 @@ export const SyncEntityType = Type.Union([
 	Type.Literal('notification'),
 	Type.Literal('doc_page'),
 	Type.Literal('doc_comment'),
+	Type.Literal('teamspace'),
 	Type.Literal('mail_inbox'),
 	Type.Literal('mail_conversation'),
 	// ADR-0033 graph edges. Never delivered as core change-feed rows — only
@@ -87,7 +88,8 @@ export const SyncSnapshotResponse = Type.Object({
 	projectUpdates: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown()))),
 	savedViews: Type.Array(Type.Record(Type.String(), Type.Unknown())),
 	notifications: Type.Array(Type.Record(Type.String(), Type.Unknown())),
-	docPages: Type.Array(Type.Record(Type.String(), Type.Unknown()))
+	docPages: Type.Array(Type.Record(Type.String(), Type.Unknown())),
+	teamspaces: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown())))
 })
 export type SyncSnapshotResponse = Static<typeof SyncSnapshotResponse>
 

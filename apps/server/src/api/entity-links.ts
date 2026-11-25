@@ -208,3 +208,25 @@ export async function deleteEntityLinksFor(
 	)
 	return rows.length
 }
+
+/** Query existing outgoing edges from a single source entity. */
+export async function listEntityLinksBySource(
+	tx: Queryable,
+	args: {
+		readonly workspaceId: string
+		readonly sourceType: EntityType
+		readonly sourceId: string
+		readonly relationKind?: EntityLinkRelationKind | undefined
+	}
+): Promise<EntityLinkDto[]> {
+	const kindFilter = args.relationKind ? tx`AND relation_kind = ${args.relationKind}` : tx``
+	return tx<EntityLinkDto[]>`
+		SELECT ${tx.unsafe(LINK_COLUMNS)}
+		FROM entity_links
+		WHERE workspace_id = ${args.workspaceId}
+			AND source_type = ${args.sourceType}
+			AND source_id = ${args.sourceId}
+			${kindFilter}
+		ORDER BY created_at ASC, id ASC
+	`
+}

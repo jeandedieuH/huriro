@@ -8,6 +8,7 @@
  */
 import type {
 	AddChannelMemberBody,
+	AddTeamspaceMemberBody,
 	AgentApprovalDto,
 	AgentPrincipalDto,
 	AiProviderDto,
@@ -16,6 +17,7 @@ import type {
 	AiSettingsResponse,
 	BillingPortalDto,
 	BillingSummaryResponse,
+	BookmarkMetadataDto,
 	BulkIssuesBody,
 	BulkIssuesResponse,
 	BulkRestoreBody,
@@ -39,15 +41,23 @@ import type {
 	CreateMailIdentityBody,
 	CreateMailInboxBody,
 	CreateMailNoteBody,
+	CreateSyncedBlockBody,
+	CreateTeamspaceBody,
 	CreateWebhookBody,
 	CreateWebhookResponse,
 	CreateWebPushSubscriptionBody,
 	CycleDailySnapshotDto,
+	DocButtonTriggerBody,
 	DocCommentDto,
+	DocExportHtmlResponse,
 	DocExportMarkdownResponse,
 	DocImportMarkdownBody,
 	DocPageDetailDto,
 	DocPageDto,
+	DocPublicShareDto,
+	DocSuggestionDto,
+	DocSyncedBlockDto,
+	DocVerificationDto,
 	DocVersionDetailDto,
 	DocVersionDto,
 	EmailPipelineStatusDto,
@@ -65,6 +75,7 @@ import type {
 	IssueDto,
 	IssueGithubLinkDto,
 	IssueRelationDto,
+	KnowledgeGraphResponse,
 	LinkConversationBody,
 	ListMessagesResponse,
 	MailAccountDto,
@@ -77,12 +88,16 @@ import type {
 	MailTimelineDto,
 	NotificationPreferencesDto,
 	PeekCardDto,
+	ProposeDocSuggestionBody,
 	QueryIssuesBody,
 	RelationKind,
 	SearchHitDto,
 	SendMailDraftBody,
 	SendMessageBody,
 	SendTestEmailResponse,
+	SetDocVerificationBody,
+	TeamspaceDto,
+	TeamspaceMemberDto,
 	TriageActionBody,
 	TriageSuggestionsDto,
 	UpdateChannelBody,
@@ -92,7 +107,10 @@ import type {
 	UpdateMailAccountBody,
 	UpdateMessageBody,
 	UpdateNotificationPreferencesBody,
+	UpdateSyncedBlockBody,
+	UpdateTeamspaceBody,
 	UpdateWebhookBody,
+	UpsertDocPublicShareBody,
 	UpsertMailDraftBody,
 	WebhookDeliveryDto,
 	WebhookEndpointDto,
@@ -190,9 +208,12 @@ export interface TaskApiBridge {
 	updateDocComment(pageId: string, commentId: string, body: UpdateDocCommentBody): Promise<DocCommentDto>
 	resolveDocComment(pageId: string, commentId: string, resolved: boolean): Promise<DocCommentDto>
 	deleteDocComment(pageId: string, commentId: string): Promise<void>
-	listResourceAcls(resourceType: 'project' | 'doc_page', resourceId: string): Promise<ResourceAclItemDto[]>
+	listResourceAcls(
+		resourceType: 'project' | 'doc_page' | 'teamspace',
+		resourceId: string
+	): Promise<ResourceAclItemDto[]>
 	grantResourceAcl(input: {
-		readonly resourceType: 'project' | 'doc_page'
+		readonly resourceType: 'project' | 'doc_page' | 'teamspace'
 		readonly resourceId: string
 		readonly principalType: 'user' | 'role' | 'workspace'
 		readonly principalId: string | null
@@ -333,6 +354,41 @@ export interface TaskApiBridge {
 	createEntityLink(body: CreateEntityLinkBody): Promise<EntityLinkDto>
 	deleteEntityLink(linkId: string): Promise<void>
 	peekEntity(type: EntityType, id: string): Promise<PeekCardDto | null>
+	// M9: teamspaces, synced blocks, suggestions, verification, publishing, rich exports, bookmarks, buttons & graph
+	listTeamspaces(): Promise<TeamspaceDto[]>
+	createTeamspace(body: CreateTeamspaceBody): Promise<TeamspaceDto>
+	updateTeamspace(id: string, body: UpdateTeamspaceBody): Promise<TeamspaceDto>
+	archiveTeamspace(id: string, version?: number): Promise<void>
+	listTeamspaceMembers(id: string): Promise<TeamspaceMemberDto[]>
+	addTeamspaceMember(id: string, body: AddTeamspaceMemberBody): Promise<TeamspaceMemberDto>
+	removeTeamspaceMember(id: string, userId: string): Promise<void>
+	listSyncedBlocks(): Promise<DocSyncedBlockDto[]>
+	createSyncedBlock(body: CreateSyncedBlockBody): Promise<DocSyncedBlockDto>
+	getSyncedBlock(id: string): Promise<DocSyncedBlockDto>
+	updateSyncedBlock(id: string, body: UpdateSyncedBlockBody): Promise<DocSyncedBlockDto>
+	issueSyncedBlockCollabTicket(id: string): Promise<CollabTicketResponse>
+	listDocSuggestions(pageId: string): Promise<DocSuggestionDto[]>
+	proposeDocSuggestion(pageId: string, body: ProposeDocSuggestionBody): Promise<DocSuggestionDto>
+	decideDocSuggestion(
+		pageId: string,
+		groupId: string,
+		decision: 'accept' | 'reject'
+	): Promise<DocSuggestionDto>
+	decideAllDocSuggestions(
+		pageId: string,
+		decision: 'accept' | 'reject'
+	): Promise<{ readonly updatedCount: number }>
+	getDocVerification(pageId: string): Promise<DocVerificationDto | null>
+	setDocVerification(pageId: string, body: SetDocVerificationBody): Promise<DocVerificationDto>
+	clearDocVerification(pageId: string): Promise<void>
+	getDocPublicShare(pageId: string): Promise<DocPublicShareDto | null>
+	upsertDocPublicShare(pageId: string, body: UpsertDocPublicShareBody): Promise<DocPublicShareDto>
+	revokeDocPublicShare(pageId: string): Promise<void>
+	exportDocHtml(pageId: string, print?: boolean): Promise<DocExportHtmlResponse>
+	exportDocZip(pageId: string, includeChildren?: boolean): Promise<Blob>
+	unfurlBookmark(url: string): Promise<BookmarkMetadataDto>
+	triggerDocButton(pageId: string, body: DocButtonTriggerBody): Promise<void>
+	getKnowledgeGraph(teamspaceId?: string): Promise<KnowledgeGraphResponse>
 }
 
 export interface CreateInvitationResponse {

@@ -27,6 +27,7 @@ export function canReadMembers(actor: ActorContext): Decision {
 const MANAGE_ACTION_FOR_RESOURCE: Record<AclResourceType, Action> = {
 	project: 'project.manage',
 	doc_page: 'doc.share',
+	teamspace: 'teamspace.manage',
 	channel: 'channel.manage',
 	mail_account: 'mail.assign'
 }

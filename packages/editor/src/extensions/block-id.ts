@@ -6,10 +6,18 @@ const BLOCK_ID_TYPES = [
 	'paragraph',
 	'callout',
 	'toggle',
+	'toggleHeading',
+	'columns',
 	'codeBlock',
 	'blockquote',
 	'referenceBlock',
-	'embed'
+	'embed',
+	'syncedBlock',
+	'mermaidBlock',
+	'mathBlock',
+	'tocBlock',
+	'bookmarkCard',
+	'buttonBlock'
 ]
 
 const blockIdPluginKey = new PluginKey('huriroBlockId')

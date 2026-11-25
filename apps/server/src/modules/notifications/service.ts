@@ -573,6 +573,57 @@ export async function processNotificationOutboxEvent(
 				)
 			}
 		}
+	} else if (event.eventType === 'docs.verification.expiring.v1') {
+		const pageId = typeof p['pageId'] === 'string' ? p['pageId'] : null
+		if (pageId) {
+			const targets = new Set<string>()
+			if (typeof p['verifiedBy'] === 'string' && p['verifiedBy']) targets.add(p['verifiedBy'])
+			if (typeof p['pageCreatedBy'] === 'string' && p['pageCreatedBy']) targets.add(p['pageCreatedBy'])
+			const pageTitle = String(p['pageTitle'] ?? 'Document')
+			for (const uid of targets) {
+				createdNotifications.push(
+					await insertNotificationRow(tx, {
+						workspaceId: event.workspaceId,
+						recipientUserId: uid,
+						actorType: 'system',
+						actorId: null,
+						kind: 'doc.verification_expiring',
+						entityType: 'doc_page',
+						entityId: pageId,
+						title: `Wiki verification expiring soon: ${pageTitle}`,
+						body: `Expires at ${String(p['expiresAt'] ?? '')}`,
+						metadata: {
+							slug: typeof p['pageSlug'] === 'string' ? p['pageSlug'] : null,
+							expiresAt: p['expiresAt'] ?? null
+						}
+					})
+				)
+			}
+		}
+	} else if (event.eventType === 'docs.suggestion.created.v1') {
+		const pageId = typeof p['pageId'] === 'string' ? p['pageId'] : null
+		const pageCreatedBy = typeof p['pageCreatedBy'] === 'string' ? p['pageCreatedBy'] : null
+		if (pageId && pageCreatedBy && pageCreatedBy !== actorId) {
+			const pageTitle = String(p['pageTitle'] ?? 'Document')
+			createdNotifications.push(
+				await insertNotificationRow(tx, {
+					workspaceId: event.workspaceId,
+					recipientUserId: pageCreatedBy,
+					actorType,
+					actorId,
+					kind: 'doc.suggestion_created',
+					entityType: 'doc_page',
+					entityId: pageId,
+					title: `New suggested edit on ${pageTitle}`,
+					body: '',
+					metadata: {
+						suggestionId: p['suggestionId'] ?? null,
+						groupId: p['groupId'] ?? null,
+						kind: p['kind'] ?? null
+					}
+				})
+			)
+		}
 	}
 
 	if (createdNotifications.length === 0) {

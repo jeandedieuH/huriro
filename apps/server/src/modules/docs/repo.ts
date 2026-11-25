@@ -5,6 +5,7 @@
  */
 import type {
 	DocCommentDto,
+	DocFontStyle,
 	DocHeadingDto,
 	DocPageDto,
 	DocVersionDto,
@@ -36,11 +37,13 @@ export async function listVisibleDocPages(
 		readonly includeArchived: boolean
 		readonly includeTemplates: boolean
 		readonly parentId?: string | undefined
+		readonly teamspaceId?: string | undefined
 	}
 ): Promise<DocPageDto[]> {
 	const archiveFilter = args.includeArchived ? tx`` : tx`AND dp.archived_at IS NULL`
 	const templateFilter = args.includeTemplates ? tx`` : tx`AND dp.is_template = false`
 	const parentFilter = args.parentId ? tx`AND dp.parent_id = ${args.parentId}` : tx``
+	const teamspaceFilter = args.teamspaceId ? tx`AND dp.teamspace_id = ${args.teamspaceId}` : tx``
 
 	if (args.bypassAcl) {
 		return tx<DocPageDto[]>`
@@ -48,11 +51,23 @@ export async function listVisibleDocPages(
 				dp.id,
 				dp.workspace_id AS "workspaceId",
 				dp.parent_id AS "parentId",
+				dp.teamspace_id AS "teamspaceId",
 				dp.path,
 				dp.depth,
 				dp.slug,
 				dp.title,
 				dp.icon,
+				dp.cover_file_id AS "coverFileId",
+				dp.cover_gradient AS "coverGradient",
+				dp.cover_position_y AS "coverPositionY",
+				dp.font_style AS "fontStyle",
+				dp.full_width AS "fullWidth",
+				dp.small_text AS "smallText",
+				dp.is_locked AS "isLocked",
+				dp.locked_by AS "lockedBy",
+				dp.locked_at::text AS "lockedAt",
+				dv.status AS "verificationStatus",
+				dv.expires_at::text AS "verificationExpiresAt",
 				dp.visibility,
 				dp.is_template AS "isTemplate",
 				EXISTS(
@@ -68,10 +83,12 @@ export async function listVisibleDocPages(
 				COALESCE(ds.byte_size, 0) AS "byteSize"
 			FROM doc_pages dp
 			LEFT JOIN doc_state ds ON ds.workspace_id = dp.workspace_id AND ds.page_id = dp.id
+			LEFT JOIN doc_verifications dv ON dv.workspace_id = dp.workspace_id AND dv.page_id = dp.id
 			WHERE dp.workspace_id = ${args.workspaceId}
 				${archiveFilter}
 				${templateFilter}
 				${parentFilter}
+				${teamspaceFilter}
 			ORDER BY dp.depth ASC, dp.position COLLATE "C" ASC, dp.id ASC
 		`
 	}
@@ -85,11 +102,23 @@ export async function listVisibleDocPages(
 			dp.id,
 			dp.workspace_id AS "workspaceId",
 			dp.parent_id AS "parentId",
+			dp.teamspace_id AS "teamspaceId",
 			dp.path,
 			dp.depth,
 			dp.slug,
 			dp.title,
 			dp.icon,
+			dp.cover_file_id AS "coverFileId",
+			dp.cover_gradient AS "coverGradient",
+			dp.cover_position_y AS "coverPositionY",
+			dp.font_style AS "fontStyle",
+			dp.full_width AS "fullWidth",
+			dp.small_text AS "smallText",
+			dp.is_locked AS "isLocked",
+			dp.locked_by AS "lockedBy",
+			dp.locked_at::text AS "lockedAt",
+			dv.status AS "verificationStatus",
+			dv.expires_at::text AS "verificationExpiresAt",
 			dp.visibility,
 			dp.is_template AS "isTemplate",
 			EXISTS(
@@ -105,11 +134,26 @@ export async function listVisibleDocPages(
 			COALESCE(ds.byte_size, 0) AS "byteSize"
 		FROM doc_pages dp
 		LEFT JOIN doc_state ds ON ds.workspace_id = dp.workspace_id AND ds.page_id = dp.id
+		LEFT JOIN doc_verifications dv ON dv.workspace_id = dp.workspace_id AND dv.page_id = dp.id
+		LEFT JOIN teamspaces ts ON ts.workspace_id = dp.workspace_id AND ts.id = dp.teamspace_id
 		WHERE dp.workspace_id = ${args.workspaceId}
 			${archiveFilter}
 			${templateFilter}
 			${parentFilter}
+			${teamspaceFilter}
 			${aclFilter}
+			AND (
+				dp.teamspace_id IS NULL
+				OR ts.visibility IN ('open', 'closed')
+				OR EXISTS (
+					SELECT 1 FROM teamspace_members tm
+					WHERE tm.workspace_id = dp.workspace_id
+						AND tm.teamspace_id = dp.teamspace_id
+						AND tm.user_id = ${args.userId}
+				)
+				OR can_read(dp.workspace_id, 'teamspace', dp.teamspace_id, ${args.userId}, 'read')
+				OR can_read(dp.workspace_id, 'doc_page', dp.id, ${args.userId}, 'read')
+			)
 		ORDER BY dp.depth ASC, dp.position COLLATE "C" ASC, dp.id ASC
 	`
 }
@@ -125,11 +169,23 @@ export async function getDocPageById(
 			dp.id,
 			dp.workspace_id AS "workspaceId",
 			dp.parent_id AS "parentId",
+			dp.teamspace_id AS "teamspaceId",
 			dp.path,
 			dp.depth,
 			dp.slug,
 			dp.title,
 			dp.icon,
+			dp.cover_file_id AS "coverFileId",
+			dp.cover_gradient AS "coverGradient",
+			dp.cover_position_y AS "coverPositionY",
+			dp.font_style AS "fontStyle",
+			dp.full_width AS "fullWidth",
+			dp.small_text AS "smallText",
+			dp.is_locked AS "isLocked",
+			dp.locked_by AS "lockedBy",
+			dp.locked_at::text AS "lockedAt",
+			dv.status AS "verificationStatus",
+			dv.expires_at::text AS "verificationExpiresAt",
 			dp.visibility,
 			dp.is_template AS "isTemplate",
 			EXISTS(
@@ -145,6 +201,7 @@ export async function getDocPageById(
 			COALESCE(ds.byte_size, 0) AS "byteSize"
 		FROM doc_pages dp
 		LEFT JOIN doc_state ds ON ds.workspace_id = dp.workspace_id AND ds.page_id = dp.id
+		LEFT JOIN doc_verifications dv ON dv.workspace_id = dp.workspace_id AND dv.page_id = dp.id
 		WHERE dp.workspace_id = ${workspaceId} AND dp.id = ${pageId}
 	`
 	return row ?? null
@@ -161,11 +218,23 @@ export async function getDocPageBySlug(
 			dp.id,
 			dp.workspace_id AS "workspaceId",
 			dp.parent_id AS "parentId",
+			dp.teamspace_id AS "teamspaceId",
 			dp.path,
 			dp.depth,
 			dp.slug,
 			dp.title,
 			dp.icon,
+			dp.cover_file_id AS "coverFileId",
+			dp.cover_gradient AS "coverGradient",
+			dp.cover_position_y AS "coverPositionY",
+			dp.font_style AS "fontStyle",
+			dp.full_width AS "fullWidth",
+			dp.small_text AS "smallText",
+			dp.is_locked AS "isLocked",
+			dp.locked_by AS "lockedBy",
+			dp.locked_at::text AS "lockedAt",
+			dv.status AS "verificationStatus",
+			dv.expires_at::text AS "verificationExpiresAt",
 			dp.visibility,
 			dp.is_template AS "isTemplate",
 			EXISTS(
@@ -181,6 +250,7 @@ export async function getDocPageBySlug(
 			COALESCE(ds.byte_size, 0) AS "byteSize"
 		FROM doc_pages dp
 		LEFT JOIN doc_state ds ON ds.workspace_id = dp.workspace_id AND ds.page_id = dp.id
+		LEFT JOIN doc_verifications dv ON dv.workspace_id = dp.workspace_id AND dv.page_id = dp.id
 		WHERE dp.workspace_id = ${workspaceId} AND dp.slug = ${slug}
 	`
 	return row ?? null
@@ -260,11 +330,18 @@ export async function insertDocPageRow(
 		readonly id?: string | undefined
 		readonly workspaceId: string
 		readonly parentId: string | null
+		readonly teamspaceId?: string | null | undefined
 		readonly path: string
 		readonly depth: number
 		readonly slug: string
 		readonly title: string
 		readonly icon: string | null
+		readonly coverFileId?: string | null | undefined
+		readonly coverGradient?: string | null | undefined
+		readonly coverPositionY?: number | undefined
+		readonly fontStyle?: DocFontStyle | undefined
+		readonly fullWidth?: boolean | undefined
+		readonly smallText?: boolean | undefined
 		readonly visibility: DocVisibility
 		readonly isTemplate: boolean
 		readonly position: string
@@ -275,17 +352,26 @@ export async function insertDocPageRow(
 	const [row] = await tx<Omit<DocPageDto, 'isFavorite' | 'byteSize'>[]>`
 		INSERT INTO doc_pages (
 			${args.id ? tx`id, ` : tx``}
-			workspace_id, parent_id, path, depth, slug, title, icon, visibility, is_template, position, created_by
+			workspace_id, parent_id, teamspace_id, path, depth, slug, title, icon,
+			cover_file_id, cover_gradient, cover_position_y, font_style, full_width, small_text,
+			visibility, is_template, position, created_by
 		)
 		VALUES (
 			${args.id ? tx`${args.id}, ` : tx``}
 			${args.workspaceId},
 			${args.parentId},
+			${args.teamspaceId ?? null},
 			${args.path},
 			${args.depth},
 			${args.slug},
 			${args.title},
 			${args.icon},
+			${args.coverFileId ?? null},
+			${args.coverGradient ?? null},
+			${args.coverPositionY ?? 50},
+			${args.fontStyle ?? 'sans'},
+			${args.fullWidth ?? false},
+			${args.smallText ?? false},
 			${args.visibility},
 			${args.isTemplate},
 			${args.position},
@@ -295,11 +381,21 @@ export async function insertDocPageRow(
 			id,
 			workspace_id AS "workspaceId",
 			parent_id AS "parentId",
+			teamspace_id AS "teamspaceId",
 			path,
 			depth,
 			slug,
 			title,
 			icon,
+			cover_file_id AS "coverFileId",
+			cover_gradient AS "coverGradient",
+			cover_position_y AS "coverPositionY",
+			font_style AS "fontStyle",
+			full_width AS "fullWidth",
+			small_text AS "smallText",
+			is_locked AS "isLocked",
+			locked_by AS "lockedBy",
+			locked_at::text AS "lockedAt",
 			visibility,
 			is_template AS "isTemplate",
 			position,
@@ -310,7 +406,13 @@ export async function insertDocPageRow(
 			version
 	`
 	if (!row) throw new Error('Failed to insert doc_pages row')
-	return { ...row, isFavorite: false, byteSize: args.byteSize }
+	return {
+		...row,
+		isFavorite: false,
+		byteSize: args.byteSize,
+		verificationStatus: null,
+		verificationExpiresAt: null
+	}
 }
 
 export async function insertDocStateRow(
@@ -455,9 +557,19 @@ export async function updateDocPageRow(
 		readonly pageId: string
 		readonly userId: string
 		readonly expectedVersion: number
+		readonly teamspaceId: string | null
 		readonly title: string
 		readonly slug: string
 		readonly icon: string | null
+		readonly coverFileId: string | null
+		readonly coverGradient: string | null
+		readonly coverPositionY: number
+		readonly fontStyle: DocFontStyle
+		readonly fullWidth: boolean
+		readonly smallText: boolean
+		readonly isLocked: boolean
+		readonly lockedBy: string | null
+		readonly lockedAt: string | null
 		readonly visibility: DocVisibility
 		readonly isTemplate: boolean
 		readonly archivedAt: string | null
@@ -465,9 +577,19 @@ export async function updateDocPageRow(
 ): Promise<DocPageDto | null> {
 	const rows = await tx<{ id: string }[]>`
 		UPDATE doc_pages
-		SET title = ${args.title},
+		SET teamspace_id = ${args.teamspaceId},
+			title = ${args.title},
 			slug = ${args.slug},
 			icon = ${args.icon},
+			cover_file_id = ${args.coverFileId},
+			cover_gradient = ${args.coverGradient},
+			cover_position_y = ${args.coverPositionY},
+			font_style = ${args.fontStyle},
+			full_width = ${args.fullWidth},
+			small_text = ${args.smallText},
+			is_locked = ${args.isLocked},
+			locked_by = ${args.lockedBy},
+			locked_at = ${args.lockedAt ? tx`${args.lockedAt}::timestamptz` : tx`NULL`},
 			visibility = ${args.visibility},
 			is_template = ${args.isTemplate},
 			archived_at = ${args.archivedAt ? tx`${args.archivedAt}::timestamptz` : tx`NULL`},
@@ -670,19 +792,28 @@ export async function insertCollabTicketRow(
 	args: {
 		readonly id: string
 		readonly workspaceId: string
-		readonly pageId: string
+		readonly roomKind?: 'doc_page' | 'synced_block' | undefined
+		readonly pageId?: string | null | undefined
+		readonly syncedBlockId?: string | null | undefined
 		readonly userId: string
 		readonly permission: 'read' | 'write'
 		readonly tokenHash: string
 		readonly expiresAt: Date
 	}
 ): Promise<void> {
+	const roomKind = args.roomKind ?? 'doc_page'
+	const pageId = roomKind === 'doc_page' ? (args.pageId ?? null) : null
+	const syncedBlockId = roomKind === 'synced_block' ? (args.syncedBlockId ?? null) : null
 	await tx`
-		INSERT INTO collab_tickets (id, workspace_id, page_id, user_id, permission, token_hash, expires_at)
+		INSERT INTO collab_tickets (
+			id, workspace_id, room_kind, page_id, synced_block_id, user_id, permission, token_hash, expires_at
+		)
 		VALUES (
 			${args.id},
 			${args.workspaceId},
-			${args.pageId},
+			${roomKind},
+			${pageId},
+			${syncedBlockId},
 			${args.userId},
 			${args.permission},
 			${args.tokenHash},
@@ -696,17 +827,25 @@ export async function consumeCollabTicketRow(
 	args: {
 		readonly workspaceId: string
 		readonly ticketId: string
-		readonly pageId: string
+		readonly roomKind?: 'doc_page' | 'synced_block' | undefined
+		readonly pageId?: string | null | undefined
+		readonly syncedBlockId?: string | null | undefined
 		readonly userId: string
 		readonly tokenHash: string
 	}
 ): Promise<{ readonly permission: 'read' | 'write' } | null> {
+	const roomKind = args.roomKind ?? 'doc_page'
+	const targetFilter =
+		roomKind === 'synced_block'
+			? tx`AND synced_block_id = ${args.syncedBlockId ?? ''}`
+			: tx`AND page_id = ${args.pageId ?? ''}`
 	const [row] = await tx<{ permission: 'read' | 'write' }[]>`
 		UPDATE collab_tickets
 		SET consumed_at = now()
 		WHERE workspace_id = ${args.workspaceId}
 			AND id = ${args.ticketId}
-			AND page_id = ${args.pageId}
+			AND room_kind = ${roomKind}
+			${targetFilter}
 			AND user_id = ${args.userId}
 			AND token_hash = ${args.tokenHash}
 			AND consumed_at IS NULL

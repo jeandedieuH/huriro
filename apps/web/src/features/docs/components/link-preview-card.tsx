@@ -130,7 +130,7 @@ export function LinkPreviewCard({ editor }: LinkPreviewCardProps) {
 			role="dialog"
 			aria-label={t('docs.link.preview')}
 			style={{ position: 'fixed', left, top }}
-			className="z-(--z-popover) rounded-md border border-border bg-popover px-2 py-1.5 shadow-(--shadow-2)"
+			className="z-(--z-popover) rounded-xl border border-border/90 bg-popover/95 px-2.5 py-1.5 shadow-(--shadow-3) backdrop-blur-md"
 		>
 			{editing ? (
 				<div className="w-72">
