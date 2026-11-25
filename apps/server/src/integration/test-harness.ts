@@ -10,6 +10,7 @@ import type { Sql } from '@huriro/db'
 import { aMembership, aUser, aWorkspace, getTestDb, migrationsDir, type TestDb } from '@huriro/test-utils'
 import { createApp } from '../api/app'
 import type { DnsResolver } from '../api/egress'
+import type { EmailPipeline } from '../email'
 import type { BillingModuleConfig } from '../modules/billing'
 import type { CollabDirectBridge } from '../modules/docs'
 import { type BlobStorage, MemoryBlobStorage } from '../modules/files'
@@ -75,6 +76,7 @@ export function createIntegrationServer(
 		readonly egressResolver?: DnsResolver
 		readonly mail?: Partial<MailModuleConfig>
 		readonly billing?: Partial<BillingModuleConfig>
+		readonly email?: EmailPipeline
 		readonly readOnly?: boolean
 		readonly isReadOnly?: () => boolean
 		readonly rateLimitPerMinute?: number
@@ -104,6 +106,7 @@ export function createIntegrationServer(
 		...(opts?.egressResolver ? { egressResolver: opts.egressResolver } : {}),
 		...(opts?.mail ? { mail: opts.mail } : {}),
 		...(opts?.billing ? { billing: opts.billing } : {}),
+		...(opts?.email ? { email: opts.email } : {}),
 		...(opts?.readOnly !== undefined ? { readOnly: opts.readOnly } : {}),
 		...(opts?.isReadOnly ? { isReadOnly: opts.isReadOnly } : {}),
 		...(opts?.rateLimitPerMinute !== undefined ? { rateLimitPerMinute: opts.rateLimitPerMinute } : {}),

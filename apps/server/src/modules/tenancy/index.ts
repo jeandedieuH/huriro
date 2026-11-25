@@ -198,7 +198,10 @@ export function tenancyModule(
 						throw err
 					})
 
-				let emailSent = false
+				// Tri-state so clients can tell "no provider configured" apart from
+				// "provider configured but delivery failed" — the failure detail stays
+				// in server logs (§16.2); the wire only carries the coarse status.
+				let emailStatus: 'sent' | 'not_configured' | 'failed' = 'not_configured'
 				if (opts?.email?.configured) {
 					try {
 						const res = await opts.email.sendWorkspaceInvitation({
@@ -208,8 +211,9 @@ export function tenancyModule(
 							role: body.role,
 							inviteToken: created.token
 						})
-						emailSent = !res.skipped
+						emailStatus = res.skipped ? 'not_configured' : 'sent'
 					} catch (err) {
+						emailStatus = 'failed'
 						log.warn({ err, invitationId: created.id }, 'workspace invitation email delivery failed')
 					}
 				}
@@ -218,7 +222,7 @@ export function tenancyModule(
 					id: created.id,
 					token: created.token,
 					resent: created.resent,
-					emailSent,
+					emailStatus,
 					emailProvider: opts?.email?.provider ?? 'noop'
 				}
 			})

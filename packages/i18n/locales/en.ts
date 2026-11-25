@@ -977,6 +977,8 @@ export const en = {
 	'settings.members.invite-submit': 'Send invitation',
 	'settings.members.invite-submitting': 'Sending…',
 	'settings.members.invite-sent-email': 'Invitation email sent to {email} via {provider}.',
+	'settings.members.invite-sent-failed':
+		'Invitation created for {email}, but the invitation email could not be sent via {provider} — share this invite token manually: {token}',
 	'settings.members.invite-sent-manual':
 		'Invitation created for {email}. No outbound email provider is configured — share this invite token manually: {token}',
 	'settings.members.invite-error': 'Could not create invitation.'

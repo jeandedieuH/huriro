@@ -95,7 +95,7 @@ export function MembersSettingsPanel() {
 	const [inviteRole, setInviteRole] = useState<'admin' | 'member' | 'guest'>('member')
 	const [inviting, setInviting] = useState(false)
 	const [inviteNotice, setInviteNotice] = useState<{
-		readonly tone: 'success' | 'info' | 'danger'
+		readonly tone: 'success' | 'info' | 'warning' | 'danger'
 		readonly message: string
 	} | null>(null)
 
@@ -107,16 +107,35 @@ export function MembersSettingsPanel() {
 		setInviteNotice(null)
 		try {
 			const res = await api.createInvitation({ email: cleanEmail, role: inviteRole })
-			const message = res.emailSent
-				? t('settings.members.invite-sent-email', { email: cleanEmail, provider: res.emailProvider })
-				: t('settings.members.invite-sent-manual', { email: cleanEmail, token: res.token })
-			setInviteNotice({ tone: res.emailSent ? 'success' : 'info', message })
+			// The server distinguishes a missing provider from a failed delivery —
+			// surface each honestly: a failure reads as a warning (the invite itself
+			// was created), not as the neutral "share manually" info state.
+			const outcome = {
+				sent: {
+					noticeTone: 'success' as const,
+					toastTone: 'success' as const,
+					message: t('settings.members.invite-sent-email', { email: cleanEmail, provider: res.emailProvider })
+				},
+				not_configured: {
+					noticeTone: 'info' as const,
+					toastTone: 'default' as const,
+					message: t('settings.members.invite-sent-manual', { email: cleanEmail, token: res.token })
+				},
+				failed: {
+					noticeTone: 'warning' as const,
+					toastTone: 'warning' as const,
+					message: t('settings.members.invite-sent-failed', {
+						email: cleanEmail,
+						provider: res.emailProvider,
+						token: res.token
+					})
+				}
+			}[res.emailStatus]
+			setInviteNotice({ tone: outcome.noticeTone, message: outcome.message })
 			setInviteEmail('')
 			pushToast({
-				tone: 'success',
-				title: res.emailSent
-					? t('settings.members.invite-sent-email', { email: cleanEmail, provider: res.emailProvider })
-					: t('settings.members.invite-title')
+				tone: outcome.toastTone,
+				title: res.emailStatus === 'not_configured' ? t('settings.members.invite-title') : outcome.message
 			})
 		} catch (err) {
 			setInviteNotice({

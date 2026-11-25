@@ -312,7 +312,9 @@ export interface CreateInvitationResponse {
 	readonly token: string
 	/** true when an existing pending invite was renewed (token rotated) instead of freshly created. */
 	readonly resent: boolean
-	readonly emailSent: boolean
+	/** Delivery outcome of the invitation email: sent, skipped because no provider is
+	 * configured, or attempted but failed (detail is in server logs, never on the wire). */
+	readonly emailStatus: 'sent' | 'not_configured' | 'failed'
 	readonly emailProvider: string
 }
 

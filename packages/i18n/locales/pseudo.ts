@@ -1043,6 +1043,8 @@ export const pseudo = {
 	'settings.members.invite-submitting': '⟪Sééndííng…⟫ ~~~',
 	'settings.members.invite-sent-email':
 		'⟪Íínvíítààtííóón éémààííl séént tóó {éémààííl} vííàà {próóvíídéér}.⟫ ~~~~~~~~~~~~~~~~~',
+	'settings.members.invite-sent-failed':
+		'⟪Íínvíítààtííóón crééààtééd fóór {éémààííl}, búút théé íínvíítààtííóón éémààííl cóóúúld nóót béé séént vííàà {próóvíídéér} — shààréé thíís íínvíítéé tóókéén màànúúààllýý: {tóókéén}⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
 	'settings.members.invite-sent-manual':
 		'⟪Íínvíítààtííóón crééààtééd fóór {éémààííl}. Nóó óóúútbóóúúnd éémààííl próóvíídéér íís cóónfíígúúrééd — shààréé thíís íínvíítéé tóókéén màànúúààllýý: {tóókéén}⟫ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',
 	'settings.members.invite-error': '⟪Cóóúúld nóót crééààtéé íínvíítààtííóón.⟫ ~~~~~~~~~~'

@@ -2177,7 +2177,7 @@ export function createPreviewApiBridge(
 				id: generateUuidV7(),
 				token: `preview_invite_${body.role}_${generateUuidV7().slice(0, 8)}`,
 				resent: false,
-				emailSent: true,
+				emailStatus: 'sent' as const,
 				emailProvider: mode === 'cloud' ? 'emailit' : 'resend'
 			}
 		},

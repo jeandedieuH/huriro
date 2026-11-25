@@ -8,6 +8,7 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { randomUUID } from 'node:crypto'
 import type { TestDb } from '@huriro/test-utils'
+import { createEmailPipeline, type EmailPipeline, type EmailTransport } from '../email'
 import { apiRequest, createIntegrationServer, getTestDb, seedM1Fixture } from './test-harness'
 
 let db: TestDb | null = null
@@ -269,5 +270,99 @@ describe('invitations integration (PostgreSQL 18 + FORCE RLS)', () => {
 			}
 		})
 		expect(memberDenied.status).toBe(403)
+	})
+
+	function pipelineWithTransport(transport: EmailTransport): EmailPipeline {
+		// A real pipeline over a stubbed transport — exercises the exact
+		// configured/skipped semantics the api role boots with.
+		return createEmailPipeline(
+			{
+				mode: 'selfhost',
+				provider: 'auto',
+				from: 'Huriro <noreply@test.huriro.dev>',
+				baseUrl: 'http://localhost:3000'
+			},
+			{ transport }
+		)
+	}
+
+	test('invite without an email pipeline reports emailStatus not_configured (provider noop)', async () => {
+		if (!db) return
+		const fixture = await seedM1Fixture(db.owner)
+		const { app } = createIntegrationServer(db)
+		const email = `nocfg-${randomUUID().slice(0, 8)}@test.huriro.dev`
+
+		const res = await apiRequest(app, {
+			method: 'POST',
+			path: invitePath(),
+			userId: fixture.ownerId,
+			email: fixture.ownerEmail,
+			body: { workspaceId: fixture.workspaceId, email, role: 'member' }
+		})
+		expect(res.status).toBe(200)
+		expect(res.json['emailStatus']).toBe('not_configured')
+		expect(res.json['emailProvider']).toBe('noop')
+		// The token is still returned so the inviter can share it manually.
+		expect(typeof res.json['token']).toBe('string')
+	})
+
+	test('invite with a working pipeline reports emailStatus sent and delivers the rendered email', async () => {
+		if (!db) return
+		const fixture = await seedM1Fixture(db.owner)
+		const sent: string[] = []
+		const recorder: EmailTransport = {
+			provider: 'custom',
+			async send(msg) {
+				sent.push(msg.to)
+				return { provider: 'custom', messageId: `msg_${sent.length}` }
+			}
+		}
+		const { app } = createIntegrationServer(db, { email: pipelineWithTransport(recorder) })
+		const email = `sent-${randomUUID().slice(0, 8)}@test.huriro.dev`
+
+		const res = await apiRequest(app, {
+			method: 'POST',
+			path: invitePath(),
+			userId: fixture.ownerId,
+			email: fixture.ownerEmail,
+			body: { workspaceId: fixture.workspaceId, email, role: 'member' }
+		})
+		expect(res.status).toBe(200)
+		expect(res.json['emailStatus']).toBe('sent')
+		expect(res.json['emailProvider']).toBe('custom')
+		expect(sent).toEqual([email])
+	})
+
+	test('invite with a throwing transport reports emailStatus failed — still 200 with a shareable token', async () => {
+		if (!db) return
+		const fixture = await seedM1Fixture(db.owner)
+		const failing: EmailTransport = {
+			provider: 'custom',
+			async send() {
+				throw new Error('simulated SMTP outage')
+			}
+		}
+		const { app } = createIntegrationServer(db, { email: pipelineWithTransport(failing) })
+		const email = `failed-${randomUUID().slice(0, 8)}@test.huriro.dev`
+
+		const res = await apiRequest(app, {
+			method: 'POST',
+			path: invitePath(),
+			userId: fixture.ownerId,
+			email: fixture.ownerEmail,
+			body: { workspaceId: fixture.workspaceId, email, role: 'member' }
+		})
+		// Delivery failure must not fail the invitation itself — the row exists,
+		// the inviter gets the token for manual sharing, and the status is honest.
+		expect(res.status).toBe(200)
+		expect(res.json['emailStatus']).toBe('failed')
+		expect(res.json['emailProvider']).toBe('custom')
+		expect(typeof res.json['token']).toBe('string')
+
+		const rows = await db.owner<{ n: number }[]>`
+			SELECT count(*)::int AS n FROM invitations
+			WHERE workspace_id = ${fixture.workspaceId} AND email = ${email}
+		`
+		expect(rows[0]!.n).toBe(1)
 	})
 })

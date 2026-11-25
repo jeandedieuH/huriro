@@ -246,4 +246,67 @@ describe('Settings Workspace redesign', () => {
 			boot.engine.dispose()
 		}
 	})
+	it('warns with a shareable token when invitation email delivery fails (distinct from not_configured)', async () => {
+		const boot = await createPreviewWorkspace()
+		try {
+			// Simulate the server reporting a configured provider whose delivery failed.
+			boot.api.createInvitation = async () => ({
+				id: 'inv_failed',
+				token: 'tok_manual_share',
+				resent: false,
+				emailStatus: 'failed',
+				emailProvider: 'smtp'
+			})
+
+			render(
+				<WorkspaceProvider boot={boot}>
+					<MembersSettingsPanel />
+				</WorkspaceProvider>
+			)
+
+			expect(await screen.findByText('Invite teammate')).toBeInTheDocument()
+			fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'teammate@example.com' } })
+			fireEvent.click(screen.getByRole('button', { name: 'Send invitation' }))
+
+			// The failure copy names the provider and still hands over the manual token —
+			// never the neutral "no provider configured" phrasing.
+			expect(
+				await screen.findByText(
+					/Invitation created for teammate@example.com, but the invitation email could not be sent via smtp/
+				)
+			).toBeInTheDocument()
+			expect(screen.getByText(/tok_manual_share/)).toBeInTheDocument()
+			expect(screen.queryByText(/No outbound email provider is configured/)).not.toBeInTheDocument()
+		} finally {
+			boot.engine.dispose()
+		}
+	})
+
+	it('shows the manual-sharing info notice when no email provider is configured', async () => {
+		const boot = await createPreviewWorkspace()
+		try {
+			boot.api.createInvitation = async () => ({
+				id: 'inv_manual',
+				token: 'tok_manual_share',
+				resent: false,
+				emailStatus: 'not_configured',
+				emailProvider: 'noop'
+			})
+
+			render(
+				<WorkspaceProvider boot={boot}>
+					<MembersSettingsPanel />
+				</WorkspaceProvider>
+			)
+
+			expect(await screen.findByText('Invite teammate')).toBeInTheDocument()
+			fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'teammate@example.com' } })
+			fireEvent.click(screen.getByRole('button', { name: 'Send invitation' }))
+
+			expect(await screen.findByText(/No outbound email provider is configured/)).toBeInTheDocument()
+			expect(screen.queryByText(/could not be sent via/)).not.toBeInTheDocument()
+		} finally {
+			boot.engine.dispose()
+		}
+	})
 })
