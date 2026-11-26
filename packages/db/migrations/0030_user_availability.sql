@@ -135,7 +135,7 @@ STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-	SELECT workspace_id, id, 'started'::text
+	SELECT workspace_id, id, 'started'::text AS transition
 	FROM user_availability_windows
 	WHERE started_event_emitted_at IS NULL AND starts_at <= now()
 	UNION ALL

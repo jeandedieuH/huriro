@@ -7,6 +7,11 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+	AVAILABILITY_STATE_LABEL_ID,
+	availabilityStateTone
+} from '@/features/availability/availability-state'
+import { useUserAvailability } from '@/features/availability/hooks/use-availability'
 import type { WorkspaceMemberSummary } from '@/lib/api-bridge'
 import { useWorkspace } from '@/lib/workspace'
 import { useUiStore } from '@/stores/ui-store'
@@ -74,6 +79,16 @@ function getInitials(name: string): string {
 		return `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}`.toUpperCase()
 	}
 	return (parts[0] ?? 'U').slice(0, 2).toUpperCase()
+}
+
+function MemberAvailabilityBadge({ userId }: { readonly userId: string }) {
+	const availability = useUserAvailability(userId)
+	if (!availability) return null
+	return (
+		<Badge className={availabilityStateTone(availability.effectiveState).badge}>
+			{t(AVAILABILITY_STATE_LABEL_ID[availability.effectiveState])}
+		</Badge>
+	)
 }
 
 function getRoleLabel(role: string): string {
@@ -261,6 +276,7 @@ export function MembersSettingsPanel() {
 														</div>
 													</div>
 													<Badge tone={tone}>{getRoleLabel(member.role)}</Badge>
+													<MemberAvailabilityBadge userId={member.userId} />
 												</li>
 											)
 										})}

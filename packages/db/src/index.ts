@@ -18,7 +18,6 @@ export { isAcceptableClientId, isUuid, isUuidV7, uuid7, uuid7TimestampMs } from 
 export type { AppliedMigration } from './migrate'
 export { listMigrationFiles, migrate, migrationsDir, pendingMigrations } from './migrate'
 export { agentPrincipals } from './schema/agents'
-export { userAvailabilityWindows, userWorkspaceProfiles } from './schema/availability'
 export { aiCache, aiProviders, aiRuns, chunkEmbeddings, embeddingModels } from './schema/ai'
 export {
 	authAccounts,
@@ -30,6 +29,7 @@ export {
 	betterAuthSchema
 } from './schema/auth'
 export { automationRules, automationRunSteps, automationRuns } from './schema/automations'
+export { userAvailabilityWindows, userWorkspaceProfiles } from './schema/availability'
 export { billingSubscriptions, billingUsageSnapshots, billingWebhookEvents } from './schema/billing'
 export {
 	chatChannelBookmarks,

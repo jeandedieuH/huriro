@@ -20,9 +20,17 @@ import { type Auth, requireSession } from '../modules/identity'
 import { verifyAndConsumeRealtimeTicket } from '../modules/sync'
 import { resolveActor } from '../modules/tenancy'
 import type { CollabRuntime } from './collab'
+import { InMemoryPresenceRegistry, type PresenceRegistry } from './presence-registry'
 import { InProcessPubSub, type RealtimePubSub } from './pubsub'
 
 export { type CollabRuntime, type CollabRuntimeDeps, createCollabRuntime } from './collab'
+export {
+	createPresenceRegistry,
+	InMemoryPresenceRegistry,
+	type PresenceEntry,
+	type PresenceRegistry,
+	type PresenceStatus
+} from './presence-registry'
 
 export interface RealtimeDeps {
 	readonly port: number
@@ -30,6 +38,7 @@ export interface RealtimeDeps {
 	readonly auth?: Auth | null
 	readonly pubsub?: RealtimePubSub
 	readonly collab?: CollabRuntime
+	readonly presence?: PresenceRegistry
 	readonly allowedOrigins?: readonly string[]
 	readonly coalesceMs?: number
 	readonly maxCoalesceMs?: number
@@ -86,6 +95,8 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 	const pendingCursors = new Map<string, CoalesceEntry>()
 	// Ephemeral presence & typing state (never written to Postgres per §15.1).
 	const workspacePresence = new Map<string, Map<string, { status: 'online' | 'away'; lastSeenAt: number }>>()
+	const presenceRegistry = deps.presence ?? new InMemoryPresenceRegistry()
+	const lastPresencePublish = new Map<string, number>()
 	const typingThrottle = new Map<string, number>()
 
 	function broadcastPresence(workspaceId: string) {
@@ -114,17 +125,23 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 	function applyPresenceState(
 		workspaceId: string,
 		userId: string,
-		status: 'online' | 'away',
+		status: 'online' | 'away' | 'offline',
 		lastSeenAt: number,
 		publish: boolean
 	) {
+		presenceRegistry.set(workspaceId, userId, status, lastSeenAt)
 		let map = workspacePresence.get(workspaceId)
-		if (!map) {
-			map = new Map()
-			workspacePresence.set(workspaceId, map)
+		if (status === 'offline') {
+			if (map?.delete(userId) && map.size === 0) workspacePresence.delete(workspaceId)
+			broadcastPresence(workspaceId)
+		} else {
+			if (!map) {
+				map = new Map()
+				workspacePresence.set(workspaceId, map)
+			}
+			map.set(userId, { status, lastSeenAt })
+			broadcastPresence(workspaceId)
 		}
-		map.set(userId, { status, lastSeenAt })
-		broadcastPresence(workspaceId)
 		if (publish) {
 			void pubsub.publishPresence?.(workspaceId, userId, status, lastSeenAt, nodeId).catch(() => {})
 		}
@@ -132,6 +149,19 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 
 	function setUserPresence(workspaceId: string, userId: string, status: 'online' | 'away') {
 		applyPresenceState(workspaceId, userId, status, Date.now(), true)
+	}
+
+	/** Refresh TTL state on pong, re-publishing at most once per 45 s per user. */
+	function refreshUserPresence(workspaceId: string, userId: string) {
+		const current = workspacePresence.get(workspaceId)?.get(userId)
+		if (!current) return
+		const now = Date.now()
+		presenceRegistry.set(workspaceId, userId, current.status, now)
+		const key = `${workspaceId}:${userId}`
+		const last = lastPresencePublish.get(key) ?? 0
+		if (now - last < 45_000) return
+		lastPresencePublish.set(key, now)
+		void pubsub.publishPresence?.(workspaceId, userId, current.status, now, nodeId).catch(() => {})
 	}
 
 	async function broadcastTypingSignal(
@@ -195,7 +225,9 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 				const pres = workspacePresence.get(wsId)
 				if (pres?.delete(userId)) {
 					if (pres.size === 0) workspacePresence.delete(wsId)
+					presenceRegistry.set(wsId, userId, 'offline')
 					broadcastPresence(wsId)
+					void pubsub.publishPresence?.(wsId, userId, 'offline', Date.now(), nodeId).catch(() => {})
 				}
 			}
 		}
@@ -622,6 +654,10 @@ export function startRealtime(portOrDeps: number | RealtimeDeps): { stop(): Prom
 			pong(ws) {
 				if (ws.data.kind === 'collab') {
 					ws.data.clientConnection?.touch()
+					return
+				}
+				if (ws.data.kind === 'signal' && ws.data.authenticated && ws.data.workspaceId && ws.data.userId) {
+					refreshUserPresence(ws.data.workspaceId, ws.data.userId)
 				}
 			},
 			close(ws, code, reason) {

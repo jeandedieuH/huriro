@@ -13,6 +13,7 @@ import { agentsModule } from '../modules/agents'
 import { mcpEndpoint } from '../modules/agents/mcp'
 import { aiModule } from '../modules/ai'
 import { automationsModule } from '../modules/automations'
+import { availabilityModule } from '../modules/availability'
 import { type BillingModuleConfig, billingModule, billingWebhookPublicModule } from '../modules/billing'
 import { chatModule } from '../modules/chat'
 import { docDatabasesModule } from '../modules/doc-databases'
@@ -30,6 +31,7 @@ import { syncModule } from '../modules/sync'
 import { tasksModule } from '../modules/tasks'
 import { setupStatus, tenancyModule } from '../modules/tenancy'
 import { webhooksModule } from '../modules/webhooks'
+import type { PresenceRegistry } from '../realtime/presence-registry'
 import type { RealtimePubSub } from '../realtime/pubsub'
 import { assertCookieCsrf } from './context'
 import { resolveRootEnvelopeSecret } from './crypto'
@@ -45,6 +47,7 @@ export interface AppDeps {
 	readonly mode: 'selfhost' | 'cloud'
 	readonly auth: Auth | null
 	readonly pubsub?: RealtimePubSub
+	readonly presence?: PresenceRegistry
 	readonly collabBridge?: CollabDirectBridge
 	readonly collabTicketSecret?: string
 	/** Public origins allowed to call cookie-authed mutations — [HURIRO_URL]. */
@@ -311,6 +314,7 @@ export function createApp(deps: AppDeps) {
 				.use(tenancyModule(sql, mode, auth, pubsub, { email: deps.email }))
 				.use(tasksModule(sql, auth, pubsub))
 				.use(automationsModule(sql, auth))
+				.use(availabilityModule(sql, auth, pubsub, { presence: deps.presence }))
 				.use(
 					docsModule(sql, auth, pubsub, collabBridge, collabTicketSecret, {
 						...(deps.egressFetch ? { fetcher: deps.egressFetch } : {}),
@@ -347,7 +351,7 @@ export function createApp(deps: AppDeps) {
 						...(deps.egressResolver ? { resolver: deps.egressResolver } : {})
 					})
 				)
-				.use(mailModule(sql, auth, blobStorage, mailCfg, pubsub))
+				.use(mailModule(sql, auth, blobStorage, mailCfg, pubsub, deps.presence))
 				.use(governanceModule(sql, auth, blobStorage, pubsub, { email: deps.email }))
 				.use(billingModule(sql, auth, billingCfg))
 		)

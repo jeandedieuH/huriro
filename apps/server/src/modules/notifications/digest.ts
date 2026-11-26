@@ -7,7 +7,7 @@
 
 import type { NotificationDto } from '@huriro/contracts'
 import { type Sql, withSystem, withWorkspace } from '@huriro/db'
-import { isWithinQuietHours } from '@huriro/domain'
+import { evaluateNotificationSuppression, isWithinQuietHours } from '@huriro/domain'
 import { createElement } from 'react'
 import {
 	createNoopEmailTransport,
@@ -18,6 +18,8 @@ import {
 	NotificationDigestEmail,
 	renderEmail
 } from '../../email'
+import type { PresenceRegistry } from '../../realtime/presence-registry'
+import { getUsersAvailabilityMap } from '../availability'
 import {
 	insertNotificationDeliveryLog,
 	listUnreadNotificationsSince,
@@ -92,8 +94,13 @@ export async function runEmailDigestOnce(
 		readonly email?: EmailPipeline | undefined
 		readonly smtp?: SmtpConfig | undefined
 		readonly baseUrl?: string | undefined
+		readonly presence?: PresenceRegistry | undefined
 	}
-): Promise<{ readonly sent: number; readonly skippedQuietHours: number }> {
+): Promise<{
+	readonly sent: number
+	readonly skippedQuietHours: number
+	readonly skippedAvailability: number
+}> {
 	const nowIso = opts?.nowUtcIso ?? new Date().toISOString()
 	const baseUrl = (opts?.baseUrl ?? opts?.email?.baseUrl ?? 'http://localhost:3000').replace(/\/+$/, '')
 	const appName = opts?.email?.appName ?? 'Huriro'
@@ -109,6 +116,7 @@ export async function runEmailDigestOnce(
 
 	let sent = 0
 	let skippedQuietHours = 0
+	let skippedAvailability = 0
 
 	for (const ws of workspaces) {
 		const prepared = await withWorkspace(app, { workspaceId: ws.id }, async (tx) => {
@@ -122,12 +130,45 @@ export async function runEmailDigestOnce(
 				readonly latestNotificationId: string | null
 			}[] = []
 			const skippedIds: { readonly userId: string; readonly latestNotificationId: string | null }[] = []
+			const availability = await getUsersAvailabilityMap(
+				tx,
+				ws.id,
+				candidates.map((c) => c.userId),
+				opts?.presence,
+				nowIso
+			)
+			let skippedByAvailability = 0
 
 			for (const c of candidates) {
 				const fallbackSince = new Date(Date.now() - 24 * 3600 * 1000).toISOString()
 				const since = c.lastDigestSentAt ?? fallbackSince
 				const unread = await listUnreadNotificationsSince(tx, ws.id, c.userId, since)
 				if (unread.length === 0) continue
+
+				const resolved = availability.get(c.userId)
+				if (resolved) {
+					const reason = evaluateNotificationSuppression({
+						availability: {
+							state: resolved.state,
+							isAcceptingNotifications: resolved.isAcceptingNotifications
+						},
+						nowUtcIso: nowIso,
+						allowUrgentOverride: resolved.allowUrgentOverride
+					})
+					if (reason) {
+						await insertNotificationDeliveryLog(tx, {
+							workspaceId: ws.id,
+							notificationId: unread[0]?.id ?? null,
+							userId: c.userId,
+							channel: 'email_digest',
+							status: reason,
+							detail: `Suppressed by availability (${resolved.state})`
+						})
+						skippedIds.push({ userId: c.userId, latestNotificationId: unread[0]?.id ?? null })
+						skippedByAvailability += 1
+						continue
+					}
+				}
 
 				if (isWithinQuietHours(nowIso, c.quietHoursStart, c.quietHoursEnd, c.timezone)) {
 					await insertNotificationDeliveryLog(tx, {
@@ -172,10 +213,11 @@ export async function runEmailDigestOnce(
 				})
 			}
 
-			return { toSend, skippedIds }
+			return { toSend, skippedIds, skippedByAvailability }
 		})
 
 		skippedQuietHours += prepared.skippedIds.length
+		skippedAvailability += prepared.skippedByAvailability
 
 		for (const item of prepared.toSend) {
 			let ok = true
@@ -221,7 +263,7 @@ export async function runEmailDigestOnce(
 		}
 	}
 
-	return { sent, skippedQuietHours }
+	return { sent, skippedQuietHours, skippedAvailability }
 }
 
 /**

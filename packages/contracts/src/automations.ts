@@ -32,7 +32,8 @@ export const AutomationActionSchema = Type.Union([
 			statusId: Type.Optional(TemplateString),
 			priority: Type.Optional(Type.Integer({ minimum: 0, maximum: 4 })),
 			assigneeUserId: Type.Optional(Type.Union([TemplateString, Type.Null()])),
-			cycleId: Type.Optional(Type.Union([TemplateString, Type.Null()]))
+			cycleId: Type.Optional(Type.Union([TemplateString, Type.Null()])),
+			respectOooDelegate: Type.Optional(Type.Boolean())
 		},
 		closed
 	),
@@ -56,7 +57,15 @@ export const AutomationActionSchema = Type.Union([
 		{
 			kind: Type.Literal('mail.assign'),
 			conversationId: TemplateString,
-			assigneeUserId: Type.Union([TemplateString, Type.Null()])
+			assigneeUserId: Type.Union([TemplateString, Type.Null()]),
+			respectOooDelegate: Type.Optional(Type.Boolean())
+		},
+		closed
+	),
+	Type.Object(
+		{
+			kind: Type.Literal('mail.route_round_robin'),
+			inboxId: TemplateString
 		},
 		closed
 	)

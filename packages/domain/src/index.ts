@@ -1,27 +1,18 @@
 // @huriro/domain public surface — pure, no I/O (§7.2).
 
-export type { AvailabilityWarning } from './availability'
+export type { AgentScope, RiskTier } from './agent-scopes'
 export {
-	AVAILABILITY_WARNING_KEYS,
-	AVAILABILITY_WINDOW_KINDS,
-	buildAvailabilityWarning,
-	defaultWorkingHours,
-	EFFECTIVE_AVAILABILITY_STATES,
-	evaluateNotificationSuppression,
-	isAvailabilityRoutable,
-	isValidHHMM,
-	isValidIanaTimezone,
-	localTimeLabel,
-	MANUAL_AVAILABILITY_STATES,
-	MAX_INTERVALS_PER_DAY,
-	normalizeWorkingHours,
-	NEXT_AVAILABLE_HORIZON_DAYS,
-	resolveEffectiveAvailability,
-	validateWorkingHours,
-	WEEKDAYS
-} from './availability'
+	AGENT_SCOPES,
+	actionsForScopes,
+	effectiveRisk,
+	isAgentExecutable,
+	isAgentScope,
+	RISK_TIERS,
+	SCOPE_ACTIONS
+} from './agent-scopes'
 export type {
 	AvailabilityProfileLike,
+	AvailabilityWarning,
 	AvailabilityWarningKey,
 	AvailabilityWindowKind,
 	AvailabilityWindowLike,
@@ -35,16 +26,25 @@ export type {
 	WorkingHoursSchedule,
 	WorkingHoursValidation
 } from './availability'
-export type { AgentScope, RiskTier } from './agent-scopes'
 export {
-	AGENT_SCOPES,
-	actionsForScopes,
-	effectiveRisk,
-	isAgentExecutable,
-	isAgentScope,
-	RISK_TIERS,
-	SCOPE_ACTIONS
-} from './agent-scopes'
+	AVAILABILITY_WARNING_KEYS,
+	AVAILABILITY_WINDOW_KINDS,
+	buildAvailabilityWarning,
+	defaultWorkingHours,
+	EFFECTIVE_AVAILABILITY_STATES,
+	evaluateNotificationSuppression,
+	isAvailabilityRoutable,
+	isValidHHMM,
+	isValidIanaTimezone,
+	localTimeLabel,
+	MANUAL_AVAILABILITY_STATES,
+	MAX_INTERVALS_PER_DAY,
+	NEXT_AVAILABLE_HORIZON_DAYS,
+	normalizeWorkingHours,
+	resolveEffectiveAvailability,
+	validateWorkingHours,
+	WEEKDAYS
+} from './availability'
 export type { ExtractedChatMentions, ExtractedRichLink } from './chat'
 export {
 	computeDmKey,

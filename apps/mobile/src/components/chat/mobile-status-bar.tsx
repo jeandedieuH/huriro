@@ -1,9 +1,10 @@
-import type { UpdateUserStatusBody, UserWorkspaceProfileDto } from '@huriro/contracts'
+import type { UpdateUserStatusBody, UserAvailabilityDto, UserWorkspaceProfileDto } from '@huriro/contracts'
 import { t } from '@huriro/i18n'
 import { Button, Chip, Surface } from 'heroui-native'
 import { BellOff, Check, Smile, X } from 'lucide-react-native'
 import { useEffect, useState } from 'react'
 import { TextInput, View } from 'react-native'
+import { MobileAvailabilityChip } from '../availability/mobile-availability-dot'
 
 /**
  * Compact status & DND bar backed by `/api/v1/chat/me/status` so users can broadcast
@@ -11,9 +12,11 @@ import { TextInput, View } from 'react-native'
  */
 export function MobileStatusBar({
 	profile,
+	availability,
 	onUpdate
 }: {
 	readonly profile: UserWorkspaceProfileDto | null
+	readonly availability?: UserAvailabilityDto | null
 	readonly onUpdate: (body: UpdateUserStatusBody) => Promise<void> | void
 }) {
 	const [draft, setDraft] = useState(profile?.statusText ?? '')
@@ -39,6 +42,7 @@ export function MobileStatusBar({
 		<Surface variant="default" className="border-b border-border/50 px-4 py-2 gap-2">
 			<View className="flex-row items-center gap-2">
 				<Smile size={15} color="#71717a" />
+				{availability ? <MobileAvailabilityChip state={availability.effectiveState} /> : null}
 				<TextInput
 					className="flex-1 rounded-lg border border-border bg-field px-2.5 py-1.5 text-xs text-foreground"
 					value={draft}

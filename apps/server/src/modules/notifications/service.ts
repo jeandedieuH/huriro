@@ -13,10 +13,12 @@ import type {
 } from '@huriro/contracts'
 import { decodeCursor, encodeCursor } from '@huriro/contracts'
 import type { Queryable } from '@huriro/db'
-import { type ActorContext, isWithinQuietHours } from '@huriro/domain'
+import { type ActorContext, evaluateNotificationSuppression, isWithinQuietHours } from '@huriro/domain'
 import { appendChange, appendChanges, type ChangeLogEntry } from '../../api/changelog'
 import { validateAndResolveEgressUrl } from '../../api/egress'
 import { HttpError } from '../../api/error'
+import type { PresenceRegistry } from '../../realtime/presence-registry'
+import { getUsersAvailabilityMap } from '../availability'
 import { getChannelNotificationContext, incrementChannelMentionCount } from '../chat'
 import { NOTIFICATIONS_CONSUMER } from './events'
 import { assertActiveWorkspaceMember } from './policy'
@@ -75,7 +77,8 @@ function asActorType(raw: unknown): 'user' | 'agent' | 'system' {
 
 export async function processNotificationOutboxEvent(
 	tx: Queryable,
-	event: OutboxNotificationEvent
+	event: OutboxNotificationEvent,
+	presence?: PresenceRegistry
 ): Promise<{
 	readonly cursor: number | null
 	readonly pendingWebPush: PendingWebPushDispatch[]
@@ -663,6 +666,41 @@ export async function processNotificationOutboxEvent(
 		}
 	}
 
+	if (pendingWebPush.length > 0 || pendingMobilePush.length > 0 || pendingEmail.length > 0) {
+		const recipients = [
+			...new Set([...pendingWebPush, ...pendingMobilePush, ...pendingEmail].map((item) => item.userId))
+		]
+		const availability = await getUsersAvailabilityMap(tx, event.workspaceId, recipients, presence)
+		const atIso = new Date().toISOString()
+		const webKept = await filterAvailabilitySuppressed(
+			tx,
+			event.workspaceId,
+			pendingWebPush,
+			'web_push',
+			availability,
+			atIso
+		)
+		const mobileKept = await filterAvailabilitySuppressed(
+			tx,
+			event.workspaceId,
+			pendingMobilePush,
+			'mobile_push',
+			availability,
+			atIso
+		)
+		const emailKept = await filterAvailabilitySuppressed(
+			tx,
+			event.workspaceId,
+			pendingEmail,
+			'email_instant',
+			availability,
+			atIso
+		)
+		pendingWebPush.splice(0, pendingWebPush.length, ...webKept)
+		pendingMobilePush.splice(0, pendingMobilePush.length, ...mobileKept)
+		pendingEmail.splice(0, pendingEmail.length, ...emailKept)
+	}
+
 	const changes: ChangeLogEntry[] = createdNotifications.map((n) => ({
 		entityType: 'notification',
 		entityId: n.id,
@@ -673,6 +711,56 @@ export async function processNotificationOutboxEvent(
 	}))
 	const cursor = await appendChanges(tx, event.workspaceId, changes)
 	return { cursor, pendingWebPush, pendingMobilePush, pendingEmail }
+}
+
+const URGENT_NOTIFICATION_KINDS = new Set<NotificationKind>([
+	'approval.requested',
+	'issue.mentioned',
+	'doc.mentioned',
+	'chat.mentioned',
+	'mail.mentioned'
+])
+
+async function filterAvailabilitySuppressed(
+	tx: Queryable,
+	workspaceId: string,
+	list: readonly PendingWebPushDispatch[],
+	channel: 'web_push' | 'mobile_push' | 'email_instant',
+	availability: Awaited<ReturnType<typeof getUsersAvailabilityMap>>,
+	atIso: string
+): Promise<PendingWebPushDispatch[]> {
+	const kept: PendingWebPushDispatch[] = []
+	for (const item of list) {
+		const resolved = availability.get(item.userId)
+		if (!resolved) {
+			// No durable row → no basis to suppress (safe default).
+			kept.push(item)
+			continue
+		}
+		const reason = evaluateNotificationSuppression({
+			availability: {
+				state: resolved.state,
+				isAcceptingNotifications: resolved.isAcceptingNotifications
+			},
+			nowUtcIso: atIso,
+			allowUrgentOverride: resolved.allowUrgentOverride,
+			isUrgent: URGENT_NOTIFICATION_KINDS.has(item.notification.kind)
+		})
+		if (!reason) {
+			kept.push(item)
+			continue
+		}
+		await insertNotificationDeliveryLog(tx, {
+			workspaceId,
+			notificationId: item.notification.id,
+			userId: item.userId,
+			channel,
+			status: reason,
+			dedupeKey: `${channel}:${item.notification.id}`,
+			detail: `Suppressed by availability (${resolved.state})`
+		})
+	}
+	return kept
 }
 
 export async function listMyNotifications(

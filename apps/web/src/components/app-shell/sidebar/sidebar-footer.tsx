@@ -21,6 +21,7 @@ import {
 	DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { AvailabilitySwitcher } from '@/features/availability'
 
 export interface SidebarFooterProps {
 	readonly userName?: string | undefined
@@ -145,6 +146,9 @@ export function SidebarFooter({
 	return (
 		<div className="mt-auto space-y-2 pt-2">
 			{utilitySlot ? <div className="space-y-0.5">{utilitySlot}</div> : null}
+			<div className="border-t border-sidebar-border/60 pt-1.5">
+				<AvailabilitySwitcher collapsed={collapsed} />
+			</div>
 
 			{collapsed ? (
 				<div className="flex flex-col items-center gap-1.5 border-t border-sidebar-border/60 pt-2">

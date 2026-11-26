@@ -114,6 +114,33 @@ export const ALIASES: Record<string, Alias> = {
 		usage: 'huriro approvals status <approvalId>',
 		tool: 'approvals.status',
 		build: (pos) => ({ approvalId: pos[0] ?? '' })
+	},
+	availability: {
+		usage: 'huriro availability [--state s] [--user id] [--json|--md]',
+		tool: 'availability.list',
+		build: (_p, f) =>
+			stripUndef({
+				state: f['state'],
+				userIds: f['user'] ? [String(f['user'])] : undefined
+			})
+	},
+	'availability get': {
+		usage: 'huriro availability get <userId>',
+		tool: 'availability.get',
+		build: (pos) => ({ userId: pos[0] ?? '' })
+	},
+	'status set': {
+		usage:
+			'huriro status set [-m text] [--emoji e] [--state auto|available|busy|dnd|away|ooo] [--dnd-until ISO] [--expires ISO]',
+		tool: 'availability.set_my_status',
+		build: (_p, f) =>
+			stripUndef({
+				statusText: f['m'] ?? f['message'],
+				statusEmoji: f['emoji'],
+				manualState: f['state'],
+				dndUntil: f['dnd-until'],
+				statusExpiresAt: f['expires']
+			})
 	}
 }
 

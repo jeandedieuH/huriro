@@ -41,7 +41,10 @@ export function MailV2SettingsSection({ inboxes, onNotice, onError }: MailV2Sett
 		enabled: false,
 		maxOpenCap: 10,
 		requireOnline: true,
-		respectDnd: true
+		respectDnd: true,
+		respectWorkingHours: false,
+		respectOoo: true,
+		useOooDelegate: true
 	})
 	const [slaPolicies, setSlaPolicies] = useState<MailSlaPolicyDto[]>([])
 	const [slaAnalytics, setSlaAnalytics] = useState<MailSlaAnalyticsDto | null>(null)
@@ -385,6 +388,40 @@ export function MailV2SettingsSection({ inboxes, onNotice, onError }: MailV2Sett
 								/>
 								<label htmlFor="mail-routing-dnd" className="text-xs text-foreground">
 									{t('mail.routing.respect-dnd')}
+								</label>
+							</div>
+							<div className="flex items-center gap-2 pt-5">
+								<Checkbox
+									id="mail-routing-working-hours"
+									checked={routing.respectWorkingHours}
+									onCheckedChange={(checked) =>
+										setRouting((r) => ({ ...r, respectWorkingHours: checked === true }))
+									}
+								/>
+								<label htmlFor="mail-routing-working-hours" className="text-xs text-foreground">
+									{t('mail.routing.respect-working-hours')}
+								</label>
+							</div>
+							<div className="flex items-center gap-2 pt-5">
+								<Checkbox
+									id="mail-routing-ooo"
+									checked={routing.respectOoo}
+									onCheckedChange={(checked) => setRouting((r) => ({ ...r, respectOoo: checked === true }))}
+								/>
+								<label htmlFor="mail-routing-ooo" className="text-xs text-foreground">
+									{t('mail.routing.respect-ooo')}
+								</label>
+							</div>
+							<div className="flex items-center gap-2 pt-5">
+								<Checkbox
+									id="mail-routing-ooo-delegate"
+									checked={routing.useOooDelegate}
+									onCheckedChange={(checked) =>
+										setRouting((r) => ({ ...r, useOooDelegate: checked === true }))
+									}
+								/>
+								<label htmlFor="mail-routing-ooo-delegate" className="text-xs text-foreground">
+									{t('mail.routing.use-ooo-delegate')}
 								</label>
 							</div>
 						</div>

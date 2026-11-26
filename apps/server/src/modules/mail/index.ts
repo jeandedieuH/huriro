@@ -41,6 +41,7 @@ import {
 import { type Sql, withSystem, withWorkspace } from '@huriro/db'
 import { Elysia } from 'elysia'
 import { HttpError } from '../../api/error'
+import type { PresenceRegistry } from '../../realtime/presence-registry'
 import type { RealtimePubSub } from '../../realtime/pubsub'
 import type { BlobStorage } from '../files'
 import type { Auth } from '../identity'
@@ -62,7 +63,7 @@ import {
 import type { MailModuleConfig } from './service'
 import * as svc from './service'
 
-export { listMailTags } from './advanced-mail-service'
+export { listMailTags, routeNextConversationInInbox } from './advanced-mail-service'
 export {
 	acquireMailDraftRoomAndState,
 	consumeAndAuthorizeMailDraftTicket,
@@ -103,7 +104,8 @@ export function mailModule(
 	auth: Auth | null,
 	storage: BlobStorage,
 	cfg: MailModuleConfig,
-	pubsub?: RealtimePubSub
+	pubsub?: RealtimePubSub,
+	presence?: PresenceRegistry
 ) {
 	return (
 		new Elysia({ name: 'huriro.mail' })
@@ -572,7 +574,7 @@ export function mailModule(
 					inWorkspace((tx, actor) => mailV2.upsertMailRoutingConfig(tx, actor, params.id, body))
 			)
 			.post('/mail/conversations/:id/route', { params: MailIdParam }, ({ params, inWorkspace }) =>
-				inWorkspace((tx, actor) => mailV2.routeConversationRoundRobin(tx, actor, params.id))
+				inWorkspace((tx, actor) => mailV2.routeConversationRoundRobin(tx, actor, params.id, presence))
 			)
 			.get('/mail/sla-policies', ({ inWorkspace, query }) =>
 				inWorkspace((tx, actor) =>

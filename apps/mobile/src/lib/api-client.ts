@@ -1,4 +1,5 @@
 import type {
+	AvailabilityWindowDto,
 	BillingSummaryResponse,
 	ChatChannelDto,
 	ChatMessageDto,
@@ -6,6 +7,7 @@ import type {
 	ChatSavedItemBody,
 	ChatSavedItemDto,
 	CompleteDraftReviewBody,
+	CreateAvailabilityWindowBody,
 	CreateMailNoteBody,
 	DocPageDetailDto,
 	MailConversationDto,
@@ -26,10 +28,13 @@ import type {
 	RequestDraftReviewBody,
 	SendMailDraftBody,
 	SendMessageBody,
+	UpdateAvailabilityWindowBody,
 	UpdateConversationBody,
+	UpdateMyAvailabilityBody,
 	UpdateNotificationPreferencesBody,
 	UpdateUserStatusBody,
 	UpsertMailDraftBody,
+	UserAvailabilityDto,
 	UserWorkspaceProfileDto
 } from '@huriro/contracts'
 import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
@@ -188,6 +193,48 @@ export class HuriroMobileApiClient {
 	async updateMyStatus(body: UpdateUserStatusBody): Promise<UserWorkspaceProfileDto> {
 		return this.request<UserWorkspaceProfileDto>('/api/v1/chat/me/status', {
 			method: 'PUT',
+			body: JSON.stringify(body)
+		})
+	}
+
+	async getMyAvailability(): Promise<UserAvailabilityDto> {
+		return this.request<UserAvailabilityDto>('/api/v1/availability/me')
+	}
+
+	async listWorkspaceAvailability(): Promise<UserAvailabilityDto[]> {
+		const res = await this.request<{ data: UserAvailabilityDto[] }>('/api/v1/availability')
+		return res.data ?? []
+	}
+
+	async updateMyAvailability(body: UpdateMyAvailabilityBody): Promise<UserAvailabilityDto> {
+		return this.request<UserAvailabilityDto>('/api/v1/availability/me', {
+			method: 'PUT',
+			body: JSON.stringify(body)
+		})
+	}
+
+	async listAvailabilityWindows(): Promise<AvailabilityWindowDto[]> {
+		const res = await this.request<{ data: AvailabilityWindowDto[] }>('/api/v1/availability/windows')
+		return res.data ?? []
+	}
+
+	async createAvailabilityWindow(body: CreateAvailabilityWindowBody): Promise<AvailabilityWindowDto> {
+		return this.request<AvailabilityWindowDto>('/api/v1/availability/windows', {
+			method: 'POST',
+			body: JSON.stringify(body)
+		})
+	}
+
+	async deleteAvailabilityWindow(id: string): Promise<void> {
+		await this.request(`/api/v1/availability/windows/${encodeURIComponent(id)}`, { method: 'DELETE' })
+	}
+
+	async updateAvailabilityWindow(
+		id: string,
+		body: UpdateAvailabilityWindowBody
+	): Promise<AvailabilityWindowDto> {
+		return this.request<AvailabilityWindowDto>(`/api/v1/availability/windows/${encodeURIComponent(id)}`, {
+			method: 'PATCH',
 			body: JSON.stringify(body)
 		})
 	}

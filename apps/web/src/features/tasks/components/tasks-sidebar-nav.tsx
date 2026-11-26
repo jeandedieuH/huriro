@@ -135,7 +135,7 @@ export function TasksSidebarNav({ collapsed }: TasksSidebarNavProps) {
 				if (issue.triageStatus === 'pending' || issue.triageStatus === 'snoozed') continue
 				if (issue.closedAt !== null) continue
 				const category = statusesById.get(issue.statusId)?.category
-				if (category === 'completed' || category === 'canceled') continue
+				if (category === 'completed' || category === 'cancelled') continue
 
 				totalOpen += 1
 				byProject.set(issue.projectId, (byProject.get(issue.projectId) ?? 0) + 1)

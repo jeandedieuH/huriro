@@ -3,6 +3,7 @@ import type {
 	ChatMessageDto,
 	ChatSavedItemDto,
 	UpdateUserStatusBody,
+	UserAvailabilityDto,
 	UserWorkspaceProfileDto
 } from '@huriro/contracts'
 import { t } from '@huriro/i18n'
@@ -52,6 +53,7 @@ export default function ChatTabScreen() {
 	const [showSaved, setShowSaved] = useState(false)
 	const [savedItems, setSavedItems] = useState<ChatSavedItemDto[]>([])
 	const [statusProfile, setStatusProfile] = useState<UserWorkspaceProfileDto | null>(null)
+	const [availability, setAvailability] = useState<UserAvailabilityDto | null>(null)
 
 	useEffect(() => {
 		if (!runtime || runtime.isPreview) return
@@ -68,6 +70,12 @@ export default function ChatTabScreen() {
 			.getMyStatus()
 			.then((profile) => {
 				if (!cancelled) setStatusProfile(profile)
+			})
+			.catch(() => {})
+		void runtime.api
+			.getMyAvailability()
+			.then((row) => {
+				if (!cancelled) setAvailability(row)
 			})
 			.catch(() => {})
 		void runtime.api
@@ -195,7 +203,11 @@ export default function ChatTabScreen() {
 			header={
 				<>
 					<SyncStatusBanner />
-					<MobileStatusBar profile={statusProfile} onUpdate={handleUpdateStatus} />
+					<MobileStatusBar
+						profile={statusProfile}
+						availability={availability}
+						onUpdate={handleUpdateStatus}
+					/>
 					{/* Channel picker + Saved view toggle stays a horizontal scroll */}
 					<View className="border-b border-default-soft bg-surface flex-row items-center justify-between pr-3">
 						<ScrollView

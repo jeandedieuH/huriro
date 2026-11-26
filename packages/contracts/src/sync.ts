@@ -22,6 +22,9 @@ export const SyncEntityType = Type.Union([
 	Type.Literal('doc_database_view'),
 	Type.Literal('mail_inbox'),
 	Type.Literal('mail_conversation'),
+	// Shared user availability (ADR-0035) — durable profile rows only; live
+	// presence remains an ephemeral WS signal.
+	Type.Literal('user_availability'),
 	// ADR-0033 graph edges. Never delivered as core change-feed rows — only
 	// when the client's `scopes` subscription intersects the row's
 	// `links:<type>:<id>` scope pair (§8.1, ADR-0031).
@@ -92,7 +95,8 @@ export const SyncSnapshotResponse = Type.Object({
 	savedViews: Type.Array(Type.Record(Type.String(), Type.Unknown())),
 	notifications: Type.Array(Type.Record(Type.String(), Type.Unknown())),
 	docPages: Type.Array(Type.Record(Type.String(), Type.Unknown())),
-	teamspaces: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown())))
+	teamspaces: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown()))),
+	userAvailability: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown())))
 })
 export type SyncSnapshotResponse = Static<typeof SyncSnapshotResponse>
 
@@ -131,7 +135,8 @@ export const MutationEntity = Type.Union([
 	Type.Literal('doc_database_row'),
 	Type.Literal('initiative'),
 	Type.Literal('project_milestone'),
-	Type.Literal('project_update')
+	Type.Literal('project_update'),
+	Type.Literal('user_availability')
 ])
 export type MutationEntity = Static<typeof MutationEntity>
 

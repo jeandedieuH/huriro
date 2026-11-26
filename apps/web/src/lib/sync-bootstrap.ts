@@ -12,6 +12,7 @@ import type {
 	AiMailAssistResponse,
 	AiProviderDto,
 	AiSettingsResponse,
+	AvailabilityWindowDto,
 	BillingPortalDto,
 	BillingSummaryResponse,
 	BookmarkMetadataDto,
@@ -36,6 +37,7 @@ import type {
 	CollabTicketResponse,
 	ContactDto,
 	ContactOrganizationDto,
+	CreateAvailabilityWindowBody,
 	CreateWebhookResponse,
 	CycleDailySnapshotDto,
 	CycleDto,
@@ -89,6 +91,7 @@ import type {
 	TeamspaceDto,
 	TeamspaceMemberDto,
 	TriageSuggestionsDto,
+	UpdateAvailabilityWindowBody,
 	UserGroupDto,
 	UserWorkspaceProfileDto,
 	WebhookDeliveryDto,
@@ -590,6 +593,26 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 				method: 'PUT',
 				body: JSON.stringify(body)
 			})
+		},
+		async listAvailabilityWindows() {
+			const res = await apiFetch<{ data: AvailabilityWindowDto[] }>('/api/v1/availability/windows')
+			return res.data
+		},
+		async createAvailabilityWindow(body: CreateAvailabilityWindowBody) {
+			return apiFetch<AvailabilityWindowDto>('/api/v1/availability/windows', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async updateAvailabilityWindow(id: string, body: UpdateAvailabilityWindowBody) {
+			return apiFetch<AvailabilityWindowDto>(`/api/v1/availability/windows/${encodeURIComponent(id)}`, {
+				method: 'PATCH',
+				body: JSON.stringify(body)
+			})
+		},
+		async deleteAvailabilityWindow(id: string) {
+			await apiFetch(`/api/v1/availability/windows/${encodeURIComponent(id)}`, { method: 'DELETE' })
+			return { deleted: true as const }
 		},
 		async listUserGroups() {
 			const res = await apiFetch<{ data: UserGroupDto[] }>('/api/v1/chat/user-groups')

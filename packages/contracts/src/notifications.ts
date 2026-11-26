@@ -168,6 +168,9 @@ export const NotificationDeliveryLogDto = Type.Object({
 		Type.Literal('pending'),
 		Type.Literal('sent'),
 		Type.Literal('skipped_quiet_hours'),
+		Type.Literal('skipped_dnd'),
+		Type.Literal('skipped_ooo'),
+		Type.Literal('skipped_off_hours'),
 		Type.Literal('failed')
 	]),
 	dedupeKey: Type.Union([Type.String(), Type.Null()]),

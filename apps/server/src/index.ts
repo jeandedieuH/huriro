@@ -21,7 +21,7 @@ import { loadEnv } from './env'
 import { FilesystemBlobStorage } from './modules/files'
 import { createAuth, ensureAgentOAuthSeed } from './modules/identity'
 import { ensureBootstrapSetupToken } from './modules/tenancy'
-import { createCollabRuntime, startRealtime } from './realtime'
+import { createCollabRuntime, createPresenceRegistry, startRealtime } from './realtime'
 import {
 	InProcessPubSub,
 	PostgresNotifyPubSub,
@@ -129,7 +129,7 @@ async function serve(args: string[]) {
 		pubsub = new InProcessPubSub()
 	} else {
 		const pgPubSub = new PostgresNotifyPubSub(app)
-		if (role === 'realtime') await pgPubSub.startListening()
+		await pgPubSub.startListening()
 		pubsub = pgPubSub
 	}
 	if (env.VALKEY_URL) {
@@ -140,6 +140,8 @@ async function serve(args: string[]) {
 		pubsub = new ResilientPubSub(valkey, pubsub)
 	}
 	stoppers.push(() => pubsub.close())
+	const presenceBinding = createPresenceRegistry(pubsub)
+	stoppers.push(() => presenceBinding.stop())
 
 	const auth =
 		role === 'api' || role === 'realtime' || role === 'all'
@@ -241,6 +243,7 @@ async function serve(args: string[]) {
 			mode: env.HURIRO_MODE,
 			auth,
 			pubsub,
+			presence: presenceBinding.registry,
 			collabTicketSecret,
 			blobStorage,
 			rootSecret,
@@ -277,6 +280,7 @@ async function serve(args: string[]) {
 			app,
 			mode: env.HURIRO_MODE,
 			pubsub,
+			presence: presenceBinding.registry,
 			heartbeatUrl: env.HEARTBEAT_URL,
 			blobStorage,
 			rootSecret,
@@ -297,6 +301,7 @@ async function serve(args: string[]) {
 			sql: app,
 			auth,
 			pubsub,
+			presence: presenceBinding.registry,
 			allowedOrigins: [env.HURIRO_URL],
 			...(collab ? { collab } : {})
 		})

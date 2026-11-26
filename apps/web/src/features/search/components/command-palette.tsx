@@ -19,6 +19,7 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { useWorkspaceAvailability } from '@/features/availability/hooks/use-availability'
 import { navigateToChat, navigateToDoc, navigateToMail } from '@/lib/navigation'
 import type { TaskApiBridge } from '@/lib/sync-bootstrap'
 import { type AppDestination, useUiStore } from '@/stores/ui-store'
@@ -52,6 +53,7 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 	const toggleTheme = useUiStore((s) => s.toggleTheme)
 	const selectIssue = useUiStore((s) => s.selectIssue)
 	const pushToast = useUiStore((s) => s.pushToast)
+	const { myAvailability, updateMyAvailability } = useWorkspaceAvailability()
 
 	const [query, setQuery] = useState('')
 	const [activeIndex, setActiveIndex] = useState(0)
@@ -135,6 +137,30 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 				onRun: () => {
 					setOpen(false)
 					toggleTheme()
+				}
+			},
+			{
+				id: 'act-availability-settings',
+				section: 'actions',
+				label: t('availability.command.open-settings'),
+				onRun: () => {
+					setOpen(false)
+					setDestination('settings')
+					useUiStore.getState().setSettingsSection('availability')
+				}
+			},
+			{
+				id: 'act-availability-dnd',
+				section: 'actions',
+				label: t('availability.command.toggle-dnd'),
+				onRun: () => {
+					setOpen(false)
+					if (!myAvailability) return
+					const active = myAvailability.dndUntil !== null && Date.parse(myAvailability.dndUntil) > Date.now()
+					void updateMyAvailability({
+						dndUntil: active ? null : new Date(Date.now() + 3_600_000).toISOString(),
+						expectedVersion: myAvailability.version
+					})
 				}
 			},
 			{
@@ -288,6 +314,7 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 		engine,
 		localDocs,
 		localIssues,
+		myAvailability,
 		pushToast,
 		query,
 		selectIssue,
@@ -300,7 +327,8 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 		setOpen,
 		setShortcutsDialogOpen,
 		setTasksLayout,
-		toggleTheme
+		toggleTheme,
+		updateMyAvailability
 	])
 
 	function handleKeyDown(ev: React.KeyboardEvent) {

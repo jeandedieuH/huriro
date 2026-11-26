@@ -32,7 +32,7 @@ export type PubSubEvent =
 			readonly type: 'presence'
 			readonly workspaceId: string
 			readonly userId: string
-			readonly status: 'online' | 'away'
+			readonly status: 'online' | 'away' | 'offline'
 			readonly lastSeenAt: number
 			readonly originId?: string | undefined
 	  }
@@ -54,7 +54,7 @@ export interface RealtimePubSub {
 	publishPresence?(
 		workspaceId: string,
 		userId: string,
-		status: 'online' | 'away',
+		status: 'online' | 'away' | 'offline',
 		lastSeenAt: number,
 		originId?: string
 	): Promise<void>
@@ -91,7 +91,7 @@ export class InProcessPubSub implements RealtimePubSub {
 	async publishPresence(
 		workspaceId: string,
 		userId: string,
-		status: 'online' | 'away',
+		status: 'online' | 'away' | 'offline',
 		lastSeenAt: number,
 		originId?: string
 	): Promise<void> {
@@ -145,7 +145,7 @@ export class PostgresNotifyPubSub implements RealtimePubSub {
 					| { t: 'c'; w: string; c: number }
 					| { t: 'm'; w: string; ch: string; r: number; s: number }
 					| { t: 'r'; w: string; u: string; r: string }
-					| { t: 'p'; w: string; u: string; st: 'online' | 'away'; ts: number; o?: string }
+					| { t: 'p'; w: string; u: string; st: 'online' | 'away' | 'offline'; ts: number; o?: string }
 					| { t: 'y'; w: string; ch: string; u: string; un: number; o?: string }
 				if (parsed.t === 'c') {
 					for (const h of this.handlers) {
@@ -212,7 +212,7 @@ export class PostgresNotifyPubSub implements RealtimePubSub {
 	async publishPresence(
 		workspaceId: string,
 		userId: string,
-		status: 'online' | 'away',
+		status: 'online' | 'away' | 'offline',
 		lastSeenAt: number,
 		originId?: string
 	): Promise<void> {
@@ -598,7 +598,7 @@ export class ValkeyPubSub implements RealtimePubSub {
 	publishPresence(
 		workspaceId: string,
 		userId: string,
-		status: 'online' | 'away',
+		status: 'online' | 'away' | 'offline',
 		lastSeenAt: number,
 		originId?: string
 	): Promise<void> {
@@ -699,7 +699,7 @@ export class ResilientPubSub implements RealtimePubSub {
 	publishPresence(
 		workspaceId: string,
 		userId: string,
-		status: 'online' | 'away',
+		status: 'online' | 'away' | 'offline',
 		lastSeenAt: number,
 		originId?: string
 	): Promise<void> {

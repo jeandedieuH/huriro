@@ -41,6 +41,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { AvailabilityWarningBanner } from '@/features/availability/components/availability-warning-banner'
 import type { WorkspaceMemberSummary } from '@/lib/api-bridge'
 import { useWorkspace } from '@/lib/workspace'
 import { ConversationTagsBar } from './conversation-tags-bar'
@@ -640,6 +641,10 @@ export function ConversationView({
 						{t('mail.ai.toggle')}
 					</Button>
 				) : null}
+				<AvailabilityWarningBanner
+					userId={conversation.assigneeId}
+					onAssignDelegate={(delegateUserId) => void run(() => onPatch({ assigneeId: delegateUserId }))}
+				/>
 				{conversation.assigneeId === currentUserId ? (
 					<span ref={assignWrapRef} className="inline-flex">
 						<Button

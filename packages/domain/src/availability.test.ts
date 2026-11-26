@@ -227,11 +227,19 @@ describe('resolveEffectiveAvailability precedence', () => {
 	})
 
 	test('live presence drives auto state', () => {
-		const online = resolveEffectiveAvailability({ profile: profile({}), livePresence: 'online', nowUtcIso: now })
+		const online = resolveEffectiveAvailability({
+			profile: profile({}),
+			livePresence: 'online',
+			nowUtcIso: now
+		})
 		expect(online.state).toBe('available')
 		const away = resolveEffectiveAvailability({ profile: profile({}), livePresence: 'away', nowUtcIso: now })
 		expect(away.state).toBe('away')
-		const offline = resolveEffectiveAvailability({ profile: profile({}), livePresence: 'offline', nowUtcIso: now })
+		const offline = resolveEffectiveAvailability({
+			profile: profile({}),
+			livePresence: 'offline',
+			nowUtcIso: now
+		})
 		expect(offline.state).toBe('offline')
 	})
 

@@ -3,7 +3,15 @@ import { t } from '@huriro/i18n'
 import { useSyncEngine, useSyncStatus } from '@huriro/sync-client'
 import { useRouter } from 'expo-router'
 import { Alert, Avatar, Button, Card, Chip, Separator, Switch } from 'heroui-native'
-import { Bell, CreditCard, Database, LogOut, RefreshCw, ShieldCheck } from 'lucide-react-native'
+import {
+	Bell,
+	CalendarClock,
+	CreditCard,
+	Database,
+	LogOut,
+	RefreshCw,
+	ShieldCheck
+} from 'lucide-react-native'
 import { useEffect, useState } from 'react'
 import { Platform, View } from 'react-native'
 import { Container } from '../../src/components/app/container'
@@ -86,6 +94,26 @@ export default function SettingsTabScreen() {
 						<ShieldCheck size={11} color="#16a34a" />
 						<Chip.Label>{runtime?.isPreview ? 'Preview' : 'Connected'}</Chip.Label>
 					</Chip>
+				</View>
+			</Card>
+
+			{/* Availability & working hours */}
+			<Card className="p-4 rounded-2xl border border-border/60 gap-3">
+				<View className="flex-row items-center justify-between gap-3">
+					<View className="flex-row items-center gap-2.5 flex-1">
+						<CalendarClock size={18} color="#71717a" />
+						<View className="flex-1">
+							<Card.Title className="text-sm font-semibold">{t('availability.title')}</Card.Title>
+							<Card.Description className="text-xs">{t('availability.settings-desc')}</Card.Description>
+						</View>
+					</View>
+					<Button
+						size="sm"
+						variant="secondary"
+						onPress={() => router.push('/settings/availability' as never)}
+					>
+						<Button.Label>{t('common.edit')}</Button.Label>
+					</Button>
 				</View>
 			</Card>
 

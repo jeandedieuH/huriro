@@ -16,14 +16,7 @@ import { isWithinQuietHours } from './chat'
 export const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
 export type WeekdayKey = (typeof WEEKDAYS)[number]
 
-export const MANUAL_AVAILABILITY_STATES = [
-	'auto',
-	'available',
-	'busy',
-	'dnd',
-	'away',
-	'ooo'
-] as const
+export const MANUAL_AVAILABILITY_STATES = ['auto', 'available', 'busy', 'dnd', 'away', 'ooo'] as const
 export type ManualAvailabilityState = (typeof MANUAL_AVAILABILITY_STATES)[number]
 
 export const AVAILABILITY_WINDOW_KINDS = ['ooo', 'focus', 'dnd'] as const
@@ -101,6 +94,8 @@ export interface ResolvedAvailability {
 	readonly delegateUserId: string | null
 	readonly timezone: string
 	readonly withinWorkingHours: boolean
+	readonly suppressNotificationsOffHours: boolean
+	readonly allowUrgentOverride: boolean
 	readonly isRoutable: boolean
 	readonly isAcceptingNotifications: boolean
 	readonly nextAvailableAt: string | null
@@ -203,7 +198,11 @@ export interface WorkingHoursValidation {
 export function validateWorkingHours(raw: unknown, fallbackTimezone = 'UTC'): WorkingHoursValidation {
 	const errors: string[] = []
 	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-		return { ok: false, errors: ['working hours must be an object'], normalized: defaultWorkingHours(fallbackTimezone) }
+		return {
+			ok: false,
+			errors: ['working hours must be an object'],
+			normalized: defaultWorkingHours(fallbackTimezone)
+		}
 	}
 	const record = raw as Record<string, unknown>
 	const timezone = record['timezone']
@@ -211,7 +210,10 @@ export function validateWorkingHours(raw: unknown, fallbackTimezone = 'UTC'): Wo
 		errors.push('timezone must be a valid IANA timezone')
 	}
 	const daysRecord = record['days']
-	if (daysRecord !== undefined && (typeof daysRecord !== 'object' || daysRecord === null || Array.isArray(daysRecord))) {
+	if (
+		daysRecord !== undefined &&
+		(typeof daysRecord !== 'object' || daysRecord === null || Array.isArray(daysRecord))
+	) {
 		errors.push('days must be an object')
 	} else if (daysRecord && typeof daysRecord === 'object') {
 		for (const [key, value] of Object.entries(daysRecord as Record<string, unknown>)) {
@@ -288,7 +290,7 @@ function zonedParts(at: Date, timezone: string): ZonedParts {
 function timezoneOffsetMs(at: Date, timezone: string): number {
 	const p = zonedParts(at, timezone)
 	const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute)
-	return asUtc - (at.getTime() - at.getTime() % 60_000)
+	return asUtc - (at.getTime() - (at.getTime() % 60_000))
 }
 
 /** Converts a local wall-clock time in `timezone` to a UTC instant (DST-safe). */
@@ -376,7 +378,6 @@ export interface ResolveAvailabilityInput {
 
 export function resolveEffectiveAvailability(input: ResolveAvailabilityInput): ResolvedAvailability {
 	const now = new Date(input.nowUtcIso)
-	const nowMs = now.getTime()
 	const manualUnexpired =
 		input.profile.manualState !== 'auto' && !isExpired(input.profile.manualStateExpiresAt, now)
 	const activeWindows = (input.windows ?? []).filter((window) => isActiveWindow(window, now))
@@ -396,7 +397,9 @@ export function resolveEffectiveAvailability(input: ResolveAvailabilityInput): R
 		timezone: input.profile.timezone,
 		withinWorkingHours: working.within,
 		localTimeLabel: localTimeLabel(input.nowUtcIso, input.profile.timezone),
-		livePresence
+		livePresence,
+		allowUrgentOverride: input.profile.allowUrgentOverride,
+		suppressNotificationsOffHours: input.profile.suppressNotificationsOffHours
 	} as const
 
 	// 1. OOO
@@ -415,8 +418,7 @@ export function resolveEffectiveAvailability(input: ResolveAvailabilityInput): R
 
 	// 2. DND
 	const dndWindow = activeWindows.find((window) => window.kind === 'dnd') ?? null
-	const dndUntilActive =
-		input.profile.dndUntil !== null && !isExpired(input.profile.dndUntil, now)
+	const dndUntilActive = input.profile.dndUntil !== null && !isExpired(input.profile.dndUntil, now)
 	if (dndWindow || dndUntilActive || (manualUnexpired && input.profile.manualState === 'dnd')) {
 		return {
 			...base,
@@ -437,7 +439,7 @@ export function resolveEffectiveAvailability(input: ResolveAvailabilityInput): R
 			state: 'busy',
 			activeWindow: focusWindow,
 			delegateUserId: null,
-			isRoutable: focusWindow ? false : true,
+			isRoutable: !focusWindow,
 			isAcceptingNotifications: focusWindow ? !focusWindow.suppressNotifications : true,
 			nextAvailableAt: focusWindow?.endsAt ?? null
 		}

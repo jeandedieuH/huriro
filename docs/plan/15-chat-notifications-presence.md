@@ -110,3 +110,30 @@ CREATE TABLE chat_read_state (
 3. Write `notifications` rows + increment unread counters.
 4. Dispatch by channel: in-app (socket), email digest (batched, with quiet hours), push (respecting OS-level and per-workspace settings).
 5. Collapse duplicates within a window ("3 new messages in #api-design").
+
+## 15.3 Shared user availability
+
+Availability is a **workspace-scoped platform feature**, not a chat-only field
+(ADR-0035). Durable state lives in `user_workspace_profiles` (manual override,
+custom status, DND timer, timezone, typed weekly working hours, off-hours
+notification opt-in) plus `user_availability_windows` (scheduled OOO / focus /
+DND with an optional backup delegate). It syncs as the Tier-1
+`user_availability` entity, so Chat, Tasks, Mail, Docs, Inbox, Settings, Web,
+and Mobile read one replicated answer.
+
+**Resolution order** (pure `packages/domain/availability.ts`, shared by server
+and clients):
+OOO → DND → focus/busy → manual available/away → working hours → live presence.
+Live `online | away` stays ephemeral (registry + pub/sub, TTL), never a
+database heartbeat; when no presence is known, consumers fall back to durable
+state instead of guessing.
+
+**Enforcement:** notification push/email consult the shared suppression
+evaluator (in-app rows always persist; logs record `skipped_dnd`,
+`skipped_ooo`, `skipped_off_hours`), with urgent approval/mention overrides
+honouring the user's opt-in but never a suppressing OOO window. Mail
+round-robin can skip DND/OOO/off-hours users and route to the OOO delegate,
+with working-hours enforcement opt-in. The 60-second `availability-sweep`
+worker clears expired overrides and emits `availability.ooo.started.v1` /
+`.ended.v1` exactly once per window. Guests see only their own row plus
+co-members sharing an accessible project/channel/teamspace.

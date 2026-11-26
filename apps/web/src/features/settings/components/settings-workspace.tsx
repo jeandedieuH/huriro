@@ -21,6 +21,9 @@ import { SettingsNotice, SettingsSkeleton } from './settings-primitives'
 const NotificationsSettingsPanel = lazy(() =>
 	import('./notifications-settings-panel').then((m) => ({ default: m.NotificationsSettingsPanel }))
 )
+const AvailabilitySettingsPanel = lazy(() =>
+	import('./availability-settings-panel').then((m) => ({ default: m.AvailabilitySettingsPanel }))
+)
 const WebhooksSettingsPanel = lazy(() =>
 	import('./webhooks-settings-panel').then((m) => ({ default: m.WebhooksSettingsPanel }))
 )
@@ -81,6 +84,12 @@ export function SettingsWorkspace({ billingStatus, onDismissBillingStatus }: Set
 				return (
 					<Suspense fallback={<SettingsSkeleton rows={4} />}>
 						<NotificationsSettingsPanel />
+					</Suspense>
+				)
+			case 'availability':
+				return (
+					<Suspense fallback={<SettingsSkeleton rows={4} />}>
+						<AvailabilitySettingsPanel />
 					</Suspense>
 				)
 			case 'webhooks':

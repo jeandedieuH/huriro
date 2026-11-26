@@ -7,6 +7,9 @@ import type { ToolSpec } from '@huriro/agent-tools'
 import { TOOLS } from '@huriro/agent-tools'
 import type {
 	ApprovalsStatusInput,
+	AvailabilityGetToolInput,
+	AvailabilityListToolInput,
+	AvailabilitySetMyStatusToolInput,
 	ChatReadThreadInput,
 	DocsAppendInput,
 	DocsCreateInput,
@@ -25,6 +28,12 @@ import type {
 import { decodeCursor, encodeCursor } from '@huriro/contracts'
 import type { Queryable } from '@huriro/db'
 import { HttpError } from '../../api/error'
+import {
+	getMyAvailability,
+	getUserAvailability,
+	listWorkspaceAvailability,
+	updateMyAvailability
+} from '../availability'
 import { listThread } from '../chat'
 import {
 	appendToDocPage,
@@ -127,6 +136,8 @@ const HANDLERS: Record<string, ToolHandler> = {
 		const projects = await listAccessibleProjects(tx, resolved.actor)
 		const canReadMembers = resolved.effectiveScopes.includes('members.read')
 		const members = canReadMembers ? await listWorkspaceMembers(tx, resolved.actor.workspaceId) : undefined
+		const availability = canReadMembers ? await listWorkspaceAvailability(tx, resolved.actor, {}) : undefined
+		const availabilityByUser = new Map(availability?.data.map((row) => [row.userId, row]) ?? [])
 		const data = {
 			workspaceId: resolved.actor.workspaceId,
 			agent: {
@@ -139,11 +150,20 @@ const HANDLERS: Record<string, ToolHandler> = {
 			projects: projects.map((p) => ({ id: p.id, name: p.name, key: p.key ?? null })),
 			...(members
 				? {
-						members: members.map((m) => ({
-							userId: m.userId,
-							displayName: m.displayName ?? null,
-							role: m.roleKey ?? null
-						}))
+						members: members.map((m) => {
+							const row = availabilityByUser.get(m.userId)
+							return {
+								userId: m.userId,
+								displayName: m.displayName ?? null,
+								role: m.roleKey ?? null,
+								...(row
+									? {
+											availabilityState: row.effectiveState,
+											delegateUserId: row.delegateUserId
+										}
+									: {})
+							}
+						})
 					}
 				: {})
 		}
@@ -446,6 +466,86 @@ const HANDLERS: Record<string, ToolHandler> = {
 			expiresAt: approval.expiresAt.toISOString()
 		}
 		return { data, markdown: `Approval ${approval.id}: **${approval.status}**\n` }
+	},
+
+	'availability.list': async (tx, resolved, raw) => {
+		const input = raw as AvailabilityListToolInput
+		const { data } = await listWorkspaceAvailability(tx, resolved.actor, {
+			...(input.state !== undefined ? { state: input.state } : {})
+		})
+		const wanted = input.userIds && input.userIds.length > 0 ? new Set(input.userIds) : null
+		const rows = data
+			.filter((row) => (wanted ? wanted.has(row.userId) : true))
+			.map((row) => ({
+				userId: row.userId,
+				displayName: row.displayName ?? null,
+				effectiveState: row.effectiveState,
+				statusEmoji: row.statusEmoji,
+				statusText: row.statusText,
+				withinWorkingHours: row.withinWorkingHours,
+				isRoutable: row.isRoutable,
+				nextAvailableAt: row.nextAvailableAt,
+				delegateUserId: row.delegateUserId
+			}))
+		return {
+			data: { data: rows },
+			markdown: `# Availability\n\n${
+				rows
+					.map(
+						(row) =>
+							`- **${row.displayName ?? row.userId}**: ${row.effectiveState}${
+								row.statusText ? ` — ${untrustedBlock(row.statusText)}` : ''
+							}${row.delegateUserId ? ` (backup: ${row.delegateUserId})` : ''}`
+					)
+					.join('\n') || '_none_'
+			}\n`
+		}
+	},
+
+	'availability.get': async (tx, resolved, raw) => {
+		const input = raw as AvailabilityGetToolInput
+		const row = await getUserAvailability(tx, resolved.actor, input.userId)
+		return {
+			data: row,
+			markdown: `# Availability: ${row.displayName ?? row.userId}\n\nState: **${row.effectiveState}**\n${
+				row.statusText ? `\n${untrustedBlock(row.statusText)}\n` : ''
+			}`
+		}
+	},
+
+	'availability.set_my_status': async (tx, resolved, raw) => {
+		const input = raw as AvailabilitySetMyStatusToolInput
+		const before = await getMyAvailability(tx, resolved.actor)
+		const patch = omitUndefined({
+			manualState: input.manualState,
+			statusEmoji: input.statusEmoji,
+			statusText: input.statusText,
+			statusExpiresAt: input.statusExpiresAt,
+			dndUntil: input.dndUntil,
+			expectedVersion: input.expectedVersion ?? before.version
+		})
+		if (Object.keys(patch).length <= 1) {
+			throw new HttpError(422, 'validation_failed', 'At least one status field is required')
+		}
+		const result = await updateMyAvailability(tx, resolved.actor, patch)
+		return {
+			data: result.data,
+			markdown: `Updated your status: **${result.data.effectiveState}**${
+				result.data.statusText ? ` — ${result.data.statusText}` : ''
+			}\n`,
+			undo: {
+				entityType: 'user_availability',
+				entityId: resolved.actor.userId,
+				before: {
+					manualState: before.manualState,
+					manualStateExpiresAt: before.manualStateExpiresAt,
+					statusEmoji: before.statusEmoji,
+					statusText: before.statusText,
+					statusExpiresAt: before.statusExpiresAt,
+					dndUntil: before.dndUntil
+				}
+			}
+		}
 	}
 }
 

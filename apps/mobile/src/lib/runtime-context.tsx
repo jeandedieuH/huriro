@@ -1,5 +1,5 @@
 import { activateI18n } from '@huriro/i18n'
-import { SyncProvider } from '@huriro/sync-client'
+import { PresenceActivityController, SyncProvider } from '@huriro/sync-client'
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react'
 import { AppState } from 'react-native'
 import { useMobileUiStore } from '../stores/mobile-ui-store'
@@ -58,13 +58,20 @@ export function MobileRuntimeProvider({ children }: { readonly children: ReactNo
 
 	useEffect(() => {
 		if (!runtime) return
+		const presence = new PresenceActivityController({
+			sendPresence: (status) => runtime.engine.sendPresence(status)
+		})
+		presence.setHidden(AppState.currentState !== 'active')
+		presence.start()
 		const sub = AppState.addEventListener('change', (nextState) => {
+			presence.setHidden(nextState !== 'active')
 			if (nextState === 'active') {
 				void runtime.engine.resume()
 			}
 		})
 		return () => {
 			sub.remove()
+			presence.stop()
 		}
 	}, [runtime])
 

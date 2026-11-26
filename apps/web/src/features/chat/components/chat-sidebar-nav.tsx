@@ -125,7 +125,8 @@ export function ChatSidebarNav({ collapsed }: { readonly collapsed?: boolean | u
 				const label =
 					peers.map((p) => p.displayName ?? p.email ?? p.principalId.slice(0, 8)).join(', ') || 'DM'
 				const peerOnline = peers.some((p) => presenceByUser[p.principalId]?.status === 'online')
-				return { dm, label, peerOnline }
+				const peerUserId = peers[0]?.principalId ?? null
+				return { dm, label, peerOnline, peerUserId }
 			})
 			.filter((entry) => !needle || entry.label.toLowerCase().includes(needle))
 	}, [channels, currentUserId, needle, presenceByUser])
@@ -364,13 +365,14 @@ export function ChatSidebarNav({ collapsed }: { readonly collapsed?: boolean | u
 										onClick={isCollapsed ? undefined : () => setCreateDmOpen(true)}
 									/>
 								) : (
-									dmEntries.map(({ dm, label, peerOnline }) => (
+									dmEntries.map(({ dm, label, peerOnline, peerUserId }) => (
 										<ChatChannelRow
 											key={dm.id}
 											channel={dm}
 											label={label}
 											isDm
 											peerOnline={peerOnline}
+											peerUserId={peerUserId}
 											active={activeView === 'channel' && activeChannelId === dm.id}
 											hasDraft={draftChannelIds.has(dm.id)}
 											collapsed={isCollapsed}

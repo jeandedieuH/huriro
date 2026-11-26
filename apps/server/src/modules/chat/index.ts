@@ -366,9 +366,11 @@ export function chatModule(
 			inWorkspace((tx, actor) => unpinMessage(tx, actor, params.id))
 		)
 		.get('/chat/me/status', ({ inWorkspace }) => inWorkspace((tx, actor) => getMyWorkspaceProfile(tx, actor)))
-		.put('/chat/me/status', { body: UpdateUserStatusBody }, ({ body, inWorkspace }) =>
-			inWorkspace((tx, actor) => updateMyWorkspaceProfile(tx, actor, body))
-		)
+		.put('/chat/me/status', { body: UpdateUserStatusBody }, async ({ body, workspaceCtx, inWorkspace }) => {
+			const result = await inWorkspace((tx, actor) => updateMyWorkspaceProfile(tx, actor, body))
+			if (pubsub) await pubsub.publishCursor(workspaceCtx.workspaceId, result.cursor)
+			return result.data
+		})
 		.get('/chat/user-groups', ({ inWorkspace }) =>
 			inWorkspace(async (tx, actor) => ({ data: await listUserGroups(tx, actor) }))
 		)

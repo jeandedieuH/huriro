@@ -449,7 +449,14 @@ export async function insertNotificationDeliveryLog(
 		readonly notificationId: string | null
 		readonly userId: string
 		readonly channel: 'in_app' | 'email_digest' | 'email_instant' | 'web_push' | 'mobile_push'
-		readonly status: 'pending' | 'sent' | 'skipped_quiet_hours' | 'failed'
+		readonly status:
+			| 'pending'
+			| 'sent'
+			| 'skipped_quiet_hours'
+			| 'skipped_dnd'
+			| 'skipped_ooo'
+			| 'skipped_off_hours'
+			| 'failed'
 		readonly dedupeKey?: string | null | undefined
 		readonly detail?: string | null | undefined
 	}

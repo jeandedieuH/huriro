@@ -2,6 +2,7 @@ import { type MessageId, t } from '@huriro/i18n'
 import {
 	Bell,
 	Bot,
+	CalendarClock,
 	CheckCheck,
 	CreditCard,
 	Download,
@@ -146,6 +147,26 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionMeta[] = [
 		descriptionId: 'settings.desc.notifications',
 		icon: Bell,
 		keywords: ['notifications', 'push', 'vapid', 'digest', 'quiet', 'timezone', 'alerts']
+	},
+	{
+		id: 'availability',
+		group: 'personal',
+		labelId: 'settings.sidebar.availability',
+		descriptionId: 'settings.desc.availability',
+		icon: CalendarClock,
+		keywords: [
+			'availability',
+			'status',
+			'dnd',
+			'do not disturb',
+			'working hours',
+			'out of office',
+			'ooo',
+			'focus',
+			'timezone',
+			'delegate',
+			'backup'
+		]
 	}
 ]
 

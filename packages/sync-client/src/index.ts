@@ -27,12 +27,18 @@ export {
 	type SyncConflict
 } from './outbox'
 export {
+	PresenceActivityController,
+	type PresenceControllerOptions,
+	type PresenceState
+} from './presence-controller'
+export {
 	eq,
 	SyncProvider,
 	type SyncProviderProps,
 	type UseSyncScopeResult,
 	useCollectionItems,
 	useLiveQuery,
+	useOptionalSyncEngine,
 	useSyncConflicts,
 	useSyncEngine,
 	useSyncScope,

@@ -3,6 +3,8 @@ import { t } from '@huriro/i18n'
 import { Bell, BellOff, CheckCheck, FolderInput, Hash, Link2, Lock, Pencil, Users, X } from 'lucide-react'
 import { SidebarActionRow, SidebarMenuAction } from '@/components/app-shell/sidebar/sidebar-action-row'
 import { DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
+import { AvailabilityDot } from '@/features/availability/components/availability-dot'
+import { useUserAvailability } from '@/features/availability/hooks/use-availability'
 import type { TaskApiBridge } from '@/lib/sync-bootstrap'
 import { useUiStore } from '@/stores/ui-store'
 import { useChatStore } from '../../store/chat-store'
@@ -12,6 +14,7 @@ export interface ChatChannelRowProps {
 	readonly label: string
 	readonly isDm: boolean
 	readonly peerOnline?: boolean | undefined
+	readonly peerUserId?: string | null | undefined
 	readonly active: boolean
 	readonly hasDraft: boolean
 	readonly collapsed: boolean
@@ -29,6 +32,7 @@ export function ChatChannelRow({
 	label,
 	isDm,
 	peerOnline = false,
+	peerUserId,
 	active,
 	hasDraft,
 	collapsed,
@@ -43,6 +47,7 @@ export function ChatChannelRow({
 	const removeChannelFromSection = useChatStore((s) => s.removeChannelFromSection)
 	const setMembersDialogOpen = useChatStore((s) => s.setMembersDialogOpen)
 	const pushToast = useUiStore((s) => s.pushToast)
+	const peerAvailability = useUserAvailability(peerUserId)
 
 	const isUnread = channel.unreadCount > 0 || channel.hasUnread
 
@@ -100,7 +105,13 @@ export function ChatChannelRow({
 	const icon = isDm ? (
 		<span className="relative inline-flex">
 			<Users className="size-4" />
-			{peerOnline ? (
+			{peerAvailability ? (
+				<AvailabilityDot
+					state={peerAvailability.effectiveState}
+					size="sm"
+					className="absolute -right-0.5 -bottom-0.5"
+				/>
+			) : peerOnline ? (
 				<span className="absolute -right-0.5 -bottom-0.5 size-2 rounded-full bg-(--success)" />
 			) : null}
 		</span>

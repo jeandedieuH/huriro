@@ -6,6 +6,7 @@ import {
 	type SqliteDatabaseLike
 } from '@huriro/sync-client'
 import type { AxiosRequestConfig } from 'axios'
+import { useMobileAvailabilityStore } from '../stores/availability-store'
 import { HuriroMobileApiClient } from './api-client'
 import type { MobileAuthSession } from './auth-store'
 import { deriveWsUrl } from './env'
@@ -151,7 +152,8 @@ export async function bootstrapMobileRuntime(args: {
 		const engine = new HuriroSyncEngine({
 			workspaceId,
 			currentUserId: userId,
-			storage
+			storage,
+			onPresence: (users) => useMobileAvailabilityStore.getState().setPresence(users)
 		})
 		await engine.bootstrap({ skipNetwork: true })
 		const api = new HuriroMobileApiClient({
@@ -183,7 +185,8 @@ export async function bootstrapMobileRuntime(args: {
 		storage,
 		transport,
 		wsUrl: deriveWsUrl(session.serverUrl),
-		useRealtimeTicket: true
+		useRealtimeTicket: true,
+		onPresence: (users) => useMobileAvailabilityStore.getState().setPresence(users)
 	})
 	await engine.bootstrap()
 

@@ -4,8 +4,9 @@ import { compileFilter, type FilterableIssue, validateFilter } from '@huriro/dom
 import { Cron } from 'croner'
 import { log } from '../../api/observability'
 import { resolveAutomationActor } from '../agents'
+import { getEffectiveAvailabilityForUser } from '../availability'
 import { sendMessage } from '../chat'
-import { createNote, updateConversation } from '../mail'
+import { createNote, routeNextConversationInInbox, updateConversation } from '../mail'
 import { createIssue, getIssueDetail, updateIssue } from '../tasks'
 import {
 	type AutomationRuleRow,
@@ -130,7 +131,7 @@ export async function processAutomationOutboxEvent(
 
 function substituteTemplates(value: unknown, vars: Record<string, unknown>): unknown {
 	if (typeof value === 'string') {
-		const match = /^\{\{\s*(issueId|projectId|actorId)\s*\}\}$/.exec(value)
+		const match = /^\{\{\s*(issueId|projectId|actorId|userId|delegateUserId)\s*\}\}$/.exec(value)
 		if (match?.[1]) return vars[match[1]]
 		return value
 	}
@@ -144,6 +145,17 @@ function substituteTemplates(value: unknown, vars: Record<string, unknown>): unk
 		)
 	}
 	return value
+}
+
+async function resolveDelegatedAssignee(
+	tx: Queryable,
+	actor: NonNullable<Awaited<ReturnType<typeof resolveAutomationActor>>>,
+	userId: string | null
+): Promise<string | null> {
+	if (!userId) return null
+	const resolved = await getEffectiveAvailabilityForUser(tx, actor.workspaceId, userId)
+	if (resolved?.state === 'ooo' && resolved.delegateUserId) return resolved.delegateUserId
+	return userId
 }
 
 async function executeAction(
@@ -176,14 +188,18 @@ async function executeAction(
 				throw new Error('issue.update requires at least one mutable field')
 			}
 			const detail = await getIssueDetail(tx, actor, action.issueId)
+			const delegatedAssignee =
+				action.assigneeUserId !== undefined && action.respectOooDelegate !== false
+					? await resolveDelegatedAssignee(tx, actor, action.assigneeUserId)
+					: action.assigneeUserId
 			const result = await updateIssue(tx, actor, action.issueId, {
 				version: detail.issue.version,
 				...(action.statusId !== undefined ? { statusId: action.statusId } : {}),
 				...(action.priority !== undefined ? { priority: action.priority } : {}),
 				...(action.assigneeUserId !== undefined
 					? {
-							assigneeId: action.assigneeUserId,
-							assigneeType: action.assigneeUserId ? ('user' as const) : null
+							assigneeId: delegatedAssignee,
+							assigneeType: delegatedAssignee ? ('user' as const) : null
 						}
 					: {}),
 				...(action.cycleId !== undefined ? { cycleId: action.cycleId } : {})
@@ -211,10 +227,22 @@ async function executeAction(
 			return { noteId: note.id, conversationId: action.conversationId }
 		}
 		case 'mail.assign': {
+			const delegatedAssignee =
+				action.respectOooDelegate !== false
+					? await resolveDelegatedAssignee(tx, actor, action.assigneeUserId)
+					: action.assigneeUserId
 			const result = await updateConversation(tx, actor, action.conversationId, {
-				assigneeId: action.assigneeUserId
+				assigneeId: delegatedAssignee
 			})
 			return { conversationId: action.conversationId, version: result.data.version }
+		}
+		case 'mail.route_round_robin': {
+			const result = await routeNextConversationInInbox(tx, actor, action.inboxId)
+			return {
+				inboxId: action.inboxId,
+				conversationId: result.conversationId,
+				assigneeUserId: result.assignedUserId
+			}
 		}
 	}
 }
@@ -384,7 +412,13 @@ async function executeRunInTx(
 		projectId:
 			payload && typeof payload === 'object' ? (payload as Record<string, unknown>)['projectId'] : undefined,
 		actorId:
-			payload && typeof payload === 'object' ? (payload as Record<string, unknown>)['actorId'] : undefined
+			payload && typeof payload === 'object' ? (payload as Record<string, unknown>)['actorId'] : undefined,
+		userId:
+			payload && typeof payload === 'object' ? (payload as Record<string, unknown>)['userId'] : undefined,
+		delegateUserId:
+			payload && typeof payload === 'object'
+				? (payload as Record<string, unknown>)['delegateUserId']
+				: undefined
 	}
 	const steps: StepRecord[] = []
 	let finalStatus: ExecutionResult['status'] = 'succeeded'

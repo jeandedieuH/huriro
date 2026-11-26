@@ -17,6 +17,8 @@ import { AuthGate } from '@/features/auth/components/auth-gate'
 import { AuthLayout } from '@/features/auth/components/auth-layout'
 import { OnboardingForm } from '@/features/auth/components/onboarding-form'
 import { AuthFlowProvider } from '@/features/auth/context'
+import { usePresenceAutoIdle } from '@/features/availability/hooks/use-availability'
+import { useAvailabilityStore } from '@/features/availability/store/availability-store'
 import { ChatSidebarHeaderAction, ChatSidebarNav } from '@/features/chat/components/chat-sidebar-nav'
 import { selectTotalChatUnread, useChatStore } from '@/features/chat/store/chat-store'
 import {
@@ -229,7 +231,10 @@ function RootComponent() {
 			onChatSignal: (ev) => {
 				if (activeBoot) void useChatStore.getState().handleChatSignal(activeBoot.api, ev)
 			},
-			onPresence: (users) => useChatStore.getState().applyPresence(users),
+			onPresence: (users) => {
+				useChatStore.getState().applyPresence(users)
+				useAvailabilityStore.getState().setPresence(users)
+			},
 			onTyping: (ev) => useChatStore.getState().applyTyping(ev)
 		}).then((result) => {
 			if (cancelled) {
@@ -510,6 +515,7 @@ function WorkspaceFrame() {
 	const engine = useSyncEngine()
 	const notifications = useCollectionItems(engine.collections.notifications)
 	const pathname = useRouterState({ select: (s) => s.location.pathname })
+	usePresenceAutoIdle()
 
 	const destination = useUiStore((s) => s.destination)
 	const sidebarLevel = useUiStore((s) => s.sidebarLevel)

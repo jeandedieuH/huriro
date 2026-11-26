@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
+import { AvailabilityWarningBanner } from '@/features/availability/components/availability-warning-banner'
 import type { TaskApiBridge, WorkspaceMemberSummary } from '@/lib/sync-bootstrap'
 import { useUiStore } from '@/stores/ui-store'
 import { EntityLinksSection, EntityPeek } from './entity-links'
@@ -277,6 +278,13 @@ export function IssueDetailPanel({
 								))}
 							</SelectContent>
 						</Select>
+						<AvailabilityWarningBanner
+							userId={issue.assigneeId}
+							displayName={members.find((m) => m.userId === issue.assigneeId)?.displayName}
+							onAssignDelegate={(delegateUserId) =>
+								void onUpdateIssue(issue.id, { assigneeId: delegateUserId, assigneeType: 'user' })
+							}
+						/>
 					</div>
 
 					{projectCycles.length > 0 || issue.cycleId !== null ? (

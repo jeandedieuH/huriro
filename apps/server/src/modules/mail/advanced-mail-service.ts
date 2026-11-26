@@ -22,6 +22,8 @@ import type { Queryable } from '@huriro/db'
 import { type ActorContext, isPlausibleEmail, normalizeEmail, normalizeMailSubject } from '@huriro/domain'
 import { insertEntityLink } from '../../api/entity-links'
 import { HttpError } from '../../api/error'
+import type { PresenceRegistry } from '../../realtime/presence-registry'
+import { getUsersAvailabilityMap } from '../availability'
 import {
 	accessibleInboxIds,
 	authorizeMailAccountAction,
@@ -788,12 +790,32 @@ export async function getMailRoutingConfig(
 	authorizeMailWorkspaceAction(actor, 'mail.read')
 	await authorizeMailInboxAction(tx, actor, 'mail.read', inboxId)
 	const [row] = await tx<
-		{ enabled: boolean; maxOpenCap: number; requireOnline: boolean; respectDnd: boolean }[]
+		{
+			enabled: boolean
+			maxOpenCap: number
+			requireOnline: boolean
+			respectDnd: boolean
+			respectWorkingHours: boolean
+			respectOoo: boolean
+			useOooDelegate: boolean
+		}[]
 	>`
-		SELECT enabled, max_open_cap AS "maxOpenCap", require_online AS "requireOnline", respect_dnd AS "respectDnd"
+		SELECT enabled, max_open_cap AS "maxOpenCap", require_online AS "requireOnline",
+			respect_dnd AS "respectDnd", respect_working_hours AS "respectWorkingHours",
+			respect_ooo AS "respectOoo", use_ooo_delegate AS "useOooDelegate"
 		FROM mail_inbox_routing_state WHERE workspace_id = ${actor.workspaceId} AND inbox_id = ${inboxId}
 	`
-	return row ?? { enabled: false, maxOpenCap: 10, requireOnline: true, respectDnd: true }
+	return (
+		row ?? {
+			enabled: false,
+			maxOpenCap: 10,
+			requireOnline: true,
+			respectDnd: true,
+			respectWorkingHours: false,
+			respectOoo: true,
+			useOooDelegate: true
+		}
+	)
 }
 
 export async function upsertMailRoutingConfig(
@@ -810,16 +832,28 @@ export async function upsertMailRoutingConfig(
 		enabled: input.enabled,
 		maxOpenCap: input.maxOpenCap ?? 10,
 		requireOnline: input.requireOnline ?? true,
-		respectDnd: input.respectDnd ?? true
+		respectDnd: input.respectDnd ?? true,
+		respectWorkingHours: input.respectWorkingHours ?? false,
+		respectOoo: input.respectOoo ?? true,
+		useOooDelegate: input.useOooDelegate ?? true
 	}
 	await tx`
-		INSERT INTO mail_inbox_routing_state (workspace_id, inbox_id, enabled, max_open_cap, require_online, respect_dnd)
-		VALUES (${actor.workspaceId}, ${inboxId}, ${config.enabled}, ${config.maxOpenCap}, ${config.requireOnline}, ${config.respectDnd})
+		INSERT INTO mail_inbox_routing_state (
+			workspace_id, inbox_id, enabled, max_open_cap, require_online, respect_dnd,
+			respect_working_hours, respect_ooo, use_ooo_delegate
+		)
+		VALUES (
+			${actor.workspaceId}, ${inboxId}, ${config.enabled}, ${config.maxOpenCap}, ${config.requireOnline},
+			${config.respectDnd}, ${config.respectWorkingHours}, ${config.respectOoo}, ${config.useOooDelegate}
+		)
 		ON CONFLICT (workspace_id, inbox_id) DO UPDATE SET
 			enabled = EXCLUDED.enabled,
 			max_open_cap = EXCLUDED.max_open_cap,
 			require_online = EXCLUDED.require_online,
-			respect_dnd = EXCLUDED.respect_dnd
+			respect_dnd = EXCLUDED.respect_dnd,
+			respect_working_hours = EXCLUDED.respect_working_hours,
+			respect_ooo = EXCLUDED.respect_ooo,
+			use_ooo_delegate = EXCLUDED.use_ooo_delegate
 	`
 	await insertAudit(tx, actor, 'mail.routing.configure', 'mail_inbox', inboxId, config)
 	return config
@@ -833,7 +867,8 @@ export async function upsertMailRoutingConfig(
 export async function routeConversationRoundRobin(
 	tx: Queryable,
 	actor: ActorContext,
-	conversationId: string
+	conversationId: string,
+	presence?: PresenceRegistry
 ): Promise<{ assignedUserId: string | null }> {
 	const { conversation } = await requireConversation(tx, actor, conversationId, 'mail.assign')
 	const [state] = await tx<
@@ -842,27 +877,29 @@ export async function routeConversationRoundRobin(
 			maxOpenCap: number
 			requireOnline: boolean
 			respectDnd: boolean
+			respectWorkingHours: boolean
+			respectOoo: boolean
+			useOooDelegate: boolean
 			cursor: string | null
 		}[]
 	>`
 		SELECT enabled, max_open_cap AS "maxOpenCap", require_online AS "requireOnline",
-			respect_dnd AS "respectDnd", last_assigned_user_id AS "cursor"
+			respect_dnd AS "respectDnd", respect_working_hours AS "respectWorkingHours",
+			respect_ooo AS "respectOoo", use_ooo_delegate AS "useOooDelegate",
+			last_assigned_user_id AS "cursor"
 		FROM mail_inbox_routing_state
 		WHERE workspace_id = ${actor.workspaceId} AND inbox_id = ${conversation.inboxId}
 	`
 	if (!state?.enabled) return { assignedUserId: null }
 	const maxOpenCap = state.maxOpenCap
-	const members = await tx<{ userId: string; openCount: number; dnd: boolean; online: boolean }[]>`
+	const members = await tx<{ userId: string; openCount: number }[]>`
 		SELECT m.user_id AS "userId",
 			(SELECT count(*)::int FROM mail_conversations c
 				WHERE c.workspace_id = m.workspace_id AND c.inbox_id = ${conversation.inboxId}
 					AND c.assignee_id = m.user_id AND c.status IN ('open','pending')
-					AND c.id <> ${conversationId}) AS "openCount",
-			COALESCE(wp.dnd_until IS NOT NULL AND wp.dnd_until > now(), false) AS dnd,
-			(wp.last_seen_at IS NULL OR wp.last_seen_at > now() - interval '15 minutes') AS online
+					AND c.id <> ${conversationId}) AS "openCount"
 		FROM memberships m
 		JOIN roles r ON r.workspace_id = m.workspace_id AND r.id = m.role_id
-		LEFT JOIN user_workspace_profiles wp ON wp.workspace_id = m.workspace_id AND wp.user_id = m.user_id
 		WHERE m.workspace_id = ${actor.workspaceId} AND m.status = 'active'
 			AND r.key <> 'guest'
 			AND EXISTS (
@@ -871,9 +908,47 @@ export async function routeConversationRoundRobin(
 			)
 		ORDER BY m.user_id
 	`
-	let eligible = members.filter((m) => m.openCount < maxOpenCap)
-	if (state.respectDnd) eligible = eligible.filter((m) => !m.dnd)
-	if (state.requireOnline) eligible = eligible.filter((m) => m.online)
+	const availability = await getUsersAvailabilityMap(
+		tx,
+		actor.workspaceId,
+		members.map((member) => member.userId),
+		presence
+	)
+	const memberIds = new Set(members.map((member) => member.userId))
+	// When no realtime node has reported presence (e.g. a worker-only process),
+	// requireOnline must not starve routing — fall back to durable availability.
+	const presenceKnown = presence
+		? members.some((member) => presence.getStatus(actor.workspaceId, member.userId) !== 'offline')
+		: false
+
+	type Candidate = { readonly userId: string; readonly openCount: number; readonly delegatedFrom?: string }
+	const byId = new Map<string, Candidate>()
+	for (const member of members) {
+		if (member.openCount >= maxOpenCap) continue
+		const resolved = availability.get(member.userId)
+		if (resolved) {
+			if (state.respectDnd && resolved.state === 'dnd') continue
+			if (state.respectWorkingHours && !resolved.withinWorkingHours) continue
+			if (state.requireOnline && presenceKnown && !presence?.isOnline(actor.workspaceId, member.userId)) {
+				continue
+			}
+			if (state.respectOoo && resolved.state === 'ooo') {
+				if (state.useOooDelegate && resolved.delegateUserId && memberIds.has(resolved.delegateUserId)) {
+					const delegate = members.find((candidate) => candidate.userId === resolved.delegateUserId)
+					if (delegate && delegate.openCount < maxOpenCap) {
+						byId.set(delegate.userId, {
+							userId: delegate.userId,
+							openCount: delegate.openCount,
+							delegatedFrom: member.userId
+						})
+					}
+				}
+				continue
+			}
+		}
+		byId.set(member.userId, { userId: member.userId, openCount: member.openCount })
+	}
+	const eligible = [...byId.values()].sort((a, b) => a.userId.localeCompare(b.userId))
 	if (!eligible.length) return { assignedUserId: null }
 	const cursor = state.cursor ?? ''
 	const start = eligible.findIndex((m) => m.userId > cursor)
@@ -883,9 +958,32 @@ export async function routeConversationRoundRobin(
 	await tx`UPDATE mail_inbox_routing_state SET last_assigned_user_id = ${selected.userId} WHERE workspace_id = ${actor.workspaceId} AND inbox_id = ${conversation.inboxId}`
 	await insertEvent(tx, actor, conversationId, 'assigned', {
 		assigneeId: selected.userId,
-		routing: 'round_robin'
+		routing: 'round_robin',
+		...(selected.delegatedFrom ? { delegatedFrom: selected.delegatedFrom } : {})
 	})
 	return { assignedUserId: selected.userId }
+}
+
+/** Route the oldest unassigned open conversation in an inbox (automation action). */
+export async function routeNextConversationInInbox(
+	tx: Queryable,
+	actor: ActorContext,
+	inboxId: string,
+	presence?: PresenceRegistry
+): Promise<{ conversationId: string | null; assignedUserId: string | null }> {
+	const [row] = await tx<{ id: string }[]>`
+		SELECT id
+		FROM mail_conversations
+		WHERE workspace_id = ${actor.workspaceId}
+			AND inbox_id = ${inboxId}
+			AND assignee_id IS NULL
+			AND status IN ('open', 'pending')
+		ORDER BY created_at ASC
+		LIMIT 1
+	`
+	if (!row) return { conversationId: null, assignedUserId: null }
+	const routed = await routeConversationRoundRobin(tx, actor, row.id, presence)
+	return { conversationId: row.id, assignedUserId: routed.assignedUserId }
 }
 
 // ---------- SLA policies and analytics (§6.4) ----------

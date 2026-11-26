@@ -26,6 +26,14 @@ export function useSyncEngine(): HuriroSyncEngine {
 	return engine
 }
 
+/**
+ * Non-throwing variant for leaf UI that must render outside a booted
+ * workspace (component tests, stories) without losing provider-less fallbacks.
+ */
+export function useOptionalSyncEngine(): HuriroSyncEngine | null {
+	return useContext(SyncContext)
+}
+
 export function useSyncStatus(): SyncEngineStatus {
 	const engine = useSyncEngine()
 	return useSyncExternalStore(

@@ -20,6 +20,7 @@ import type {
 	AiSettingsPatch,
 	AiSettingsResponse,
 	ApplyMailMacroBody,
+	AvailabilityWindowDto,
 	BillingPortalDto,
 	BillingSummaryResponse,
 	BookmarkMetadataDto,
@@ -56,6 +57,7 @@ import type {
 	ContactOrganizationDto,
 	ConversationTagsBody,
 	ConvertToIssueBody,
+	CreateAvailabilityWindowBody,
 	CreateBillingPortalBody,
 	CreateChannelBody,
 	CreateCheckoutBody,
@@ -159,6 +161,7 @@ import type {
 	TeamspaceMemberDto,
 	TriageActionBody,
 	TriageSuggestionsDto,
+	UpdateAvailabilityWindowBody,
 	UpdateChannelBody,
 	UpdateChatSavedItemBody,
 	UpdateChatSidebarSectionBody,
@@ -360,6 +363,10 @@ export interface TaskApiBridge {
 	deleteChannelBookmark(id: string): Promise<void>
 	getMyChatStatus(): Promise<UserWorkspaceProfileDto>
 	updateMyChatStatus(body: UpdateUserStatusBody): Promise<UserWorkspaceProfileDto>
+	listAvailabilityWindows(): Promise<AvailabilityWindowDto[]>
+	createAvailabilityWindow(body: CreateAvailabilityWindowBody): Promise<AvailabilityWindowDto>
+	updateAvailabilityWindow(id: string, body: UpdateAvailabilityWindowBody): Promise<AvailabilityWindowDto>
+	deleteAvailabilityWindow(id: string): Promise<{ readonly deleted: true }>
 	listUserGroups(): Promise<UserGroupDto[]>
 	createUserGroup(body: CreateUserGroupBody): Promise<UserGroupDto>
 	setUserGroupMembers(

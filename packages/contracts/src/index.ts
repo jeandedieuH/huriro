@@ -4,6 +4,7 @@
 export * from './agents'
 export * from './ai'
 export * from './automations'
+export * from './availability'
 export * from './billing'
 export * from './chat'
 export * from './doc-databases'

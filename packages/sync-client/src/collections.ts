@@ -20,7 +20,8 @@ import type {
 	SavedViewDto,
 	SyncChangeDto,
 	SyncSnapshotResponse,
-	TeamspaceDto
+	TeamspaceDto,
+	UserAvailabilityDto
 } from '@huriro/contracts'
 import { type Collection, createCollection } from '@tanstack/db'
 
@@ -132,7 +133,7 @@ function makeManagedCollection<T extends { readonly id: string }>(
 	}
 }
 
-export const REPLICA_SCHEMA_VERSION = 2
+export const REPLICA_SCHEMA_VERSION = 3
 
 /** Tier-2 retention window — must mirror the server's 30d core-snapshot cutoff (§8.1). */
 export const TIER2_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
@@ -171,6 +172,7 @@ export interface PersistedReplicaState {
 	readonly docDatabaseProperties?: DocDatabasePropertyDto[] | undefined
 	readonly docDatabaseRows?: DocDatabaseRowDto[] | undefined
 	readonly docDatabaseViews?: DocDatabaseViewDto[] | undefined
+	readonly userAvailability?: UserAvailabilityDto[] | undefined
 }
 
 export class HuriroSyncCollections {
@@ -201,6 +203,9 @@ export class HuriroSyncCollections {
 		guardWrite: (incoming, existing) => incoming.version >= existing.version
 	})
 	readonly docDatabaseViewsManaged = makeManagedCollection<DocDatabaseViewDto>('doc_database_views')
+	readonly userAvailabilityManaged = makeManagedCollection<UserAvailabilityDto>('user_availability', {
+		guardWrite: (incoming, existing) => incoming.version >= existing.version
+	})
 
 	get projects(): Collection<ProjectDto, string> {
 		return this.projectsManaged.collection
@@ -253,6 +258,9 @@ export class HuriroSyncCollections {
 	get docDatabaseViews(): Collection<DocDatabaseViewDto, string> {
 		return this.docDatabaseViewsManaged.collection
 	}
+	get userAvailability(): Collection<UserAvailabilityDto, string> {
+		return this.userAvailabilityManaged.collection
+	}
 
 	markAllReady(): void {
 		this.projectsManaged.markReady()
@@ -272,6 +280,7 @@ export class HuriroSyncCollections {
 		this.docDatabasePropertiesManaged.markReady()
 		this.docDatabaseRowsManaged.markReady()
 		this.docDatabaseViewsManaged.markReady()
+		this.userAvailabilityManaged.markReady()
 	}
 
 	applyFullSnapshot(snap: SyncSnapshotResponse | PersistedReplicaState): void {
@@ -301,6 +310,7 @@ export class HuriroSyncCollections {
 		this.notificationsManaged.replaceAll(snap.notifications as unknown as NotificationDto[])
 		this.docPagesManaged.replaceAll((snap.docPages ?? []) as unknown as DocPageDto[])
 		this.teamspacesManaged.replaceAll((snap.teamspaces ?? []) as unknown as TeamspaceDto[])
+		this.userAvailabilityManaged.replaceAll((snap.userAvailability ?? []) as unknown as UserAvailabilityDto[])
 	}
 
 	applyScopedSnapshot(snap: SyncSnapshotResponse): void {
@@ -475,6 +485,8 @@ export class HuriroSyncCollections {
 		const dbRowDeletes: string[] = []
 		const dbViewUpserts: DocDatabaseViewDto[] = []
 		const dbViewDeletes: string[] = []
+		const userAvailabilityUpserts: UserAvailabilityDto[] = []
+		const userAvailabilityDeletes: string[] = []
 
 		for (const c of changes) {
 			if (c.action === 'grant') {
@@ -563,6 +575,10 @@ export class HuriroSyncCollections {
 					if (isDel) dbViewDeletes.push(c.id)
 					else dbViewUpserts.push(c.data as unknown as DocDatabaseViewDto)
 					break
+				case 'user_availability':
+					if (isDel) userAvailabilityDeletes.push(c.id)
+					else userAvailabilityUpserts.push(c.data as unknown as UserAvailabilityDto)
+					break
 				default:
 					break
 			}
@@ -602,6 +618,8 @@ export class HuriroSyncCollections {
 		this.docDatabaseRowsManaged.deleteMany(dbRowDeletes)
 		this.docDatabaseViewsManaged.upsertMany(dbViewUpserts)
 		this.docDatabaseViewsManaged.deleteMany(dbViewDeletes)
+		this.userAvailabilityManaged.upsertMany(userAvailabilityUpserts)
+		this.userAvailabilityManaged.deleteMany(userAvailabilityDeletes)
 
 		for (const pid of revokedProjectIds) {
 			this.purgeProjectScope(pid)

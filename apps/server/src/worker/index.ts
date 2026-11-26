@@ -19,6 +19,7 @@ import {
 	processAutomationOutboxEvent,
 	runAutomationCronOnce
 } from '../modules/automations'
+import { runAvailabilitySweepOnce } from '../modules/availability'
 import { captureDailyBillingUsageOnce } from '../modules/billing'
 import {
 	processChatLinkPreviewOutboxEvent,
@@ -72,6 +73,7 @@ export interface DrainOutboxOptions {
 	/** When set, only this workspace's rows are claimed — used by tests so one
 	 * fixture's drain doesn't chew through every other test's backlog. */
 	readonly onlyWorkspaceId?: string | undefined
+	readonly presence?: import('../realtime/presence-registry').PresenceRegistry
 	/** Attempt budget before a failing row is dead-lettered (§5.5). Test seam;
 	 * production uses OUTBOX_MAX_ATTEMPTS. */
 	readonly maxAttempts?: number | undefined
@@ -85,6 +87,7 @@ export interface WorkerDeps extends DrainOutboxOptions {
 	readonly app: Sql
 	readonly mode?: 'selfhost' | 'cloud' | undefined
 	readonly pubsub?: RealtimePubSub
+	readonly presence?: import('../realtime/presence-registry').PresenceRegistry
 	readonly heartbeatUrl?: string | undefined
 	readonly outboxIntervalMs?: number
 	readonly emailTransport?: EmailTransport | undefined
@@ -203,7 +206,7 @@ export async function drainOutboxOnce(
 					async (tx) => {
 						await processSearchOutboxEvent(tx, row)
 						const automationRunRefs = await processAutomationOutboxEvent(tx, row)
-						const notifRes = await processNotificationOutboxEvent(tx, row)
+						const notifRes = await processNotificationOutboxEvent(tx, row, opts?.presence)
 						await enqueueWebhookDeliveriesForOutboxEvent(tx, row)
 						if (opts?.blobStorage) {
 							await processFileQuarantineOutboxEvent(tx, row, opts.blobStorage, scanOpts)
@@ -495,6 +498,15 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 		if (reminded > 0) log.info({ reminded }, 'chat saved reminders delivered')
 	})
 
+	await boss.createQueue('availability-sweep')
+	await boss.schedule('availability-sweep', '* * * * *', {}, { tz: 'UTC' })
+	await boss.work('availability-sweep', async () => {
+		const swept = await runAvailabilitySweepOnce(deps.app, deps.pubsub)
+		if (swept.expired > 0 || swept.started > 0 || swept.ended > 0) {
+			log.info({ ...swept }, 'availability sweep applied transitions')
+		}
+	})
+
 	await boss.createQueue('notification-email-digest')
 	await boss.schedule('notification-email-digest', '*/15 * * * *', {}, { tz: 'UTC' })
 	await boss.work('notification-email-digest', async () => {
@@ -502,7 +514,8 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 			transport: deps.emailTransport,
 			smtp: deps.smtp,
 			...(deps.email !== undefined ? { email: deps.email } : {}),
-			...(deps.publicBaseUrl !== undefined ? { baseUrl: deps.publicBaseUrl } : {})
+			...(deps.publicBaseUrl !== undefined ? { baseUrl: deps.publicBaseUrl } : {}),
+			...(deps.presence !== undefined ? { presence: deps.presence } : {})
 		})
 	})
 

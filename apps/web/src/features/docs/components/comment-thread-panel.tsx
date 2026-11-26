@@ -5,7 +5,20 @@ import { useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { AvailabilityDot } from '@/features/availability/components/availability-dot'
+import { useUserAvailability } from '@/features/availability/hooks/use-availability'
 import type { WorkspaceMemberSummary } from '@/lib/sync-bootstrap'
+
+function MemberName({ userId, fallback }: { readonly userId: string; readonly fallback: string }) {
+	const availability = useUserAvailability(userId)
+	if (!availability) return <>{fallback}</>
+	return (
+		<span className="inline-flex items-center gap-1.5">
+			<AvailabilityDot state={availability.effectiveState} size="sm" />
+			{fallback}
+		</span>
+	)
+}
 
 export interface CommentThreadPanelProps {
 	readonly comments: readonly DocCommentDto[]
@@ -103,7 +116,9 @@ export function CommentThreadPanel({
 								className="space-y-2 rounded-md border border-border bg-card p-2.5 text-xs"
 							>
 								<div className="flex flex-wrap items-center justify-between gap-1">
-									<span className="font-medium text-foreground">{author}</span>
+									<span className="font-medium text-foreground">
+										<MemberName userId={thread.authorId} fallback={author} />
+									</span>
 									<div className="flex items-center gap-1">
 										{thread.anchorOrphaned ? (
 											<Badge tone="warning">{t('docs.comments.orphaned-badge')}</Badge>
@@ -159,7 +174,10 @@ export function CommentThreadPanel({
 										{replies.map((r) => (
 											<li key={r.id} className="space-y-0.5 pl-2">
 												<span className="font-medium text-foreground">
-													{membersById.get(r.authorId)?.displayName ?? 'Member'}
+													<MemberName
+														userId={r.authorId}
+														fallback={membersById.get(r.authorId)?.displayName ?? 'Member'}
+													/>
 												</span>
 												<p className="text-muted-foreground">{r.bodyText}</p>
 											</li>

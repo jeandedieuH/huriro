@@ -1,6 +1,16 @@
 // Availability tables — owned by the `availability` module (ADR-0035).
 import { sql } from 'drizzle-orm'
-import { boolean, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import {
+	boolean,
+	integer,
+	jsonb,
+	pgTable,
+	primaryKey,
+	text,
+	timestamp,
+	unique,
+	uuid
+} from 'drizzle-orm/pg-core'
 import { users } from './identity'
 import { workspaces } from './tenancy'
 
@@ -61,7 +71,5 @@ export const userAvailabilityWindows = pgTable(
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 		version: integer('version').notNull().default(1)
 	},
-	(t) => [
-		unique('uq_uaw_ws_id').on(t.workspaceId, t.id)
-	]
+	(t) => [unique('uq_uaw_ws_id').on(t.workspaceId, t.id)]
 )

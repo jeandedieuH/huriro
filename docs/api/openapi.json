@@ -6805,6 +6805,9 @@
 															],
 															"minLength": 1,
 															"maxLength": 256
+														},
+														"respectOooDelegate": {
+															"type": "boolean"
 														}
 													},
 													"additionalProperties": false
@@ -6941,6 +6944,28 @@
 																"string",
 																"null"
 															],
+															"minLength": 1,
+															"maxLength": 256
+														},
+														"respectOooDelegate": {
+															"type": "boolean"
+														}
+													},
+													"additionalProperties": false
+												},
+												{
+													"type": "object",
+													"required": [
+														"kind",
+														"inboxId"
+													],
+													"properties": {
+														"kind": {
+															"type": "string",
+															"const": "mail.route_round_robin"
+														},
+														"inboxId": {
+															"type": "string",
 															"minLength": 1,
 															"maxLength": 256
 														}
@@ -7132,6 +7157,9 @@
 															],
 															"minLength": 1,
 															"maxLength": 256
+														},
+														"respectOooDelegate": {
+															"type": "boolean"
 														}
 													},
 													"additionalProperties": false
@@ -7268,6 +7296,28 @@
 																"string",
 																"null"
 															],
+															"minLength": 1,
+															"maxLength": 256
+														},
+														"respectOooDelegate": {
+															"type": "boolean"
+														}
+													},
+													"additionalProperties": false
+												},
+												{
+													"type": "object",
+													"required": [
+														"kind",
+														"inboxId"
+													],
+													"properties": {
+														"kind": {
+															"type": "string",
+															"const": "mail.route_round_robin"
+														},
+														"inboxId": {
+															"type": "string",
 															"minLength": 1,
 															"maxLength": 256
 														}
@@ -7459,6 +7509,9 @@
 															],
 															"minLength": 1,
 															"maxLength": 256
+														},
+														"respectOooDelegate": {
+															"type": "boolean"
 														}
 													},
 													"additionalProperties": false
@@ -7595,6 +7648,28 @@
 																"string",
 																"null"
 															],
+															"minLength": 1,
+															"maxLength": 256
+														},
+														"respectOooDelegate": {
+															"type": "boolean"
+														}
+													},
+													"additionalProperties": false
+												},
+												{
+													"type": "object",
+													"required": [
+														"kind",
+														"inboxId"
+													],
+													"properties": {
+														"kind": {
+															"type": "string",
+															"const": "mail.route_round_robin"
+														},
+														"inboxId": {
+															"type": "string",
 															"minLength": 1,
 															"maxLength": 256
 														}
@@ -7883,6 +7958,9 @@
 															],
 															"minLength": 1,
 															"maxLength": 256
+														},
+														"respectOooDelegate": {
+															"type": "boolean"
 														}
 													},
 													"additionalProperties": false
@@ -8019,6 +8097,28 @@
 																"string",
 																"null"
 															],
+															"minLength": 1,
+															"maxLength": 256
+														},
+														"respectOooDelegate": {
+															"type": "boolean"
+														}
+													},
+													"additionalProperties": false
+												},
+												{
+													"type": "object",
+													"required": [
+														"kind",
+														"inboxId"
+													],
+													"properties": {
+														"kind": {
+															"type": "string",
+															"const": "mail.route_round_robin"
+														},
+														"inboxId": {
+															"type": "string",
 															"minLength": 1,
 															"maxLength": 256
 														}
@@ -8218,6 +8318,9 @@
 															],
 															"minLength": 1,
 															"maxLength": 256
+														},
+														"respectOooDelegate": {
+															"type": "boolean"
 														}
 													},
 													"additionalProperties": false
@@ -8354,6 +8457,28 @@
 																"string",
 																"null"
 															],
+															"minLength": 1,
+															"maxLength": 256
+														},
+														"respectOooDelegate": {
+															"type": "boolean"
+														}
+													},
+													"additionalProperties": false
+												},
+												{
+													"type": "object",
+													"required": [
+														"kind",
+														"inboxId"
+													],
+													"properties": {
+														"kind": {
+															"type": "string",
+															"const": "mail.route_round_robin"
+														},
+														"inboxId": {
+															"type": "string",
 															"minLength": 1,
 															"maxLength": 256
 														}
@@ -8553,6 +8678,9 @@
 															],
 															"minLength": 1,
 															"maxLength": 256
+														},
+														"respectOooDelegate": {
+															"type": "boolean"
 														}
 													},
 													"additionalProperties": false
@@ -8689,6 +8817,28 @@
 																"string",
 																"null"
 															],
+															"minLength": 1,
+															"maxLength": 256
+														},
+														"respectOooDelegate": {
+															"type": "boolean"
+														}
+													},
+													"additionalProperties": false
+												},
+												{
+													"type": "object",
+													"required": [
+														"kind",
+														"inboxId"
+													],
+													"properties": {
+														"kind": {
+															"type": "string",
+															"const": "mail.route_round_robin"
+														},
+														"inboxId": {
+															"type": "string",
 															"minLength": 1,
 															"maxLength": 256
 														}
@@ -8896,6 +9046,1123 @@
 					}
 				],
 				"operationId": "getApiV1AutomationsRunsByRunId"
+			}
+		},
+		"/api/v1/availability": {
+			"get": {
+				"parameters": [
+					{
+						"name": "state",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"enum": [
+								"available",
+								"busy",
+								"dnd",
+								"away",
+								"off_hours",
+								"ooo",
+								"offline"
+							]
+						}
+					},
+					{
+						"name": "userId",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					},
+					{
+						"name": "includeWindows",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "boolean"
+						}
+					}
+				],
+				"operationId": "getApiV1Availability"
+			}
+		},
+		"/api/v1/availability/me": {
+			"get": {
+				"operationId": "getApiV1AvailabilityMe"
+			},
+			"put": {
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"manualState": {
+										"type": "string",
+										"enum": [
+											"auto",
+											"available",
+											"busy",
+											"dnd",
+											"away",
+											"ooo"
+										]
+									},
+									"manualStateExpiresAt": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"statusEmoji": {
+										"type": [
+											"string",
+											"null"
+										],
+										"maxLength": 32
+									},
+									"statusText": {
+										"type": "string",
+										"maxLength": 200
+									},
+									"statusExpiresAt": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"dndUntil": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"workingHours": {
+										"type": "object",
+										"required": [
+											"enabled",
+											"timezone",
+											"days"
+										],
+										"properties": {
+											"enabled": {
+												"type": "boolean"
+											},
+											"timezone": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 80
+											},
+											"days": {
+												"type": "object",
+												"required": [
+													"mon",
+													"tue",
+													"wed",
+													"thu",
+													"fri",
+													"sat",
+													"sun"
+												],
+												"properties": {
+													"mon": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"tue": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"wed": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"thu": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"fri": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"sat": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"sun": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													}
+												}
+											}
+										}
+									},
+									"timezone": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 80
+									},
+									"suppressNotificationsOffHours": {
+										"type": "boolean"
+									},
+									"allowUrgentOverride": {
+										"type": "boolean"
+									},
+									"expectedVersion": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"manualState": {
+										"type": "string",
+										"enum": [
+											"auto",
+											"available",
+											"busy",
+											"dnd",
+											"away",
+											"ooo"
+										]
+									},
+									"manualStateExpiresAt": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"statusEmoji": {
+										"type": [
+											"string",
+											"null"
+										],
+										"maxLength": 32
+									},
+									"statusText": {
+										"type": "string",
+										"maxLength": 200
+									},
+									"statusExpiresAt": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"dndUntil": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"workingHours": {
+										"type": "object",
+										"required": [
+											"enabled",
+											"timezone",
+											"days"
+										],
+										"properties": {
+											"enabled": {
+												"type": "boolean"
+											},
+											"timezone": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 80
+											},
+											"days": {
+												"type": "object",
+												"required": [
+													"mon",
+													"tue",
+													"wed",
+													"thu",
+													"fri",
+													"sat",
+													"sun"
+												],
+												"properties": {
+													"mon": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"tue": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"wed": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"thu": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"fri": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"sat": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"sun": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													}
+												}
+											}
+										}
+									},
+									"timezone": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 80
+									},
+									"suppressNotificationsOffHours": {
+										"type": "boolean"
+									},
+									"allowUrgentOverride": {
+										"type": "boolean"
+									},
+									"expectedVersion": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"manualState": {
+										"type": "string",
+										"enum": [
+											"auto",
+											"available",
+											"busy",
+											"dnd",
+											"away",
+											"ooo"
+										]
+									},
+									"manualStateExpiresAt": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"statusEmoji": {
+										"type": [
+											"string",
+											"null"
+										],
+										"maxLength": 32
+									},
+									"statusText": {
+										"type": "string",
+										"maxLength": 200
+									},
+									"statusExpiresAt": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"dndUntil": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"workingHours": {
+										"type": "object",
+										"required": [
+											"enabled",
+											"timezone",
+											"days"
+										],
+										"properties": {
+											"enabled": {
+												"type": "boolean"
+											},
+											"timezone": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 80
+											},
+											"days": {
+												"type": "object",
+												"required": [
+													"mon",
+													"tue",
+													"wed",
+													"thu",
+													"fri",
+													"sat",
+													"sun"
+												],
+												"properties": {
+													"mon": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"tue": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"wed": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"thu": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"fri": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"sat": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													},
+													"sun": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"required": [
+																"start",
+																"end"
+															],
+															"properties": {
+																"start": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																},
+																"end": {
+																	"type": "string",
+																	"pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+																}
+															}
+														},
+														"maxItems": 4
+													}
+												}
+											}
+										}
+									},
+									"timezone": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 80
+									},
+									"suppressNotificationsOffHours": {
+										"type": "boolean"
+									},
+									"allowUrgentOverride": {
+										"type": "boolean"
+									},
+									"expectedVersion": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "putApiV1AvailabilityMe"
+			}
+		},
+		"/api/v1/availability/users/{userId}": {
+			"get": {
+				"parameters": [
+					{
+						"name": "userId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "getApiV1AvailabilityUsersByUserId"
+			}
+		},
+		"/api/v1/availability/windows": {
+			"get": {
+				"operationId": "getApiV1AvailabilityWindows"
+			},
+			"post": {
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"startsAt",
+									"endsAt"
+								],
+								"properties": {
+									"kind": {
+										"type": "string",
+										"enum": [
+											"ooo",
+											"focus",
+											"dnd"
+										]
+									},
+									"title": {
+										"type": "string",
+										"maxLength": 200
+									},
+									"message": {
+										"type": "string",
+										"maxLength": 2000
+									},
+									"startsAt": {
+										"type": "string"
+									},
+									"endsAt": {
+										"type": "string"
+									},
+									"delegateUserId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"autoDeclineRouting": {
+										"type": "boolean"
+									},
+									"suppressNotifications": {
+										"type": "boolean"
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"startsAt",
+									"endsAt"
+								],
+								"properties": {
+									"kind": {
+										"type": "string",
+										"enum": [
+											"ooo",
+											"focus",
+											"dnd"
+										]
+									},
+									"title": {
+										"type": "string",
+										"maxLength": 200
+									},
+									"message": {
+										"type": "string",
+										"maxLength": 2000
+									},
+									"startsAt": {
+										"type": "string"
+									},
+									"endsAt": {
+										"type": "string"
+									},
+									"delegateUserId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"autoDeclineRouting": {
+										"type": "boolean"
+									},
+									"suppressNotifications": {
+										"type": "boolean"
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"required": [
+									"startsAt",
+									"endsAt"
+								],
+								"properties": {
+									"kind": {
+										"type": "string",
+										"enum": [
+											"ooo",
+											"focus",
+											"dnd"
+										]
+									},
+									"title": {
+										"type": "string",
+										"maxLength": 200
+									},
+									"message": {
+										"type": "string",
+										"maxLength": 2000
+									},
+									"startsAt": {
+										"type": "string"
+									},
+									"endsAt": {
+										"type": "string"
+									},
+									"delegateUserId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"autoDeclineRouting": {
+										"type": "boolean"
+									},
+									"suppressNotifications": {
+										"type": "boolean"
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "postApiV1AvailabilityWindows"
+			}
+		},
+		"/api/v1/availability/windows/{id}": {
+			"patch": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"kind": {
+										"type": "string",
+										"enum": [
+											"ooo",
+											"focus",
+											"dnd"
+										]
+									},
+									"title": {
+										"type": "string",
+										"maxLength": 200
+									},
+									"message": {
+										"type": "string",
+										"maxLength": 2000
+									},
+									"startsAt": {
+										"type": "string"
+									},
+									"endsAt": {
+										"type": "string"
+									},
+									"delegateUserId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"autoDeclineRouting": {
+										"type": "boolean"
+									},
+									"suppressNotifications": {
+										"type": "boolean"
+									},
+									"version": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"kind": {
+										"type": "string",
+										"enum": [
+											"ooo",
+											"focus",
+											"dnd"
+										]
+									},
+									"title": {
+										"type": "string",
+										"maxLength": 200
+									},
+									"message": {
+										"type": "string",
+										"maxLength": 2000
+									},
+									"startsAt": {
+										"type": "string"
+									},
+									"endsAt": {
+										"type": "string"
+									},
+									"delegateUserId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"autoDeclineRouting": {
+										"type": "boolean"
+									},
+									"suppressNotifications": {
+										"type": "boolean"
+									},
+									"version": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"kind": {
+										"type": "string",
+										"enum": [
+											"ooo",
+											"focus",
+											"dnd"
+										]
+									},
+									"title": {
+										"type": "string",
+										"maxLength": 200
+									},
+									"message": {
+										"type": "string",
+										"maxLength": 2000
+									},
+									"startsAt": {
+										"type": "string"
+									},
+									"endsAt": {
+										"type": "string"
+									},
+									"delegateUserId": {
+										"type": [
+											"string",
+											"null"
+										],
+										"format": "uuid"
+									},
+									"autoDeclineRouting": {
+										"type": "boolean"
+									},
+									"suppressNotifications": {
+										"type": "boolean"
+									},
+									"version": {
+										"type": "integer",
+										"minimum": 1
+									}
+								}
+							}
+						}
+					}
+				},
+				"operationId": "patchApiV1AvailabilityWindowsById"
+			},
+			"delete": {
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					}
+				],
+				"operationId": "deleteApiV1AvailabilityWindowsById"
 			}
 		},
 		"/api/v1/teamspaces": {
@@ -14452,7 +15719,8 @@
 														"doc_database_row",
 														"initiative",
 														"project_milestone",
-														"project_update"
+														"project_update",
+														"user_availability"
 													]
 												},
 												"entityId": {
@@ -14533,7 +15801,8 @@
 														"doc_database_row",
 														"initiative",
 														"project_milestone",
-														"project_update"
+														"project_update",
+														"user_availability"
 													]
 												},
 												"entityId": {
@@ -14614,7 +15883,8 @@
 														"doc_database_row",
 														"initiative",
 														"project_milestone",
-														"project_update"
+														"project_update",
+														"user_availability"
 													]
 												},
 												"entityId": {
@@ -24105,6 +25375,271 @@
 				}
 			}
 		},
+		"/api/v1/agent/tools/availability.set_my_status": {
+			"post": {
+				"tags": [
+					"agent"
+				],
+				"operationId": "availability_set_my_status",
+				"summary": "Set my status",
+				"description": "Update the agent owner's own custom status, manual availability override, or DND timer. Strictly self-scoped (cannot change other members). Idempotent; undoable for 7 days.\n\nAuth: OAuth bearer (audience /api/v1/agent). Headers: X-Workspace-Id (required), Idempotency-Key (optional for writes).",
+				"parameters": [
+					{
+						"name": "x-workspace-id",
+						"in": "header",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"format": "uuid"
+						}
+					},
+					{
+						"name": "idempotency-key",
+						"in": "header",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"maxLength": 128
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"manualState": {
+										"type": "string",
+										"enum": [
+											"auto",
+											"available",
+											"busy",
+											"dnd",
+											"away",
+											"ooo"
+										]
+									},
+									"statusEmoji": {
+										"type": [
+											"string",
+											"null"
+										],
+										"maxLength": 32
+									},
+									"statusText": {
+										"type": "string",
+										"maxLength": 200
+									},
+									"statusExpiresAt": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"dndUntil": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"expectedVersion": {
+										"type": "integer",
+										"minimum": 1
+									}
+								},
+								"additionalProperties": false
+							}
+						},
+						"application/x-www-form-urlencoded": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"manualState": {
+										"type": "string",
+										"enum": [
+											"auto",
+											"available",
+											"busy",
+											"dnd",
+											"away",
+											"ooo"
+										]
+									},
+									"statusEmoji": {
+										"type": [
+											"string",
+											"null"
+										],
+										"maxLength": 32
+									},
+									"statusText": {
+										"type": "string",
+										"maxLength": 200
+									},
+									"statusExpiresAt": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"dndUntil": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"expectedVersion": {
+										"type": "integer",
+										"minimum": 1
+									}
+								},
+								"additionalProperties": false
+							}
+						},
+						"multipart/form-data": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"manualState": {
+										"type": "string",
+										"enum": [
+											"auto",
+											"available",
+											"busy",
+											"dnd",
+											"away",
+											"ooo"
+										]
+									},
+									"statusEmoji": {
+										"type": [
+											"string",
+											"null"
+										],
+										"maxLength": 32
+									},
+									"statusText": {
+										"type": "string",
+										"maxLength": 200
+									},
+									"statusExpiresAt": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"dndUntil": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"expectedVersion": {
+										"type": "integer",
+										"minimum": 1
+									}
+								},
+								"additionalProperties": false
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Response for status 200",
+						"content": {
+							"application/json": {
+								"schema": {
+									"anyOf": [
+										{
+											"type": "object",
+											"required": [
+												"data",
+												"markdown",
+												"trust",
+												"nextCursor"
+											],
+											"properties": {
+												"data": {},
+												"markdown": {
+													"type": "string"
+												},
+												"trust": {
+													"type": "string",
+													"enum": [
+														"trusted",
+														"untrusted"
+													]
+												},
+												"nextCursor": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"undoId": {
+													"type": "string",
+													"format": "uuid"
+												}
+											},
+											"additionalProperties": false
+										},
+										{
+											"type": "object",
+											"required": [
+												"status",
+												"approvalId",
+												"approveUrl",
+												"expiresAt"
+											],
+											"properties": {
+												"status": {
+													"type": "string",
+													"const": "approval_required"
+												},
+												"approvalId": {
+													"type": "string",
+													"format": "uuid"
+												},
+												"approveUrl": {
+													"type": "string"
+												},
+												"expiresAt": {
+													"type": "string",
+													"format": "date-time"
+												}
+											}
+										},
+										{
+											"type": "object",
+											"required": [
+												"status",
+												"previewMd",
+												"requestState"
+											],
+											"properties": {
+												"status": {
+													"type": "string",
+													"const": "needs_confirmation"
+												},
+												"previewMd": {
+													"type": "string"
+												},
+												"requestState": {
+													"type": "string"
+												}
+											}
+										}
+									]
+								}
+							}
+						}
+					}
+				}
+			}
+		},
 		"/api/v1/agent/workspaces": {
 			"get": {
 				"operationId": "getApiV1AgentWorkspaces"
@@ -30419,6 +31954,15 @@
 									},
 									"respectDnd": {
 										"type": "boolean"
+									},
+									"respectWorkingHours": {
+										"type": "boolean"
+									},
+									"respectOoo": {
+										"type": "boolean"
+									},
+									"useOooDelegate": {
+										"type": "boolean"
 									}
 								}
 							}
@@ -30443,6 +31987,15 @@
 									},
 									"respectDnd": {
 										"type": "boolean"
+									},
+									"respectWorkingHours": {
+										"type": "boolean"
+									},
+									"respectOoo": {
+										"type": "boolean"
+									},
+									"useOooDelegate": {
+										"type": "boolean"
 									}
 								}
 							}
@@ -30466,6 +32019,15 @@
 										"type": "boolean"
 									},
 									"respectDnd": {
+										"type": "boolean"
+									},
+									"respectWorkingHours": {
+										"type": "boolean"
+									},
+									"respectOoo": {
+										"type": "boolean"
+									},
+									"useOooDelegate": {
 										"type": "boolean"
 									}
 								}

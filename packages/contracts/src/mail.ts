@@ -501,7 +501,10 @@ export const MailRoutingConfigBody = Type.Object({
 	enabled: Type.Boolean(),
 	maxOpenCap: Type.Optional(Type.Integer({ minimum: 1, maximum: 500 })),
 	requireOnline: Type.Optional(Type.Boolean()),
-	respectDnd: Type.Optional(Type.Boolean())
+	respectDnd: Type.Optional(Type.Boolean()),
+	respectWorkingHours: Type.Optional(Type.Boolean()),
+	respectOoo: Type.Optional(Type.Boolean()),
+	useOooDelegate: Type.Optional(Type.Boolean())
 })
 export type MailRoutingConfigBody = Static<typeof MailRoutingConfigBody>
 
@@ -620,7 +623,10 @@ export const MailRoutingConfigDto = Type.Object({
 	enabled: Type.Boolean(),
 	maxOpenCap: Type.Integer({ minimum: 1 }),
 	requireOnline: Type.Boolean(),
-	respectDnd: Type.Boolean()
+	respectDnd: Type.Boolean(),
+	respectWorkingHours: Type.Boolean(),
+	respectOoo: Type.Boolean(),
+	useOooDelegate: Type.Boolean()
 })
 export type MailRoutingConfigDto = Static<typeof MailRoutingConfigDto>
 

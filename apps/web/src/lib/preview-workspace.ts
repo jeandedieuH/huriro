@@ -8,6 +8,7 @@ import type {
 	AgentPrincipalDto,
 	AiMailAssistResponse,
 	AiProviderDto,
+	AvailabilityWindowDto,
 	ChatChannelBookmarkDto,
 	ChatChannelDto,
 	ChatChannelMemberDto,
@@ -21,6 +22,7 @@ import type {
 	ChatSidebarSectionDto,
 	ContactDto,
 	ContactOrganizationDto,
+	CreateAvailabilityWindowBody,
 	CycleDailySnapshotDto,
 	CycleDto,
 	DocCommentDto,
@@ -65,6 +67,8 @@ import type {
 	SendTestEmailResponse,
 	TeamspaceDto,
 	TeamspaceMemberDto,
+	UpdateAvailabilityWindowBody,
+	UserAvailabilityDto,
 	UserGroupDto,
 	UserWorkspaceProfileDto,
 	WebhookDeliveryDto,
@@ -555,6 +559,73 @@ export function createPreviewSeedSnapshot() {
 		}
 	]
 
+	const userAvailability: UserAvailabilityDto[] = [
+		{
+			id: PREVIEW_USER_ID,
+			userId: PREVIEW_USER_ID,
+			displayName: 'Hagen (Owner)',
+			handle: null,
+			avatarUrl: null,
+			manualState: 'auto',
+			manualStateExpiresAt: null,
+			effectiveState: 'available',
+			statusEmoji: '💻',
+			statusText: 'Shipping Chat v2',
+			statusExpiresAt: null,
+			dndUntil: null,
+			workingHours: {
+				enabled: false,
+				timezone: 'UTC',
+				days: { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] }
+			},
+			timezone: 'UTC',
+			suppressNotificationsOffHours: false,
+			allowUrgentOverride: true,
+			withinWorkingHours: true,
+			isRoutable: true,
+			isAcceptingNotifications: true,
+			nextAvailableAt: null,
+			localTimeLabel: '12:15',
+			delegateUserId: null,
+			lastSeenAt: now,
+			version: 1,
+			windows: [],
+			updatedAt: now
+		},
+		{
+			id: '0190a0b1-0000-7000-8000-000000000003',
+			userId: '0190a0b1-0000-7000-8000-000000000003',
+			displayName: 'Ada Lovelace',
+			handle: null,
+			avatarUrl: null,
+			manualState: 'busy',
+			manualStateExpiresAt: null,
+			effectiveState: 'busy',
+			statusEmoji: '📐',
+			statusText: 'Reviewing the RFC',
+			statusExpiresAt: null,
+			dndUntil: null,
+			workingHours: {
+				enabled: false,
+				timezone: 'UTC',
+				days: { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] }
+			},
+			timezone: 'UTC',
+			suppressNotificationsOffHours: false,
+			allowUrgentOverride: true,
+			withinWorkingHours: true,
+			isRoutable: true,
+			isAcceptingNotifications: true,
+			nextAvailableAt: null,
+			localTimeLabel: '12:15',
+			delegateUserId: null,
+			lastSeenAt: now,
+			version: 1,
+			windows: [],
+			updatedAt: now
+		}
+	]
+
 	return {
 		cursor: 1,
 		serverTime: now,
@@ -596,7 +667,8 @@ export function createPreviewSeedSnapshot() {
 		],
 		notifications,
 		docPages,
-		teamspaces
+		teamspaces,
+		userAvailability
 	}
 }
 
@@ -932,6 +1004,7 @@ export function createPreviewApiBridge(
 		lastSeenAt: previewNow,
 		updatedAt: previewNow
 	}
+	let previewAvailabilityWindows: AvailabilityWindowDto[] = []
 	let previewUserGroups: UserGroupDto[] = [
 		{
 			id: '0190a0b1-0000-7000-8000-000000000940',
@@ -1589,7 +1662,18 @@ export function createPreviewApiBridge(
 		}
 	]
 	const previewMailRoutingByInbox = new Map<string, MailRoutingConfigDto>([
-		[PREVIEW_MAIL_INBOX_ID, { enabled: true, maxOpenCap: 5, requireOnline: false, respectDnd: true }]
+		[
+			PREVIEW_MAIL_INBOX_ID,
+			{
+				enabled: true,
+				maxOpenCap: 5,
+				requireOnline: false,
+				respectDnd: true,
+				respectWorkingHours: false,
+				respectOoo: true,
+				useOooDelegate: true
+			}
+		]
 	])
 	let previewMailSlaPolicies: MailSlaPolicyDto[] = [
 		{
@@ -3062,6 +3146,56 @@ export function createPreviewApiBridge(
 			}
 			return previewMyChatStatus
 		},
+		async listAvailabilityWindows() {
+			return previewAvailabilityWindows
+		},
+		async createAvailabilityWindow(body: CreateAvailabilityWindowBody) {
+			const now = new Date().toISOString()
+			const row: AvailabilityWindowDto = {
+				id: crypto.randomUUID(),
+				userId: PREVIEW_USER_ID,
+				kind: body.kind ?? 'ooo',
+				title: body.title ?? '',
+				message: body.message ?? '',
+				startsAt: body.startsAt,
+				endsAt: body.endsAt,
+				delegateUserId: body.delegateUserId ?? null,
+				autoDeclineRouting: body.autoDeclineRouting ?? true,
+				suppressNotifications: body.suppressNotifications ?? true,
+				version: 1,
+				createdAt: now,
+				updatedAt: now
+			}
+			previewAvailabilityWindows = [...previewAvailabilityWindows, row]
+			return row
+		},
+		async updateAvailabilityWindow(id: string, body: UpdateAvailabilityWindowBody) {
+			const current = previewAvailabilityWindows.find((window) => window.id === id)
+			if (!current) throw new Error('Availability window not found')
+			const next: AvailabilityWindowDto = {
+				...current,
+				...(body.kind !== undefined ? { kind: body.kind } : {}),
+				...(body.title !== undefined ? { title: body.title } : {}),
+				...(body.message !== undefined ? { message: body.message } : {}),
+				...(body.startsAt !== undefined ? { startsAt: body.startsAt } : {}),
+				...(body.endsAt !== undefined ? { endsAt: body.endsAt } : {}),
+				...(body.delegateUserId !== undefined ? { delegateUserId: body.delegateUserId } : {}),
+				...(body.autoDeclineRouting !== undefined ? { autoDeclineRouting: body.autoDeclineRouting } : {}),
+				...(body.suppressNotifications !== undefined
+					? { suppressNotifications: body.suppressNotifications }
+					: {}),
+				version: current.version + 1,
+				updatedAt: new Date().toISOString()
+			}
+			previewAvailabilityWindows = previewAvailabilityWindows.map((window) =>
+				window.id === id ? next : window
+			)
+			return next
+		},
+		async deleteAvailabilityWindow(id: string) {
+			previewAvailabilityWindows = previewAvailabilityWindows.filter((window) => window.id !== id)
+			return { deleted: true as const }
+		},
 		async listUserGroups() {
 			return previewUserGroups
 		},
@@ -4355,7 +4489,10 @@ export function createPreviewApiBridge(
 					enabled: false,
 					maxOpenCap: 10,
 					requireOnline: true,
-					respectDnd: true
+					respectDnd: true,
+					respectWorkingHours: false,
+					respectOoo: true,
+					useOooDelegate: true
 				}
 			)
 		},
@@ -4364,7 +4501,10 @@ export function createPreviewApiBridge(
 				enabled: body.enabled,
 				maxOpenCap: body.maxOpenCap ?? 10,
 				requireOnline: body.requireOnline ?? true,
-				respectDnd: body.respectDnd ?? true
+				respectDnd: body.respectDnd ?? true,
+				respectWorkingHours: body.respectWorkingHours ?? false,
+				respectOoo: body.respectOoo ?? true,
+				useOooDelegate: body.useOooDelegate ?? true
 			}
 			previewMailRoutingByInbox.set(inboxId, next)
 			return next

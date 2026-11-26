@@ -27,6 +27,7 @@ import type { Queryable, Sql } from '@huriro/db'
 import { withWorkspace } from '@huriro/db'
 import { type ActorContext, generateKeyBetween } from '@huriro/domain'
 import { HttpError } from '../../api/error'
+import { getMyAvailability, updateMyAvailability } from '../availability'
 import { createDocPage } from '../docs'
 import { resolveActor, resolveResourceAcl } from '../tenancy'
 import { authorizeChannel } from './policy'
@@ -665,54 +666,22 @@ export async function listPinnedMessages(
 
 // ---------- Workspace presence/status and user groups (Â§5.4) ----------
 export async function getMyWorkspaceProfile(tx: Queryable, actor: ActorContext): Promise<Row> {
-	const [row] = await tx<Row[]>`
-		SELECT status_emoji AS "statusEmoji", status_text AS "statusText",
-			status_expires_at::text AS "statusExpiresAt", dnd_until::text AS "dndUntil",
-			working_hours AS "workingHours", last_seen_at::text AS "lastSeenAt",
-			updated_at::text AS "updatedAt"
-		FROM user_workspace_profiles
-		WHERE workspace_id = ${actor.workspaceId} AND user_id = ${actor.userId}
-	`
-	return (
-		row ?? {
-			statusEmoji: null,
-			statusText: '',
-			statusExpiresAt: null,
-			dndUntil: null,
-			workingHours: {},
-			lastSeenAt: null
-		}
-	)
+	return getMyAvailability(tx, actor) as unknown as Row
 }
 
 export async function updateMyWorkspaceProfile(
 	tx: Queryable,
 	actor: ActorContext,
 	input: UpdateUserStatusBody
-): Promise<Row> {
-	await tx`
-		INSERT INTO user_workspace_profiles (
-			workspace_id, user_id, status_emoji, status_text, status_expires_at, dnd_until, working_hours, last_seen_at
-		) VALUES (
-			${actor.workspaceId}, ${actor.userId}, ${input.statusEmoji ?? null}, ${input.statusText ?? ''},
-			${input.statusExpiresAt ?? null}, ${input.dndUntil ?? null}, ${tx.json((input.workingHours ?? {}) as never)}, now()
-		)
-		ON CONFLICT (workspace_id, user_id) DO UPDATE SET
-			status_emoji = CASE WHEN ${input.statusEmoji !== undefined} THEN EXCLUDED.status_emoji ELSE user_workspace_profiles.status_emoji END,
-			status_text = COALESCE(${input.statusText ?? null}, user_workspace_profiles.status_text),
-			status_expires_at = CASE WHEN ${input.statusExpiresAt !== undefined} THEN EXCLUDED.status_expires_at ELSE user_workspace_profiles.status_expires_at END,
-			dnd_until = CASE WHEN ${input.dndUntil !== undefined} THEN EXCLUDED.dnd_until ELSE user_workspace_profiles.dnd_until END,
-			working_hours = COALESCE(${input.workingHours !== undefined ? tx.json((input.workingHours ?? {}) as never) : null}, user_workspace_profiles.working_hours),
-			last_seen_at = now()
-	`
-	await auditAndEmit(tx, actor, {
-		aggregate: 'user_workspace_profile',
-		aggregateId: actor.userId,
-		eventType: 'chat.user_status.updated.v1',
-		action: 'chat.user_status.update',
-		targetType: 'user_workspace_profile'
+): Promise<{ readonly data: Row; readonly cursor: number }> {
+	const result = await updateMyAvailability(tx, actor, {
+		...(input.statusEmoji !== undefined ? { statusEmoji: input.statusEmoji } : {}),
+		...(input.statusText !== undefined ? { statusText: input.statusText } : {}),
+		...(input.statusExpiresAt !== undefined ? { statusExpiresAt: input.statusExpiresAt } : {}),
+		...(input.dndUntil !== undefined ? { dndUntil: input.dndUntil } : {}),
+		...(input.workingHours !== undefined ? { workingHours: input.workingHours as never } : {})
 	})
-	return getMyWorkspaceProfile(tx, actor)
+	return { data: result.data as unknown as Row, cursor: result.cursor }
 }
 
 export async function listUserGroups(tx: Queryable, actor: ActorContext): Promise<Row[]> {

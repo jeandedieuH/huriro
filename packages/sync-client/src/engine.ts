@@ -42,8 +42,10 @@ import type {
 	UpdateDocPageBody,
 	UpdateInitiativeBody,
 	UpdateIssueBody,
+	UpdateMyAvailabilityBody,
 	UpdateProjectBody,
-	UpdateProjectMilestoneBody
+	UpdateProjectMilestoneBody,
+	UserAvailabilityDto
 } from '@huriro/contracts'
 import { generateKeyBetween } from '@huriro/domain'
 import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
@@ -2131,6 +2133,69 @@ export class HuriroSyncEngine {
 			title: input.name
 		})
 		this.collections.viewsManaged.upsertMany([optimistic])
+		await persistOutbox
+		await this.persistReplica()
+		this.emit()
+		if (this.online && this.transport) void this.flushOutbox()
+		return optimistic
+	}
+
+	async updateMyAvailability(patch: UpdateMyAvailabilityBody): Promise<UserAvailabilityDto> {
+		const current = this.collections.userAvailability.get(this.currentUserId)
+		const nowIso = new Date().toISOString()
+		const optimistic: UserAvailabilityDto = {
+			id: this.currentUserId,
+			userId: this.currentUserId,
+			displayName: current?.displayName ?? null,
+			handle: current?.handle ?? null,
+			avatarUrl: current?.avatarUrl ?? null,
+			manualState: patch.manualState ?? current?.manualState ?? 'auto',
+			manualStateExpiresAt:
+				patch.manualStateExpiresAt !== undefined
+					? patch.manualStateExpiresAt
+					: (current?.manualStateExpiresAt ?? null),
+			effectiveState: current?.effectiveState ?? 'offline',
+			statusEmoji: patch.statusEmoji !== undefined ? patch.statusEmoji : (current?.statusEmoji ?? null),
+			statusText: patch.statusText !== undefined ? patch.statusText : (current?.statusText ?? ''),
+			statusExpiresAt:
+				patch.statusExpiresAt !== undefined ? patch.statusExpiresAt : (current?.statusExpiresAt ?? null),
+			dndUntil: patch.dndUntil !== undefined ? patch.dndUntil : (current?.dndUntil ?? null),
+			workingHours: patch.workingHours ??
+				current?.workingHours ?? {
+					enabled: false,
+					timezone: 'UTC',
+					days: { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] }
+				},
+			timezone: patch.timezone ?? current?.timezone ?? 'UTC',
+			suppressNotificationsOffHours:
+				patch.suppressNotificationsOffHours ?? current?.suppressNotificationsOffHours ?? false,
+			allowUrgentOverride: patch.allowUrgentOverride ?? current?.allowUrgentOverride ?? true,
+			withinWorkingHours: current?.withinWorkingHours ?? true,
+			isRoutable: current?.isRoutable ?? true,
+			isAcceptingNotifications: current?.isAcceptingNotifications ?? true,
+			nextAvailableAt: current?.nextAvailableAt ?? null,
+			localTimeLabel: current?.localTimeLabel ?? null,
+			delegateUserId: current?.delegateUserId ?? null,
+			lastSeenAt: current?.lastSeenAt ?? null,
+			version: (current?.version ?? 0) + 1,
+			windows: current?.windows ?? [],
+			updatedAt: nowIso
+		}
+		const persistOutbox = this.outbox.enqueueImmediate({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'user_availability',
+				entityId: this.currentUserId,
+				op: 'update',
+				patch: patch as Record<string, unknown>,
+				baseVersion: current?.version ?? 1,
+				queuedAt: nowIso
+			},
+			...(current ? { base: current as unknown as Record<string, unknown> } : {}),
+			title: optimistic.statusText || 'Availability'
+		})
+		this.collections.userAvailabilityManaged.upsertMany([optimistic])
 		await persistOutbox
 		await this.persistReplica()
 		this.emit()

@@ -20,6 +20,7 @@ export type SettingsSection =
 	| 'general'
 	| 'members'
 	| 'notifications'
+	| 'availability'
 	| 'billing'
 	| 'governance'
 	| 'imports'

@@ -33,6 +33,7 @@ import {
 	UpdateInitiativeBody,
 	UpdateIssueBody,
 	UpdateIssueCommentBody,
+	UpdateMyAvailabilityBody,
 	UpdateProjectBody,
 	UpdateProjectMilestoneBody,
 	UpdateSavedViewBody
@@ -43,6 +44,7 @@ import type { TSchema } from 'typebox'
 import { Value } from 'typebox/value'
 import { withIdempotency } from '../../api/context'
 import { HttpError } from '../../api/error'
+import { getAvailabilitySnapshot, updateMyAvailability } from '../availability'
 import {
 	createDocDatabase,
 	createDocDatabaseProperty,
@@ -291,6 +293,21 @@ function filterRowForActor(
 	accessibleArchivedDocPages: ReadonlySet<string>,
 	accessibleTeamspaces: ReadonlySet<string>
 ): SyncChangeDto | null {
+	if (row.entityType === 'user_availability') {
+		if (actor.membership !== 'active') return null
+		// Guests receive only their own durable row through the change feed; the
+		// workspace list endpoint applies co-member visibility for reads.
+		if (actor.roleKey === 'guest' && row.entityId !== actor.userId) return null
+		return {
+			cursor: row.cursor,
+			entity: 'user_availability',
+			id: row.entityId,
+			action: row.action,
+			scope: row.scope,
+			data: row.action === 'delete' ? null : row.payload,
+			changedAt: row.changedAt
+		}
+	}
 	if (row.entityType === 'notification') {
 		if (!row.scope.includes(`user:${actor.principalId}`)) return null
 		return {
@@ -678,11 +695,12 @@ export async function getSyncSnapshot(
 		projectUpdates: [],
 		savedViews: []
 	}
-	const [tasksSnap, docsSnap, teamspacesSnap, notifSnap] = await Promise.all([
+	const [tasksSnap, docsSnap, teamspacesSnap, notifSnap, availabilitySnap] = await Promise.all([
 		scopeDocPageId ? Promise.resolve(emptyTasks) : getTasksSnapshotData(tx, actor, scopeProjectId),
 		scopeProjectId ? Promise.resolve({ docPages: [] }) : getDocsSnapshotData(tx, actor, scopeDocPageId),
 		scopeProjectId || scopeDocPageId ? Promise.resolve([]) : listVisibleTeamspaces(tx, actor),
-		scopeProjectId || scopeDocPageId ? Promise.resolve([]) : getNotificationsSnapshot(tx, actor)
+		scopeProjectId || scopeDocPageId ? Promise.resolve([]) : getNotificationsSnapshot(tx, actor),
+		scopeProjectId || scopeDocPageId ? Promise.resolve([]) : getAvailabilitySnapshot(tx, actor)
 	])
 
 	return {
@@ -700,7 +718,8 @@ export async function getSyncSnapshot(
 		savedViews: tasksSnap.savedViews as unknown as Record<string, unknown>[],
 		notifications: notifSnap as unknown as Record<string, unknown>[],
 		docPages: docsSnap.docPages as unknown as Record<string, unknown>[],
-		teamspaces: teamspacesSnap as unknown as Record<string, unknown>[]
+		teamspaces: teamspacesSnap as unknown as Record<string, unknown>[],
+		userAvailability: availabilitySnap as unknown as Record<string, unknown>[]
 	}
 }
 
@@ -725,6 +744,26 @@ async function runSingleMutation(
 	m: MutationEnvelope
 ): Promise<{ readonly data: Record<string, unknown>; readonly cursor: number }> {
 	const patch = m.patch
+
+	if (m.entity === 'user_availability') {
+		if (m.op !== 'update') {
+			throw new HttpError(422, 'validation_failed', 'user_availability supports update mutations only')
+		}
+		if (m.entityId !== actor.userId) {
+			throw new HttpError(403, 'insufficient_role', 'Availability is self-scoped')
+		}
+		const input = validateMutationPayload<UpdateMyAvailabilityBody>(
+			UpdateMyAvailabilityBody,
+			{
+				...patch,
+				expectedVersion:
+					m.baseVersion ?? (typeof patch['version'] === 'number' ? patch['version'] : undefined)
+			},
+			'user_availability.update'
+		)
+		const res = await updateMyAvailability(tx, actor, input)
+		return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+	}
 
 	if (m.entity === 'issue') {
 		if (m.op === 'create') {
