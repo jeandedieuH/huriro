@@ -172,9 +172,11 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 			) {
 				useUiStore.getState().setServerReadOnly(true)
 			}
-			const err = new Error(
-				problemBody?.detail ?? problemBody?.title ?? `Request to ${path} failed (${res.status})`
-			) as Error & { status?: number; code?: string }
+			const message =
+				problemBody?.title && problemBody?.detail?.startsWith('Reference ')
+					? `${problemBody.title} (${problemBody.detail})`
+					: (problemBody?.detail ?? problemBody?.title ?? `Request to ${path} failed (${res.status})`)
+			const err = new Error(message) as Error & { status?: number; code?: string }
 			err.status = res.status
 			if (problemBody?.code) err.code = problemBody.code
 			throw err

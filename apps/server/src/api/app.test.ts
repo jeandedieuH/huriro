@@ -5,6 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test'
 import type { Sql } from '@huriro/db'
+import { EmailDeliveryError, type EmailPipeline } from '../email'
 import type { Auth } from '../modules/identity'
 import { createApp } from './app'
 
@@ -466,5 +467,82 @@ describe('api contract', () => {
 		)
 		expect(resTestNoSession.status).toBe(401)
 		expect(resTestNoSession.headers.get('content-type')).toContain('application/problem+json')
+	})
+
+	test('POST /notifications/email/test maps EmailDeliveryError to safe 502 email_delivery_failed problem+json', async () => {
+		const userId = crypto.randomUUID()
+		const workspaceId = crypto.randomUUID()
+		const txFn = async (strings: TemplateStringsArray): Promise<unknown[]> => {
+			const query = strings.join(' ? ').replace(/\s+/g, ' ').trim()
+			if (query.startsWith('SELECT set_config')) return []
+			if (query.includes('FROM memberships m')) {
+				return [{ roleId: crypto.randomUUID(), roleKey: 'owner', roleRank: 100, status: 'active' }]
+			}
+			if (query.includes('FROM role_permissions')) {
+				return [{ permission: 'settings.manage' }]
+			}
+			if (query.includes('FROM workspaces')) {
+				return [{ name: 'Acme Workspace' }]
+			}
+			throw new Error(`unexpected sql query in unit test: ${query}`)
+		}
+		const emailTestSql = Object.assign(txFn, {
+			begin: async <T>(fn: (tx: typeof txFn) => Promise<T>): Promise<T> => fn(txFn)
+		}) as unknown as Sql
+
+		const emailStub = {
+			configured: true,
+			mode: 'selfhost',
+			provider: 'smtp',
+			from: 'Huriro <noreply@huriro.local>',
+			emailVerificationRequired: false,
+			baseUrl: 'http://localhost:3000',
+			appName: 'Huriro',
+			sendTestEmail: async () => {
+				throw new EmailDeliveryError('smtp', 'raw secret smtp reply', {
+					retryable: true,
+					cause: Object.assign(new Error('dns fail'), { code: 'EDNS' })
+				})
+			}
+		} as unknown as EmailPipeline
+
+		const failingEmailApp = createApp({
+			sql: emailTestSql,
+			migrationsDir: '.',
+			mode: 'selfhost',
+			email: emailStub,
+			auth: {
+				options: { baseURL: 'http://localhost', socialProviders: {} },
+				api: {
+					getSession: async () => ({
+						user: { id: userId, email: 'ops@example.com' },
+						session: { id: crypto.randomUUID() }
+					})
+				}
+			} as unknown as Auth
+		})
+
+		const res = await failingEmailApp.handle(
+			new Request('http://t/api/v1/notifications/email/test', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					cookie: 's=1',
+					origin: 'http://t',
+					'x-workspace-id': workspaceId,
+					'x-huriro-client': 'huriro-web'
+				},
+				body: JSON.stringify({ to: 'ops@example.com' })
+			})
+		)
+		expect(res.status).toBe(502)
+		expect(res.headers.get('content-type')).toContain('application/problem+json')
+		const rawBody = await res.text()
+		expect(rawBody).not.toContain('raw secret smtp reply')
+		const body = JSON.parse(rawBody) as { code?: string; title?: string; detail?: string }
+		expect(body.code).toBe('email_delivery_failed')
+		expect(body.title).toBe('Email delivery failed (smtp)')
+		expect(body.detail).toContain('hostname')
+		expect(body.detail).toContain('DNS')
 	})
 })

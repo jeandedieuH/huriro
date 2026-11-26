@@ -15,6 +15,7 @@ import {
 	parseSmtpConfig,
 	renderEmail,
 	resolveEmailTransport,
+	resolveSmtpConnectionTarget,
 	sanitizeHeaderValue,
 	toSafeEmailHref,
 	VerifyEmail
@@ -349,6 +350,95 @@ describe('provider adapters', () => {
 			smtpFail.send({ to: 'a@b.com', subject: 'Hello', html: '<p>Hi</p>', text: 'Hi' })
 		).rejects.toBeInstanceOf(EmailDeliveryError)
 		expect(closedCount).toBe(2)
+	})
+
+	test('resolveSmtpConnectionTarget handles IP literals, prefers IPv4, falls back to IPv6, and surfaces EDNS errors', async () => {
+		expect(await resolveSmtpConnectionTarget('96.9.126.2')).toEqual({ host: '96.9.126.2' })
+		expect(await resolveSmtpConnectionTarget(' 2001:db8::1 ')).toEqual({ host: '2001:db8::1' })
+
+		const v4Preferred = await resolveSmtpConnectionTarget('smtp.emailit.com', async () => [
+			{ address: '2001:db8::2', family: 6 },
+			{ address: '96.9.126.2', family: 4 }
+		])
+		expect(v4Preferred).toEqual({ host: '96.9.126.2', servername: 'smtp.emailit.com' })
+
+		const v6Fallback = await resolveSmtpConnectionTarget('v6only.example.com', async () => [
+			{ address: '2001:db8::9', family: 6 }
+		])
+		expect(v6Fallback).toEqual({ host: '2001:db8::9', servername: 'v6only.example.com' })
+
+		await expect(resolveSmtpConnectionTarget('empty.example.com', async () => [])).rejects.toMatchObject({
+			code: 'EDNS'
+		})
+		await expect(
+			resolveSmtpConnectionTarget('slow.example.com', () => new Promise(() => {}), 10)
+		).rejects.toMatchObject({ code: 'EDNS' })
+	})
+
+	test('createSmtpTransport passes pre-resolved IP + SNI servername and wraps DNS failures without calling close', async () => {
+		const capturedOptions: unknown[] = []
+		let closeCalls = 0
+		const smtpWithDns = createSmtpTransport({
+			host: 'smtp.emailit.com',
+			port: 587,
+			secure: false,
+			user: 'emailit',
+			pass: 'secret',
+			defaultFrom: 'noreply@huriro.dev',
+			dnsLookup: async () => [{ address: '96.9.126.2', family: 4 }],
+			nodemailerOverride: {
+				createTransport: (options) => {
+					capturedOptions.push(options)
+					return {
+						sendMail: async () => ({ messageId: '<smtp-dns-1@huriro.dev>' }),
+						close: () => {
+							closeCalls += 1
+						}
+					}
+				}
+			}
+		})
+
+		const res = await smtpWithDns.send({ to: 'a@b.com', subject: 'Hello', html: '<p>Hi</p>', text: 'Hi' })
+		expect(res).toEqual({ provider: 'smtp', messageId: '<smtp-dns-1@huriro.dev>' })
+		expect(capturedOptions[0]).toMatchObject({
+			host: '96.9.126.2',
+			port: 587,
+			secure: false,
+			servername: 'smtp.emailit.com',
+			tls: { servername: 'smtp.emailit.com' }
+		})
+		expect(closeCalls).toBe(1)
+
+		const dnsCause = Object.assign(new Error('lookup failed'), { code: 'EDNS' })
+		const smtpDnsFail = createSmtpTransport({
+			host: 'smtp.emailit.com',
+			port: 587,
+			secure: false,
+			defaultFrom: 'noreply@huriro.dev',
+			dnsLookup: async () => {
+				throw dnsCause
+			},
+			nodemailerOverride: {
+				createTransport: () => ({
+					sendMail: async () => ({ messageId: 'never' }),
+					close: () => {
+						closeCalls += 1
+					}
+				})
+			}
+		})
+
+		let caught: unknown
+		try {
+			await smtpDnsFail.send({ to: 'a@b.com', subject: 'Hello', html: '<p>Hi</p>', text: 'Hi' })
+		} catch (err) {
+			caught = err
+		}
+		expect(caught).toBeInstanceOf(EmailDeliveryError)
+		expect((caught as EmailDeliveryError).provider).toBe('smtp')
+		expect((caught as EmailDeliveryError).cause).toBe(dnsCause)
+		expect(closeCalls).toBe(1)
 	})
 
 	test('createNoopEmailTransport marks result skipped', async () => {

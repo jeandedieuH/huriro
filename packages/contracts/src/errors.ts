@@ -73,6 +73,7 @@ export const ERROR_CODES = [
 	'mail_message_too_large',
 	// email notification pipeline
 	'email_not_configured',
+	'email_delivery_failed',
 	// M6 mobile, billing, governance, hardening (§19–§22)
 	'read_only_mode',
 	'billing_disabled',

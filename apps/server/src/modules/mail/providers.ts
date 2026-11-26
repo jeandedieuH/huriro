@@ -13,6 +13,7 @@
  */
 import { createHash } from 'node:crypto'
 import axios from 'axios'
+import { resolveSmtpConnectionTarget } from '../../email'
 
 export interface MailAddress {
 	readonly email: string
@@ -137,11 +138,15 @@ interface SmtpTransportConfig {
 export function createSmtpTransport(cfg: SmtpTransportConfig): MailTransport {
 	return {
 		async send(mail) {
+			const target = await resolveSmtpConnectionTarget(cfg.host)
 			const nodemailer = await import('nodemailer')
 			const transport = nodemailer.createTransport({
-				host: cfg.host,
+				host: target.host,
 				port: cfg.port,
 				secure: cfg.secure,
+				...(target.servername
+					? { servername: target.servername, tls: { servername: target.servername } }
+					: {}),
 				auth: cfg.user ? { user: cfg.user, pass: cfg.pass ?? '' } : undefined,
 				connectionTimeout: 15_000,
 				socketTimeout: 30_000

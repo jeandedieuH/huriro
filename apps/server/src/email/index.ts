@@ -62,14 +62,18 @@ export {
 	createNoopEmailTransport,
 	createResendTransport,
 	createSmtpTransport,
+	type DnsLookupAddress,
 	type EmailitClientLike,
 	type NodemailerFactoryLike,
 	type NodemailerTransportLike,
 	type ParsedSmtpConfig,
 	parseSmtpConfig,
 	type ResendClientLike,
+	type ResolvedSmtpTarget,
 	type ResolvedTransport,
 	resolveEmailTransport,
+	resolveSmtpConnectionTarget,
+	type SmtpDnsLookup,
 	sanitizeHeaderValue,
 	type TransportOverrides
 } from './transports'

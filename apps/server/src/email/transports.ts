@@ -1,3 +1,4 @@
+import { isIP } from 'node:net'
 import {
 	ApiConnectionException,
 	ApiErrorException,
@@ -22,6 +23,85 @@ export interface ParsedSmtpConfig {
 	readonly secure: boolean
 	readonly user?: string | undefined
 	readonly pass?: string | undefined
+}
+
+export interface DnsLookupAddress {
+	readonly address: string
+	readonly family: number
+}
+
+export type SmtpDnsLookup = (
+	hostname: string,
+	options: { readonly all: true }
+) => Promise<readonly DnsLookupAddress[]>
+
+export interface ResolvedSmtpTarget {
+	readonly host: string
+	readonly servername?: string | undefined
+}
+
+async function defaultSmtpDnsLookup(
+	hostname: string,
+	options: { readonly all: true }
+): Promise<readonly DnsLookupAddress[]> {
+	const dns = await import('node:dns/promises')
+	return dns.lookup(hostname, options)
+}
+
+/**
+ * Pre-resolve an SMTP hostname via the OS resolver (`dns.lookup`) and prefer
+ * IPv4 over IPv6.
+ *
+ * Nodemailer's internal DNS resolver runs parallel `resolve4` + `resolve6`
+ * queries and waits for both before connecting; on networks where AAAA
+ * queries stall or blackhole, the whole connection times out with `EDNS` even
+ * when IPv4 resolves immediately. Passing the resolved IP with the original
+ * hostname in `servername` preserves TLS SNI and certificate verification.
+ */
+export async function resolveSmtpConnectionTarget(
+	host: string,
+	dnsLookup?: SmtpDnsLookup,
+	timeoutMs = 10_000
+): Promise<ResolvedSmtpTarget> {
+	const trimmed = host.trim()
+	if (!trimmed || isIP(trimmed) !== 0) {
+		// RFC 6066: never send an IP literal in TLS SNI `servername`.
+		return { host: trimmed }
+	}
+
+	const lookupFn = dnsLookup ?? defaultSmtpDnsLookup
+	let timer: ReturnType<typeof setTimeout> | undefined
+	let records: readonly DnsLookupAddress[]
+	try {
+		const timeoutPromise = new Promise<never>((_resolve, reject) => {
+			timer = setTimeout(() => {
+				const err = new Error(`DNS lookup for ${trimmed} timed out`) as Error & { code?: string }
+				err.code = 'EDNS'
+				reject(err)
+			}, timeoutMs)
+		})
+		records = await Promise.race([
+			Promise.resolve().then(() => lookupFn(trimmed, { all: true })),
+			timeoutPromise
+		])
+	} finally {
+		if (timer !== undefined) clearTimeout(timer)
+	}
+
+	const valid = records.filter((r) => isIP(r.address) !== 0)
+	const ipv4 = valid.filter((r) => r.family === 4 || isIP(r.address) === 4)
+	const ipv6 = valid.filter((r) => r.family !== 4 && isIP(r.address) !== 4)
+	const preferred = ipv4[0] ?? ipv6[0]
+	if (!preferred) {
+		const err = new Error(`DNS lookup returned no addresses for ${trimmed}`) as Error & { code?: string }
+		err.code = 'EDNS'
+		throw err
+	}
+
+	return {
+		host: preferred.address,
+		servername: trimmed
+	}
 }
 
 export function sanitizeHeaderValue(raw: string): string {
@@ -255,6 +335,8 @@ export interface NodemailerFactoryLike {
 		readonly host: string
 		readonly port: number
 		readonly secure: boolean
+		readonly servername?: string | undefined
+		readonly tls?: { readonly servername?: string | undefined } | undefined
 		readonly auth?: { readonly user: string; readonly pass: string } | undefined
 		readonly connectionTimeout?: number
 		readonly greetingTimeout?: number
@@ -271,22 +353,33 @@ export function createSmtpTransport(opts: {
 	readonly defaultFrom: string
 	readonly defaultReplyTo?: string | undefined
 	readonly nodemailerOverride?: NodemailerFactoryLike | undefined
+	readonly dnsLookup?: SmtpDnsLookup | undefined
 }): EmailTransport {
 	return {
 		provider: 'smtp',
 		async send(msg: EmailMessage): Promise<EmailSendResult> {
-			const mailerFactory: NodemailerFactoryLike =
-				opts.nodemailerOverride ?? ((await import('nodemailer')) as unknown as NodemailerFactoryLike)
-			const transporter = mailerFactory.createTransport({
-				host: opts.host,
-				port: opts.port,
-				secure: opts.secure,
-				...(opts.user ? { auth: { user: opts.user, pass: opts.pass ?? '' } } : {}),
-				connectionTimeout: 15_000,
-				greetingTimeout: 10_000,
-				socketTimeout: 30_000
-			})
+			let transporter: NodemailerTransportLike | null = null
 			try {
+				// Skip network DNS when unit tests supply a mock nodemailer factory without a custom dnsLookup.
+				const target: ResolvedSmtpTarget =
+					opts.nodemailerOverride && !opts.dnsLookup
+						? { host: opts.host }
+						: await resolveSmtpConnectionTarget(opts.host, opts.dnsLookup)
+				const mailerFactory: NodemailerFactoryLike =
+					opts.nodemailerOverride ?? ((await import('nodemailer')) as unknown as NodemailerFactoryLike)
+				transporter = mailerFactory.createTransport({
+					host: target.host,
+					port: opts.port,
+					secure: opts.secure,
+					...(target.servername
+						? { servername: target.servername, tls: { servername: target.servername } }
+						: {}),
+					...(opts.user ? { auth: { user: opts.user, pass: opts.pass ?? '' } } : {}),
+					connectionTimeout: 15_000,
+					greetingTimeout: 10_000,
+					socketTimeout: 30_000
+				})
+
 				const from = sanitizeHeaderValue(msg.from ?? opts.defaultFrom)
 				const to = sanitizeHeaderValue(msg.to)
 				const subject = sanitizeHeaderValue(msg.subject)
@@ -310,7 +403,7 @@ export function createSmtpTransport(opts: {
 				const detail = err instanceof Error ? err.message : 'SMTP delivery failed'
 				throw new EmailDeliveryError('smtp', detail, { retryable: true, cause: err })
 			} finally {
-				transporter.close()
+				transporter?.close()
 			}
 		}
 	}
@@ -338,6 +431,7 @@ export interface TransportOverrides {
 	readonly emailitClient?: EmailitClientLike | undefined
 	readonly resendClient?: ResendClientLike | undefined
 	readonly nodemailer?: NodemailerFactoryLike | undefined
+	readonly dnsLookup?: SmtpDnsLookup | undefined
 	readonly fetchImpl?: typeof fetch | undefined
 }
 
@@ -419,7 +513,8 @@ export function resolveEmailTransport(
 				pass: smtp.pass,
 				defaultFrom: cfg.from,
 				defaultReplyTo: cfg.replyTo,
-				nodemailerOverride: overrides?.nodemailer
+				nodemailerOverride: overrides?.nodemailer,
+				dnsLookup: overrides?.dnsLookup
 			})
 		}
 	}
