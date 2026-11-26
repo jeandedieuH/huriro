@@ -1,6 +1,7 @@
 # Huriro ops runbook (GA)
 
 Deploy, health-check, and recover a self-hosted or cloud Huriro instance. §19–§20 are the spec; see the specialized runbooks under `docs/runbooks/` for detailed procedures:
+
 - [PostgreSQL Backup & Restore](file:///docs/runbooks/restore-postgres.md)
 - [Incident Response](file:///docs/runbooks/incident-response.md)
 - [Secret & Key Rotation](file:///docs/runbooks/rotate-secrets.md)

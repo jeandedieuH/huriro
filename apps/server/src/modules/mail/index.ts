@@ -8,15 +8,32 @@
  */
 
 import {
+	ApplyMailMacroBody,
+	CompleteDraftReviewBody,
+	ContactBody,
+	ContactOrganizationBody,
+	ConversationTagsBody,
 	ConvertToIssueBody,
 	CreateMailAccountBody,
 	CreateMailIdentityBody,
 	CreateMailInboxBody,
 	CreateMailNoteBody,
+	CreateOutboundConversationBody,
+	ForwardConversationBody,
 	LinkConversationBody,
 	ListConversationsQuery,
+	MailBulkTriageBody,
+	MailInboxSettingsBody,
+	MailMacroBody,
+	MailRoutingConfigBody,
+	MailSlaPolicyBody,
+	MailTagBody,
+	MailTemplateBody,
 	MergeConversationsBody,
+	RenderMailTemplateBody,
+	RequestDraftReviewBody,
 	SendMailDraftBody,
+	SplitConversationBody,
 	UpdateConversationBody,
 	UpdateMailAccountBody,
 	UpsertMailDraftBody
@@ -28,6 +45,7 @@ import type { RealtimePubSub } from '../../realtime/pubsub'
 import type { BlobStorage } from '../files'
 import type { Auth } from '../identity'
 import { workspaceDerive } from '../tenancy'
+import * as mailV2 from './advanced-mail-service'
 import { MAIL_EVENTS } from './events'
 import { MAIL_PARSE_LIMITS } from './mime'
 import { getMailDraft } from './repo'
@@ -44,7 +62,16 @@ import {
 import type { MailModuleConfig } from './service'
 import * as svc from './service'
 
+export { listMailTags } from './advanced-mail-service'
+export {
+	acquireMailDraftRoomAndState,
+	consumeAndAuthorizeMailDraftTicket,
+	persistMailDraftCollabState,
+	releaseMailDraftRoomLease,
+	renewMailDraftRoomLease
+} from './collab'
 export { MAIL_EVENTS } from './events'
+export { runMailFollowupsOnce } from './followups'
 export { MAIL_PARSE_LIMITS, MimeParseError, parseMime, sanitizeMailHtml } from './mime'
 export type { DnsLike, MailPoller, MailTransport, OutboundMail } from './providers'
 export {
@@ -57,6 +84,7 @@ export type { MailConversationEndpoint, MailModuleConfig, MailOutboxEvent, MailW
 export {
 	createNote,
 	exportConversation,
+	getConversationTimeline,
 	ingestRawMime,
 	listAccounts,
 	listConversations,
@@ -66,7 +94,8 @@ export {
 	runRetentionSweep,
 	sendDueDraft,
 	syncAccount,
-	updateConversation
+	updateConversation,
+	verifyLiveMailDraftAccess
 } from './service'
 
 export function mailModule(
@@ -338,7 +367,34 @@ export function mailModule(
 				'/mail/drafts/:draftId/send',
 				{ params: MailDraftParam, body: SendMailDraftBody },
 				({ params, body, inWorkspace }) =>
-					inWorkspace((tx, actor) => svc.sendDraft(tx, actor, params.draftId, body, cfg))
+					inWorkspace((tx, actor) =>
+						svc.sendDraft(
+							tx,
+							actor,
+							params.draftId,
+							{
+								undoSeconds: body.undoSeconds,
+								scheduledSendAt: body.scheduledSendAt,
+								expectedVersion: body.expectedVersion
+							},
+							cfg
+						)
+					)
+			)
+			.post(
+				'/mail/drafts/:draftId/review',
+				{ params: MailDraftParam, body: RequestDraftReviewBody },
+				({ params, body, inWorkspace }) =>
+					inWorkspace((tx, actor) => svc.requestDraftReview(tx, actor, params.draftId, body))
+			)
+			.post(
+				'/mail/drafts/:draftId/review/complete',
+				{ params: MailDraftParam, body: CompleteDraftReviewBody },
+				({ params, body, inWorkspace }) =>
+					inWorkspace((tx, actor) => svc.completeDraftReview(tx, actor, params.draftId, body))
+			)
+			.post('/mail/drafts/:draftId/collab-ticket', { params: MailDraftParam }, ({ params, inWorkspace }) =>
+				inWorkspace((tx, actor) => svc.issueDraftCollabTicket(tx, actor, params.draftId, cfg))
 			)
 			.post('/mail/drafts/:draftId/undo', { params: MailDraftParam }, ({ params, inWorkspace }) =>
 				inWorkspace((tx, actor) => svc.undoSend(tx, actor, params.draftId))
@@ -347,5 +403,209 @@ export function mailModule(
 				await inWorkspace((tx, actor) => svc.discardDraft(tx, actor, params.draftId))
 				return { deleted: true }
 			})
+			// M11 proactive compose / forward / thread split.
+			.post(
+				'/mail/outbound',
+				{ body: CreateOutboundConversationBody },
+				async ({ body, inWorkspace, set }) => {
+					const data = await inWorkspace((tx, actor) => mailV2.createOutboundConversation(tx, actor, body))
+					set.status = 201
+					return data
+				}
+			)
+			.post(
+				'/mail/conversations/:id/forward',
+				{ params: MailIdParam, body: ForwardConversationBody },
+				async ({ params, body, inWorkspace, set }) => {
+					const data = await inWorkspace((tx, actor) =>
+						mailV2.forwardConversation(tx, actor, params.id, body)
+					)
+					set.status = 201
+					return data
+				}
+			)
+			.post(
+				'/mail/conversations/:id/split',
+				{ params: MailIdParam, body: SplitConversationBody },
+				async ({ params, body, inWorkspace, set }) => {
+					const data = await inWorkspace((tx, actor) => mailV2.splitConversation(tx, actor, params.id, body))
+					set.status = 201
+					return data
+				}
+			)
+			// Contacts and organizations.
+			.get('/mail/contacts', ({ inWorkspace, query }) =>
+				inWorkspace((tx, actor) =>
+					mailV2.listContacts(tx, actor, typeof query['q'] === 'string' ? query['q'] : undefined)
+				)
+			)
+			.post('/mail/contacts', { body: ContactBody }, async ({ body, inWorkspace, set }) => {
+				const data = await inWorkspace((tx, actor) => mailV2.upsertContact(tx, actor, body))
+				set.status = 201
+				return data
+			})
+			.patch(
+				'/mail/contacts/:id',
+				{ params: MailIdParam, body: ContactBody },
+				({ params, body, inWorkspace }) =>
+					inWorkspace((tx, actor) => mailV2.upsertContact(tx, actor, body, params.id))
+			)
+			.get('/mail/contact-organizations', ({ inWorkspace }) =>
+				inWorkspace((tx, actor) => mailV2.listContactOrganizations(tx, actor))
+			)
+			.post(
+				'/mail/contact-organizations',
+				{ body: ContactOrganizationBody },
+				async ({ body, inWorkspace, set }) => {
+					const data = await inWorkspace((tx, actor) => mailV2.upsertContactOrganization(tx, actor, body))
+					set.status = 201
+					return data
+				}
+			)
+			.patch(
+				'/mail/contact-organizations/:id',
+				{ params: MailIdParam, body: ContactOrganizationBody },
+				({ params, body, inWorkspace }) =>
+					inWorkspace((tx, actor) => mailV2.upsertContactOrganization(tx, actor, body, params.id))
+			)
+			// Tags.
+			.get('/mail/tags', ({ inWorkspace, query }) =>
+				inWorkspace((tx, actor) =>
+					mailV2.listMailTags(tx, actor, typeof query['inboxId'] === 'string' ? query['inboxId'] : undefined)
+				)
+			)
+			.post('/mail/tags', { body: MailTagBody }, async ({ body, inWorkspace, set }) => {
+				const data = await inWorkspace((tx, actor) => mailV2.createMailTag(tx, actor, body))
+				set.status = 201
+				return data
+			})
+			.delete('/mail/tags/:id', { params: MailIdParam }, async ({ params, inWorkspace }) => {
+				await inWorkspace((tx, actor) => mailV2.deleteMailTag(tx, actor, params.id))
+				return { deleted: true }
+			})
+			.get('/mail/conversations/:id/tags', { params: MailIdParam }, ({ params, inWorkspace }) =>
+				inWorkspace((tx, actor) => mailV2.listConversationTags(tx, actor, params.id))
+			)
+			.put(
+				'/mail/conversations/:id/tags',
+				{ params: MailIdParam, body: ConversationTagsBody },
+				({ params, body, inWorkspace }) =>
+					inWorkspace((tx, actor) => mailV2.setConversationTags(tx, actor, params.id, body.tagIds))
+			)
+			// Templates/snippets.
+			.get('/mail/templates', ({ inWorkspace, query }) =>
+				inWorkspace((tx, actor) =>
+					mailV2.listMailTemplates(tx, actor, {
+						inboxId: typeof query['inboxId'] === 'string' ? query['inboxId'] : undefined
+					})
+				)
+			)
+			.post('/mail/templates', { body: MailTemplateBody }, async ({ body, inWorkspace, set }) => {
+				const data = await inWorkspace((tx, actor) => mailV2.upsertMailTemplate(tx, actor, body))
+				set.status = 201
+				return data
+			})
+			.patch(
+				'/mail/templates/:id',
+				{ params: MailIdParam, body: MailTemplateBody },
+				({ params, body, inWorkspace }) =>
+					inWorkspace((tx, actor) => mailV2.upsertMailTemplate(tx, actor, body, params.id))
+			)
+			.delete('/mail/templates/:id', { params: MailIdParam }, async ({ params, inWorkspace }) => {
+				await inWorkspace((tx, actor) => mailV2.deleteMailTemplate(tx, actor, params.id))
+				return { deleted: true }
+			})
+			.post(
+				'/mail/templates/:id/render',
+				{ params: MailIdParam, body: RenderMailTemplateBody },
+				({ params, body, inWorkspace }) =>
+					inWorkspace((tx, actor) => mailV2.renderMailTemplate(tx, actor, params.id, body.variables ?? {}))
+			)
+			// Macros and bulk triage.
+			.get('/mail/macros', ({ inWorkspace, query }) =>
+				inWorkspace((tx, actor) =>
+					mailV2.listMailMacros(
+						tx,
+						actor,
+						typeof query['inboxId'] === 'string' ? query['inboxId'] : undefined
+					)
+				)
+			)
+			.post('/mail/macros', { body: MailMacroBody }, async ({ body, inWorkspace, set }) => {
+				const data = await inWorkspace((tx, actor) => mailV2.upsertMailMacro(tx, actor, body))
+				set.status = 201
+				return data
+			})
+			.patch(
+				'/mail/macros/:id',
+				{ params: MailIdParam, body: MailMacroBody },
+				({ params, body, inWorkspace }) =>
+					inWorkspace((tx, actor) => mailV2.upsertMailMacro(tx, actor, body, params.id))
+			)
+			.delete('/mail/macros/:id', { params: MailIdParam }, async ({ params, inWorkspace }) => {
+				await inWorkspace((tx, actor) => mailV2.deleteMailMacro(tx, actor, params.id))
+				return { deleted: true }
+			})
+			.post(
+				'/mail/macros/:id/apply',
+				{ params: MailIdParam, body: ApplyMailMacroBody },
+				({ params, body, inWorkspace }) =>
+					inWorkspace((tx, actor) => mailV2.applyMailMacro(tx, actor, params.id, body.conversationIds))
+			)
+			.post('/mail/bulk-triage', { body: MailBulkTriageBody }, ({ body, inWorkspace }) =>
+				inWorkspace((tx, actor) => mailV2.bulkTriageConversations(tx, actor, body))
+			)
+			// Split-inbox metadata, routing and SLA administration.
+			.patch(
+				'/mail/inboxes/:id/settings',
+				{ params: MailIdParam, body: MailInboxSettingsBody },
+				({ params, body, inWorkspace }) =>
+					inWorkspace((tx, actor) => mailV2.updateInboxSettings(tx, actor, params.id, body))
+			)
+			.get('/mail/inboxes/:id/routing', { params: MailIdParam }, ({ params, inWorkspace }) =>
+				inWorkspace((tx, actor) => mailV2.getMailRoutingConfig(tx, actor, params.id))
+			)
+			.put(
+				'/mail/inboxes/:id/routing',
+				{ params: MailIdParam, body: MailRoutingConfigBody },
+				({ params, body, inWorkspace }) =>
+					inWorkspace((tx, actor) => mailV2.upsertMailRoutingConfig(tx, actor, params.id, body))
+			)
+			.post('/mail/conversations/:id/route', { params: MailIdParam }, ({ params, inWorkspace }) =>
+				inWorkspace((tx, actor) => mailV2.routeConversationRoundRobin(tx, actor, params.id))
+			)
+			.get('/mail/sla-policies', ({ inWorkspace, query }) =>
+				inWorkspace((tx, actor) =>
+					mailV2.listMailSlaPolicies(
+						tx,
+						actor,
+						typeof query['inboxId'] === 'string' ? query['inboxId'] : undefined
+					)
+				)
+			)
+			.post('/mail/sla-policies', { body: MailSlaPolicyBody }, async ({ body, inWorkspace, set }) => {
+				const data = await inWorkspace((tx, actor) => mailV2.upsertMailSlaPolicy(tx, actor, body))
+				set.status = 201
+				return data
+			})
+			.patch(
+				'/mail/sla-policies/:id',
+				{ params: MailIdParam, body: MailSlaPolicyBody },
+				({ params, body, inWorkspace }) =>
+					inWorkspace((tx, actor) => mailV2.upsertMailSlaPolicy(tx, actor, body, params.id))
+			)
+			.delete('/mail/sla-policies/:id', { params: MailIdParam }, async ({ params, inWorkspace }) => {
+				await inWorkspace((tx, actor) => mailV2.deleteMailSlaPolicy(tx, actor, params.id))
+				return { deleted: true }
+			})
+			.get('/mail/sla-analytics', ({ inWorkspace, query }) =>
+				inWorkspace((tx, actor) =>
+					mailV2.mailSlaAnalytics(
+						tx,
+						actor,
+						typeof query['inboxId'] === 'string' ? query['inboxId'] : undefined
+					)
+				)
+			)
 	)
 }

@@ -1,4 +1,5 @@
 import { mergeAttributes, Node } from '@tiptap/core'
+import { TextSelection } from '@tiptap/pm/state'
 
 export const MIN_COLUMNS = 2
 export const MAX_COLUMNS = 4
@@ -61,6 +62,7 @@ declare module '@tiptap/core' {
 			setColumnWidths: (widths: readonly number[]) => ReturnType
 			unwrapColumns: () => ReturnType
 			moveFocusToAdjacentColumn: (direction: -1 | 1) => ReturnType
+			moveBlockToColumnSide: (sourcePos: number, targetPos: number, side: 'left' | 'right') => ReturnType
 		}
 	}
 }
@@ -291,6 +293,52 @@ export const ColumnsExtension = Node.create({
 						}
 					}
 					return false
+				},
+			moveBlockToColumnSide:
+				(sourcePos, targetPos, side) =>
+				({ state, dispatch }) => {
+					if (sourcePos === targetPos) return false
+					if (
+						sourcePos < 0 ||
+						targetPos < 0 ||
+						sourcePos >= state.doc.content.size ||
+						targetPos >= state.doc.content.size
+					) {
+						return false
+					}
+					const sourceNode = state.doc.nodeAt(sourcePos)
+					const targetNode = state.doc.nodeAt(targetPos)
+					if (!sourceNode?.isBlock || !targetNode?.isBlock) return false
+					if (sourceNode.type.name === 'columns' || targetNode.type.name === 'columns') return false
+
+					// Rails are intentionally limited to top-level blocks in v1. Nested
+					// blocks already have vertical move semantics and ambiguous column parents.
+					const $source = state.doc.resolve(sourcePos)
+					const $target = state.doc.resolve(targetPos)
+					if ($source.depth !== 0 || $target.depth !== 0) return false
+
+					const columnsType = state.schema.nodes['columns']
+					const columnType = state.schema.nodes['column']
+					if (!columnsType || !columnType) return false
+					const sourceColumn = columnType.create(null, sourceNode)
+					const targetColumn = columnType.create(null, targetNode)
+					const columnsNode = columnsType.create({ widths: [50, 50] }, [
+						side === 'left' ? sourceColumn : targetColumn,
+						side === 'left' ? targetColumn : sourceColumn
+					])
+
+					if (dispatch) {
+						const tr = state.tr
+						tr.delete(sourcePos, sourcePos + sourceNode.nodeSize)
+						const adjustedTargetPos = sourcePos < targetPos ? targetPos - sourceNode.nodeSize : targetPos
+						tr.delete(adjustedTargetPos, adjustedTargetPos + targetNode.nodeSize)
+						const insertPos = Math.max(0, Math.min(tr.doc.content.size, adjustedTargetPos))
+						tr.insert(insertPos, columnsNode)
+						const selectionPos = Math.min(tr.doc.content.size, insertPos + 2)
+						tr.setSelection(TextSelection.near(tr.doc.resolve(selectionPos)))
+						dispatch(tr.scrollIntoView())
+					}
+					return true
 				},
 			moveFocusToAdjacentColumn:
 				(direction) =>

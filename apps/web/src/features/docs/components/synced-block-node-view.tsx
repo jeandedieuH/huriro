@@ -1,4 +1,3 @@
-import { HocuspocusProvider } from '@hocuspocus/provider'
 import type { DocSyncedBlockDto } from '@huriro/contracts'
 import { createHuriroExtensions, SyncedBlockExtension } from '@huriro/editor'
 import { t } from '@huriro/i18n'
@@ -15,6 +14,7 @@ import * as Y from 'yjs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { TaskApiBridge } from '@/lib/sync-bootstrap'
+import { useHocuspocusProvider } from '@/lib/use-hocuspocus-provider'
 import { useUiStore } from '@/stores/ui-store'
 
 export interface SyncedBlockNodeViewOptions {
@@ -76,29 +76,16 @@ function SyncedBlockSubEditor({
 		}
 	}, [api, syncedBlockId, ydoc])
 
-	const provider = useMemo(() => {
-		if (isPreview || !api || typeof window === 'undefined' || typeof WebSocket === 'undefined') {
-			return null
+	const provider = useHocuspocusProvider({
+		enabled: !isPreview && Boolean(api),
+		documentName: `synced_block:${workspaceId}:${syncedBlockId}`,
+		document: ydoc,
+		getToken: async () => {
+			if (!api) throw new Error('Synced block API unavailable')
+			const issued = await api.issueSyncedBlockCollabTicket(syncedBlockId)
+			return issued.ticket
 		}
-		const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-		const url = `${proto}//${window.location.host}/collab`
-		return new HocuspocusProvider({
-			url,
-			name: `synced_block:${workspaceId}:${syncedBlockId}`,
-			document: ydoc,
-			token: async () => {
-				const issued = await api.issueSyncedBlockCollabTicket(syncedBlockId)
-				return issued.ticket
-			}
-		})
-	}, [api, isPreview, syncedBlockId, workspaceId, ydoc])
-
-	useEffect(() => {
-		if (!provider) return
-		return () => {
-			provider.destroy()
-		}
-	}, [provider])
+	})
 
 	const subExtensions = useMemo(
 		() =>

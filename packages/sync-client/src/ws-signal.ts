@@ -4,6 +4,8 @@
  */
 import type { WsClientMessage, WsServerMessage } from '@huriro/contracts'
 
+const DEFAULT_HEARTBEAT_MS = 20_000
+
 export interface WsSignalClientOptions {
 	readonly workspaceId: string
 	readonly wsUrl?: string | undefined
@@ -18,6 +20,9 @@ export interface WsSignalClientOptions {
 	readonly onRevokeSignal: (reason: string) => void
 	readonly onPollFallback: () => void
 	readonly onConnectionChange?: ((connected: boolean) => void) | undefined
+	readonly onReconnect?: (() => void) | undefined
+	readonly heartbeatTimeoutMs?: number | undefined
+	readonly webSocketFactory?: ((url: string) => WebSocket) | undefined
 	readonly pollIntervalMs?: number
 }
 
@@ -26,10 +31,15 @@ export class WsSignalClient {
 	private socket: WebSocket | null = null
 	private pollTimer: ReturnType<typeof setInterval> | null = null
 	private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+	private heartbeatTimer: ReturnType<typeof setInterval> | null = null
 	private channel: BroadcastChannel | null = null
 	private stopped = false
 	private reconnectAttempt = 0
 	private isConnected = false
+	private heartbeatMs = DEFAULT_HEARTBEAT_MS
+	private lastActivityAt = 0
+	private hasConnectedOnce = false
+	private connectGeneration = 0
 
 	constructor(opts: WsSignalClientOptions) {
 		this.opts = opts
@@ -72,13 +82,15 @@ export class WsSignalClient {
 	start(): void {
 		this.stopped = false
 		this.startPollLoop()
-		if (this.opts.wsUrl && typeof WebSocket !== 'undefined') {
+		if (this.opts.wsUrl && (this.opts.webSocketFactory || typeof WebSocket !== 'undefined')) {
 			void this.connect()
 		}
 	}
 
 	stop(): void {
 		this.stopped = true
+		this.connectGeneration += 1
+		this.stopHeartbeatWatchdog()
 		if (this.pollTimer) {
 			clearInterval(this.pollTimer)
 			this.pollTimer = null
@@ -102,18 +114,43 @@ export class WsSignalClient {
 		this.setConnected(false)
 	}
 
+	/** Verify socket liveness on wake/focus; replace closed or silent zombie sockets immediately. */
+	ensureAlive(): void {
+		if (this.stopped || !this.opts.wsUrl) return
+		if (!this.opts.webSocketFactory && typeof WebSocket === 'undefined') return
+		const rs = this.socket?.readyState
+		if (!this.socket || rs === 2 || rs === 3) {
+			if (this.reconnectTimer) {
+				clearTimeout(this.reconnectTimer)
+				this.reconnectTimer = null
+			}
+			this.reconnectAttempt = 0
+			void this.connect()
+			return
+		}
+		if (
+			rs === 1 &&
+			this.lastActivityAt > 0 &&
+			Date.now() - this.lastActivityAt > this.getHeartbeatTimeoutMs()
+		) {
+			this.forceReconnect('stale_on_resume')
+		}
+	}
+
 	broadcastCursor(cursor: number): void {
 		this.channel?.postMessage({ t: 'cursor', cursor })
 	}
 
 	sendPresence(status: 'online' | 'away'): void {
-		if (this.socket?.readyState === WebSocket.OPEN) {
+		const openState = typeof WebSocket !== 'undefined' ? WebSocket.OPEN : 1
+		if (this.socket?.readyState === openState) {
 			this.socket.send(JSON.stringify({ t: 'presence', status } satisfies WsClientMessage))
 		}
 	}
 
 	sendTyping(channelId: string): void {
-		if (this.socket?.readyState === WebSocket.OPEN) {
+		const openState = typeof WebSocket !== 'undefined' ? WebSocket.OPEN : 1
+		if (this.socket?.readyState === openState) {
 			this.socket.send(JSON.stringify({ t: 'typing', channelId } satisfies WsClientMessage))
 		}
 	}
@@ -122,6 +159,57 @@ export class WsSignalClient {
 		if (this.isConnected === next) return
 		this.isConnected = next
 		this.opts.onConnectionChange?.(next)
+	}
+
+	private getHeartbeatTimeoutMs(): number {
+		return this.opts.heartbeatTimeoutMs ?? Math.round(this.heartbeatMs * 2.5)
+	}
+
+	private stopHeartbeatWatchdog(): void {
+		if (this.heartbeatTimer) {
+			clearInterval(this.heartbeatTimer)
+			this.heartbeatTimer = null
+		}
+	}
+
+	private startHeartbeatWatchdog(): void {
+		this.stopHeartbeatWatchdog()
+		const timeoutMs = this.getHeartbeatTimeoutMs()
+		const intervalMs = Math.max(25, Math.min(5_000, Math.floor(timeoutMs / 2)))
+		this.heartbeatTimer = setInterval(() => {
+			if (
+				!this.stopped &&
+				this.socket &&
+				this.isConnected &&
+				this.lastActivityAt > 0 &&
+				Date.now() - this.lastActivityAt > timeoutMs
+			) {
+				this.forceReconnect('heartbeat_timeout')
+			}
+		}, intervalMs)
+	}
+
+	private forceReconnect(reason: string): void {
+		this.connectGeneration += 1
+		this.stopHeartbeatWatchdog()
+		if (this.reconnectTimer) {
+			clearTimeout(this.reconnectTimer)
+			this.reconnectTimer = null
+		}
+		const stale = this.socket
+		this.socket = null
+		this.setConnected(false)
+		if (stale) {
+			try {
+				stale.close(4000, reason)
+			} catch {
+				// Ignore close failures on half-open sockets
+			}
+		}
+		if (!this.stopped) {
+			this.reconnectAttempt = 0
+			void this.connect()
+		}
 	}
 
 	private startPollLoop(): void {
@@ -136,21 +224,28 @@ export class WsSignalClient {
 
 	private async connect(): Promise<void> {
 		if (this.stopped || !this.opts.wsUrl) return
+		const gen = ++this.connectGeneration
 		let ticket: string | undefined
 		if (this.opts.getTicket) {
 			try {
 				ticket = await this.opts.getTicket()
 			} catch {
-				this.scheduleReconnect()
+				if (!this.stopped && gen === this.connectGeneration) {
+					this.scheduleReconnect()
+				}
 				return
 			}
 		}
-		if (this.stopped) return
+		if (this.stopped || gen !== this.connectGeneration) return
 
-		const ws = new WebSocket(this.opts.wsUrl)
+		const ws = this.opts.webSocketFactory
+			? this.opts.webSocketFactory(this.opts.wsUrl)
+			: new WebSocket(this.opts.wsUrl)
 		this.socket = ws
 
 		ws.onopen = () => {
+			if (this.socket !== ws) return
+			this.lastActivityAt = Date.now()
 			const hello: WsClientMessage = {
 				t: 'hello',
 				workspaceId: this.opts.workspaceId,
@@ -161,13 +256,28 @@ export class WsSignalClient {
 		}
 
 		ws.onmessage = (ev) => {
+			if (this.socket !== ws) return
+			this.lastActivityAt = Date.now()
 			try {
 				const msg = JSON.parse(String(ev.data)) as WsServerMessage
 				if (msg.t === 'ready') {
+					const wasReconnect = this.hasConnectedOnce
+					this.hasConnectedOnce = true
+					if (
+						typeof msg.heartbeatMs === 'number' &&
+						Number.isFinite(msg.heartbeatMs) &&
+						msg.heartbeatMs > 0
+					) {
+						this.heartbeatMs = msg.heartbeatMs
+					}
 					this.reconnectAttempt = 0
 					this.setConnected(true)
+					this.startHeartbeatWatchdog()
 					if (msg.serverCursor > this.opts.getCursor()) {
 						this.opts.onCursorSignal(msg.serverCursor)
+					}
+					if (wasReconnect) {
+						this.opts.onReconnect?.()
 					}
 				} else if (msg.t === 'cursor') {
 					this.channel?.postMessage({ t: 'cursor', cursor: msg.cursor })
@@ -204,7 +314,9 @@ export class WsSignalClient {
 		}
 
 		ws.onclose = () => {
-			if (this.socket === ws) this.socket = null
+			if (this.socket !== ws) return
+			this.socket = null
+			this.stopHeartbeatWatchdog()
 			this.setConnected(false)
 			if (!this.stopped) {
 				this.scheduleReconnect()
@@ -212,6 +324,7 @@ export class WsSignalClient {
 		}
 
 		ws.onerror = () => {
+			if (this.socket !== ws) return
 			this.setConnected(false)
 		}
 	}

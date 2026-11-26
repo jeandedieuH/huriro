@@ -3,7 +3,14 @@
 	"extends": ["./packages/config/biome.base.json"],
 	"overrides": [
 		{
-			"includes": ["apps/server/src/cli/**", "apps/server/src/index.ts", "apps/web/scripts/**", "scripts/**", "packages/cli/src/gen.ts", "packages/cli/src/bin.ts"],
+			"includes": [
+				"apps/server/src/cli/**",
+				"apps/server/src/index.ts",
+				"apps/web/scripts/**",
+				"scripts/**",
+				"packages/cli/src/gen.ts",
+				"packages/cli/src/bin.ts"
+			],
 			"linter": {
 				"rules": {
 					"suspicious": {

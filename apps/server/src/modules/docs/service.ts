@@ -935,8 +935,18 @@ export async function appendToDocPage(
 }> {
 	const { page } = await requireDocPageAccess(tx, actor, pageId, 'doc.write')
 	assertPageUnlocked(page)
-	const pmJson = markdownToProseMirrorJson(input.markdown, `append:${pageId}:${Date.now()}`)
-	const nodes = Array.isArray(pmJson['content']) ? (pmJson['content'] as ProseMirrorNodeJson[]) : []
+	let nodes: ProseMirrorNodeJson[]
+	if (input.nodes && input.nodes.length > 0) {
+		nodes = input.nodes as unknown as ProseMirrorNodeJson[]
+	} else if (input.markdown) {
+		const pmJson = markdownToProseMirrorJson(input.markdown, `append:${pageId}:${Date.now()}`)
+		nodes = Array.isArray(pmJson['content']) ? (pmJson['content'] as ProseMirrorNodeJson[]) : []
+	} else {
+		throw new HttpError(422, 'validation_failed', 'Append requires markdown or structured nodes')
+	}
+	if (nodes.length === 0) {
+		throw new HttpError(422, 'validation_failed', 'Append requires at least one block')
+	}
 
 	if (hasCollabBridge) {
 		await auditDocsAction(tx, {

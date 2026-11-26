@@ -6,11 +6,23 @@
 import type {
 	AgentApprovalDto,
 	AgentPrincipalDto,
+	AiMailAssistResponse,
 	AiProviderDto,
+	ChatChannelBookmarkDto,
 	ChatChannelDto,
 	ChatChannelMemberDto,
+	ChatDraftDto,
+	ChatHuddleSessionDto,
 	ChatMessageDto,
+	ChatPinnedMessageDto,
+	ChatPollDto,
+	ChatSavedItemDto,
+	ChatScheduledMessageDto,
+	ChatSidebarSectionDto,
+	ContactDto,
+	ContactOrganizationDto,
 	CycleDailySnapshotDto,
+	CycleDto,
 	DocCommentDto,
 	DocPageDetailDto,
 	DocPageDto,
@@ -23,8 +35,10 @@ import type {
 	EntityLinkDto,
 	FileDto,
 	GithubInstallationDto,
+	ImportDocDatabaseRowsResultDto,
 	InitiativeDto,
 	IssueCommentDto,
+	IssueDto,
 	IssueGithubLinkDto,
 	IssueRelationDto,
 	KnowledgeGraphResponse,
@@ -34,8 +48,13 @@ import type {
 	MailDraftDto,
 	MailIdentityDto,
 	MailInboxDto,
+	MailMacroDto,
 	MailMessageDto,
 	MailNoteDto,
+	MailRoutingConfigDto,
+	MailSlaPolicyDto,
+	MailTagDto,
+	MailTemplateDto,
 	NotificationDto,
 	NotificationPreferencesDto,
 	ProjectDto,
@@ -46,9 +65,12 @@ import type {
 	SendTestEmailResponse,
 	TeamspaceDto,
 	TeamspaceMemberDto,
+	UserGroupDto,
+	UserWorkspaceProfileDto,
 	WebhookDeliveryDto,
 	WebhookEndpointDto,
 	WebPushSubscriptionDto,
+	WorkspaceEmojiDto,
 	WorkspaceExportDto
 } from '@huriro/contracts'
 import { computeDmKey, extractRichLinks, parseSearchQuery } from '@huriro/domain'
@@ -229,6 +251,7 @@ export function createPreviewSeedSnapshot() {
 			identifier: 'ENG-1',
 			parentId: null,
 			cycleId: null,
+			milestoneId: null,
 			title: 'Enforce contiguous cursor allocation on write commit',
 			description: null,
 			descriptionText: 'Allocate change_log cursors after domain and audit writes finish.',
@@ -241,6 +264,10 @@ export function createPreviewSeedSnapshot() {
 			startDate: '2026-11-20',
 			dueDate: '2026-11-23',
 			estimate: 3,
+			triageStatus: 'none' as const,
+			triageSnoozedUntil: null,
+			triageDeclinedReason: null,
+			sourceKind: 'manual' as const,
 			closedAt: null,
 			labelIds: ['0190a0b1-0000-7000-8000-000000000301'],
 			createdAt: now,
@@ -257,6 +284,7 @@ export function createPreviewSeedSnapshot() {
 			identifier: 'ENG-2',
 			parentId: null,
 			cycleId: null,
+			milestoneId: null,
 			title: 'Wire fractional index rebalancing at 64-character depth',
 			description: null,
 			descriptionText: 'Preserve sorted order cleanly across concurrent board moves.',
@@ -269,6 +297,10 @@ export function createPreviewSeedSnapshot() {
 			startDate: '2026-11-24',
 			dueDate: '2026-11-27',
 			estimate: 2,
+			triageStatus: 'none' as const,
+			triageSnoozedUntil: null,
+			triageDeclinedReason: null,
+			sourceKind: 'manual' as const,
 			closedAt: null,
 			labelIds: [],
 			createdAt: now,
@@ -285,6 +317,7 @@ export function createPreviewSeedSnapshot() {
 			identifier: 'ENG-3',
 			parentId: null,
 			cycleId: null,
+			milestoneId: null,
 			title: 'Implement OPFS replica storage with IndexedDB fallback',
 			description: null,
 			descriptionText: 'Keep 5,000 offline mutations durable across tab reloads.',
@@ -297,6 +330,10 @@ export function createPreviewSeedSnapshot() {
 			startDate: null,
 			dueDate: null,
 			estimate: 5,
+			triageStatus: 'none' as const,
+			triageSnoozedUntil: null,
+			triageDeclinedReason: null,
+			sourceKind: 'manual' as const,
 			closedAt: now,
 			labelIds: [],
 			createdAt: now,
@@ -313,6 +350,7 @@ export function createPreviewSeedSnapshot() {
 			identifier: 'SEC-1',
 			parentId: null,
 			cycleId: null,
+			milestoneId: null,
 			title: 'Audit FORCE ROW LEVEL SECURITY across M1 tables',
 			description: null,
 			descriptionText: 'Verify private project ACL isolation and cross-tenant deny paths.',
@@ -325,6 +363,10 @@ export function createPreviewSeedSnapshot() {
 			startDate: '2026-11-22',
 			dueDate: '2026-11-25',
 			estimate: 3,
+			triageStatus: 'none' as const,
+			triageSnoozedUntil: null,
+			triageDeclinedReason: null,
+			sourceKind: 'manual' as const,
 			closedAt: null,
 			labelIds: [],
 			createdAt: now,
@@ -722,8 +764,8 @@ export function createPreviewApiBridge(
 			kind: 'public',
 			name: 'general',
 			topic: 'Workspace announcements and cross-team check-ins',
-			lastMsgSeq: 1,
-			lastRev: 1,
+			lastMsgSeq: 2,
+			lastRev: 2,
 			createdBy: PREVIEW_USER_ID,
 			archivedAt: null,
 			createdAt: previewNow,
@@ -733,7 +775,10 @@ export function createPreviewApiBridge(
 			hasUnread: false,
 			mentionCount: 0,
 			muted: false,
-			lastReadSeq: 1,
+			notifyLevel: 'default',
+			mutedUntil: null,
+			canvasPageId: null,
+			lastReadSeq: 2,
 			isMember: true,
 			memberCount: 2,
 			members: [
@@ -802,6 +847,141 @@ export function createPreviewApiBridge(
 	const previewMsg1Id = '0190a0b1-0000-7000-8000-000000000901'
 	const previewMsg2Id = '0190a0b1-0000-7000-8000-000000000902'
 	const previewMsg3Id = '0190a0b1-0000-7000-8000-000000000903'
+	const previewPollMsgId = '0190a0b1-0000-7000-8000-000000000904'
+	const previewPollId = '0190a0b1-0000-7000-8000-000000000905'
+	const previewChannelPins = new Map<string, ChatPinnedMessageDto[]>()
+	const previewChatDrafts = new Map<string, ChatDraftDto>()
+	let previewScheduledMessages: ChatScheduledMessageDto[] = []
+	let previewSavedItems: ChatSavedItemDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000910',
+			messageId: previewMsg1Id,
+			customText: '',
+			note: 'Follow up after weekly sync',
+			status: 'saved',
+			remindAt: null,
+			completedAt: null,
+			version: 1,
+			createdAt: previewNow,
+			updatedAt: previewNow,
+			channelId: PREVIEW_CHAN_GENERAL_ID,
+			messageText: 'Welcome to Huriro M4! Review doc:engineering-handbook and issue:ENG-1.'
+		}
+	]
+	let previewSidebarSections: ChatSidebarSectionDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000920',
+			name: 'Starred',
+			position: 'F',
+			collapsed: false,
+			unreadOnly: false,
+			version: 1,
+			createdAt: previewNow,
+			updatedAt: previewNow,
+			items: [{ channelId: PREVIEW_CHAN_GENERAL_ID, position: 'F' }]
+		}
+	]
+	const previewHandbookPage = engine.collections.docPages.toArray.find(
+		(p) => p.slug === 'engineering-handbook'
+	)
+	const previewBookmarksByChannel = new Map<string, ChatChannelBookmarkDto[]>([
+		[
+			PREVIEW_CHAN_GENERAL_ID,
+			[
+				...(previewHandbookPage
+					? [
+							{
+								id: '0190a0b1-0000-7000-8000-000000000930',
+								targetType: 'doc_page' as const,
+								targetId: previewHandbookPage.id,
+								title: 'Engineering Handbook',
+								url: 'engineering-handbook',
+								icon: '📘',
+								folder: null,
+								position: 'F',
+								createdBy: PREVIEW_USER_ID,
+								version: 1,
+								createdAt: previewNow,
+								updatedAt: previewNow
+							}
+						]
+					: []),
+				{
+					id: '0190a0b1-0000-7000-8000-000000000931',
+					targetType: 'external_url',
+					targetId: null,
+					title: 'Release Checklist',
+					url: 'https://huriro.dev/docs/release-checklist',
+					icon: null,
+					folder: null,
+					position: 'V',
+					createdBy: PREVIEW_USER_ID,
+					version: 1,
+					createdAt: previewNow,
+					updatedAt: previewNow
+				}
+			]
+		]
+	])
+	let previewMyChatStatus: UserWorkspaceProfileDto = {
+		statusEmoji: '💻',
+		statusText: 'Shipping Chat v2',
+		statusExpiresAt: null,
+		dndUntil: null,
+		workingHours: {},
+		lastSeenAt: previewNow,
+		updatedAt: previewNow
+	}
+	let previewUserGroups: UserGroupDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000940',
+			handle: 'engineering',
+			name: 'Engineering',
+			description: 'Core platform engineers',
+			autoJoinChannelIds: [PREVIEW_CHAN_ENG_ID],
+			memberIds: [PREVIEW_USER_ID, PREVIEW_USER_ADA_ID],
+			version: 1,
+			createdAt: previewNow,
+			updatedAt: previewNow
+		}
+	]
+	let previewWorkspaceEmojis: WorkspaceEmojiDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000950',
+			shortcode: 'huriro',
+			fileId: '0190a0b1-0000-7000-8000-000000000951',
+			createdBy: PREVIEW_USER_ID,
+			createdAt: previewNow,
+			filename: 'huriro.png',
+			contentType: 'image/png'
+		}
+	]
+	const previewPolls = new Map<string, ChatPollDto>([
+		[
+			previewPollId,
+			{
+				id: previewPollId,
+				channelId: PREVIEW_CHAN_GENERAL_ID,
+				messageId: previewPollMsgId,
+				question: 'Which Sprint M11 polish item next?',
+				options: [
+					{ id: 'opt-1', label: 'Keyboard shortcuts' },
+					{ id: 'opt-2', label: 'Channel Canvas' }
+				],
+				multiChoice: false,
+				anonymous: false,
+				status: 'open',
+				closesAt: null,
+				createdBy: PREVIEW_USER_ID,
+				version: 1,
+				createdAt: previewNow,
+				totalVotes: 1,
+				counts: { 'opt-1': 1 },
+				voters: [{ userId: PREVIEW_USER_ADA_ID, optionIds: ['opt-1'] }]
+			}
+		]
+	])
+	const previewHuddlesByChannel = new Map<string, ChatHuddleSessionDto | null>()
 	const previewMessages = new Map<string, ChatMessageDto>([
 		[
 			previewMsg1Id,
@@ -816,6 +996,10 @@ export function createPreviewApiBridge(
 				authorId: PREVIEW_USER_ADA_ID,
 				authorDisplayName: 'Ada Lovelace',
 				threadParentId: null,
+				broadcastToChannel: false,
+				replyToMessageId: null,
+				messageKind: 'text',
+				metadata: {},
 				replyCount: 0,
 				lastReplyAt: null,
 				clientId: null,
@@ -825,6 +1009,39 @@ export function createPreviewApiBridge(
 				},
 				bodyText: 'Welcome to Huriro M4! Review doc:engineering-handbook and issue:ENG-1.',
 				reactions: [{ emoji: '🚀', count: 1, reactedByMe: true, userIds: [PREVIEW_USER_ID] }],
+				attachments: [],
+				linkPreviews: [],
+				richLinks: [],
+				editedAt: null,
+				deletedAt: null,
+				createdAt: previewNow,
+				updatedAt: previewNow,
+				version: 1
+			}
+		],
+		[
+			previewPollMsgId,
+			{
+				id: previewPollMsgId,
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				channelId: PREVIEW_CHAN_GENERAL_ID,
+				channelSeq: 2,
+				threadSeq: null,
+				rev: 2,
+				authorType: 'user',
+				authorId: PREVIEW_USER_ID,
+				authorDisplayName: 'Hagen (Owner)',
+				threadParentId: null,
+				broadcastToChannel: false,
+				replyToMessageId: null,
+				messageKind: 'poll',
+				metadata: { pollId: previewPollId, pollQuestion: 'Which Sprint M11 polish item next?' },
+				replyCount: 0,
+				lastReplyAt: null,
+				clientId: null,
+				body: { type: 'text', text: 'Which Sprint M11 polish item next?' },
+				bodyText: 'Which Sprint M11 polish item next?',
+				reactions: [],
 				attachments: [],
 				linkPreviews: [],
 				richLinks: [],
@@ -848,6 +1065,10 @@ export function createPreviewApiBridge(
 				authorId: PREVIEW_USER_ADA_ID,
 				authorDisplayName: 'Ada Lovelace',
 				threadParentId: null,
+				broadcastToChannel: false,
+				replyToMessageId: null,
+				messageKind: 'text',
+				metadata: {},
 				replyCount: 0,
 				lastReplyAt: null,
 				clientId: null,
@@ -877,6 +1098,10 @@ export function createPreviewApiBridge(
 				authorId: PREVIEW_USER_ADA_ID,
 				authorDisplayName: 'Ada Lovelace',
 				threadParentId: null,
+				broadcastToChannel: false,
+				replyToMessageId: null,
+				messageKind: 'text',
+				metadata: {},
 				replyCount: 0,
 				lastReplyAt: null,
 				clientId: null,
@@ -906,6 +1131,7 @@ export function createPreviewApiBridge(
 		webPushEnabled: false,
 		mobilePushEnabled: false,
 		emailInstantEnabled: true,
+		alertKeywords: [],
 		lastDigestSentAt: null,
 		updatedAt: previewNow
 	}
@@ -1072,10 +1298,18 @@ export function createPreviewApiBridge(
 			name: 'Support',
 			position: 'a0',
 			settings: {},
+			visibility: 'shared',
+			ownerUserId: null,
 			openCount: 1,
+			version: 1,
 			createdAt: '2026-11-22T09:00:00Z'
 		}
 	]
+	const PREVIEW_MAIL_CONV_2_ID = '0190a0b1-0000-7000-8000-000000000a02'
+	const PREVIEW_MAIL_TAG_BILLING_ID = '0190a0b1-0000-7000-8000-000000000a31'
+	const PREVIEW_MAIL_TAG_VIP_ID = '0190a0b1-0000-7000-8000-000000000a32'
+	const PREVIEW_MAIL_ORG_ID = '0190a0b1-0000-7000-8000-000000000a41'
+	const PREVIEW_MAIL_CONTACT_ID = '0190a0b1-0000-7000-8000-000000000a42'
 	let previewMailConversations: MailConversationDto[] = [
 		{
 			id: PREVIEW_MAIL_CONV_ID,
@@ -1091,10 +1325,42 @@ export function createPreviewApiBridge(
 			lastMessageAt: '2026-11-22T11:30:00Z',
 			firstReplyAt: '2026-11-22T10:15:00Z',
 			customerEmail: 'customer@acme.example',
+			contactId: PREVIEW_MAIL_CONTACT_ID,
+			followUpAt: null,
+			followUpCondition: null,
+			slaNextDueAt: null,
+			slaBreachedAt: null,
+			priority: 'normal',
 			snippet: 'When I click Export in settings nothing happens…',
 			messageCount: 2,
 			createdAt: '2026-11-22T10:00:00Z',
 			updatedAt: '2026-11-22T11:30:00Z',
+			version: 1
+		},
+		{
+			id: PREVIEW_MAIL_CONV_2_ID,
+			workspaceId: PREVIEW_WORKSPACE_ID,
+			inboxId: PREVIEW_MAIL_INBOX_ID,
+			accountId: PREVIEW_MAIL_ACCOUNT_ID,
+			subject: 'Annual seat renewal question',
+			status: 'closed',
+			assigneeId: PREVIEW_USER_ID,
+			assigneeName: 'Hagen (Owner)',
+			snoozedUntil: null,
+			mergedIntoId: null,
+			lastMessageAt: '2026-11-20T09:00:00Z',
+			firstReplyAt: '2026-11-20T09:20:00Z',
+			customerEmail: 'customer@acme.example',
+			contactId: PREVIEW_MAIL_CONTACT_ID,
+			followUpAt: null,
+			followUpCondition: null,
+			slaNextDueAt: null,
+			slaBreachedAt: null,
+			priority: 'normal',
+			snippet: 'Can we add 15 seats ahead of Q1 onboarding?',
+			messageCount: 1,
+			createdAt: '2026-11-20T08:45:00Z',
+			updatedAt: '2026-11-20T09:20:00Z',
 			version: 1
 		}
 	]
@@ -1138,6 +1404,26 @@ export function createPreviewApiBridge(
 			sendState: 'sent',
 			createdBy: PREVIEW_USER_ID,
 			createdAt: '2026-11-22T10:15:00Z'
+		},
+		{
+			id: '0190a0b1-0000-7000-8000-000000000a13',
+			conversationId: PREVIEW_MAIL_CONV_2_ID,
+			direction: 'inbound',
+			rfcMessageId: '<m2@acme.example>',
+			fromAddr: { email: 'customer@acme.example', name: 'Acme Customer' },
+			toAddrs: [{ email: 'support@preview.huriro.dev', name: null }],
+			ccAddrs: [],
+			subject: 'Annual seat renewal question',
+			snippet: 'Can we add 15 seats ahead of Q1 onboarding?',
+			sentAt: '2026-11-20T08:45:00Z',
+			receivedAt: '2026-11-20T08:45:00Z',
+			bodyHtml: null,
+			bodyText: 'Hi team, can we add 15 seats ahead of our Q1 onboarding wave?',
+			attachments: [],
+			authResults: { spf: 'pass', dkim: 'pass', dmarc: 'pass' },
+			sendState: null,
+			createdBy: null,
+			createdAt: '2026-11-20T08:45:00Z'
 		}
 	]
 	const previewMailEvents: (MailConversationEventDto & { readonly conversationId: string })[] = [
@@ -1153,6 +1439,175 @@ export function createPreviewApiBridge(
 	]
 	let previewMailNotes: MailNoteDto[] = []
 	let previewMailDrafts: MailDraftDto[] = []
+	const firstSeededIssue = engine.collections.issues.toArray[0]
+	const firstSeededDoc = engine.collections.docPages.toArray[0]
+	const previewMailLinkedTasks = new Map<
+		string,
+		{ readonly taskId: string; readonly identifier: string | null; readonly title: string | null }[]
+	>(
+		firstSeededIssue
+			? [
+					[
+						PREVIEW_MAIL_CONV_ID,
+						[
+							{
+								taskId: firstSeededIssue.id,
+								identifier: firstSeededIssue.identifier,
+								title: firstSeededIssue.title
+							}
+						]
+					]
+				]
+			: []
+	)
+	const previewMailLinkedDocs = new Map<
+		string,
+		{ readonly pageId: string; readonly slug: string | null; readonly title: string | null }[]
+	>(
+		firstSeededDoc
+			? [
+					[
+						PREVIEW_MAIL_CONV_ID,
+						[
+							{
+								pageId: firstSeededDoc.id,
+								slug: firstSeededDoc.slug,
+								title: firstSeededDoc.title
+							}
+						]
+					]
+				]
+			: []
+	)
+	let previewMailTags: MailTagDto[] = [
+		{
+			id: PREVIEW_MAIL_TAG_BILLING_ID,
+			inboxId: PREVIEW_MAIL_INBOX_ID,
+			name: 'billing',
+			color: 'blue',
+			version: 1,
+			createdAt: '2026-11-22T09:00:00Z'
+		},
+		{
+			id: PREVIEW_MAIL_TAG_VIP_ID,
+			inboxId: null,
+			name: 'vip',
+			color: 'amber',
+			version: 1,
+			createdAt: '2026-11-22T09:00:00Z'
+		}
+	]
+	const previewConversationTags = new Map<string, string[]>([
+		[PREVIEW_MAIL_CONV_ID, [PREVIEW_MAIL_TAG_BILLING_ID]],
+		[PREVIEW_MAIL_CONV_2_ID, [PREVIEW_MAIL_TAG_VIP_ID]]
+	])
+	let previewMailTemplates: MailTemplateDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000a51',
+			inboxId: PREVIEW_MAIL_INBOX_ID,
+			ownerUserId: null,
+			name: 'Export fix confirmation',
+			shortcut: ';export',
+			bodyText: 'Hi {{customer}}, we shipped a fix for workspace exports — please retry now.',
+			body: {},
+			bodyHtml: null,
+			attachmentFileIds: [],
+			mergeVariables: ['customer'],
+			version: 1,
+			createdAt: '2026-11-22T09:00:00Z',
+			updatedAt: '2026-11-22T09:00:00Z'
+		},
+		{
+			id: '0190a0b1-0000-7000-8000-000000000a52',
+			inboxId: null,
+			ownerUserId: null,
+			name: 'Refund policy notice',
+			shortcut: ';refund',
+			bodyText: 'Thanks for reaching out — your refund has been queued and takes 3-5 business days.',
+			body: {},
+			bodyHtml: null,
+			attachmentFileIds: [],
+			mergeVariables: [],
+			version: 1,
+			createdAt: '2026-11-22T09:00:00Z',
+			updatedAt: '2026-11-22T09:00:00Z'
+		}
+	]
+	let previewMailMacros: MailMacroDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000a61',
+			inboxId: PREVIEW_MAIL_INBOX_ID,
+			name: 'Resolve & tag billing',
+			shortcut: 'close-billing',
+			steps: [
+				{ action: 'set_status', value: 'closed' },
+				{ action: 'add_tag', value: PREVIEW_MAIL_TAG_BILLING_ID }
+			],
+			version: 1,
+			createdAt: '2026-11-22T09:00:00Z',
+			updatedAt: '2026-11-22T09:00:00Z'
+		},
+		{
+			id: '0190a0b1-0000-7000-8000-000000000a62',
+			inboxId: null,
+			name: 'Escalate pending',
+			shortcut: 'escalate',
+			steps: [{ action: 'set_status', value: 'pending' }],
+			version: 1,
+			createdAt: '2026-11-22T09:00:00Z',
+			updatedAt: '2026-11-22T09:00:00Z'
+		}
+	]
+	let previewContactOrgs: ContactOrganizationDto[] = [
+		{
+			id: PREVIEW_MAIL_ORG_ID,
+			name: 'Acme Corp',
+			domain: 'acme.example',
+			tier: 'vip',
+			notes: 'Enterprise annual plan customer',
+			metadata: {},
+			version: 1,
+			createdAt: '2026-11-20T09:00:00Z',
+			updatedAt: '2026-11-22T09:00:00Z'
+		}
+	]
+	let previewContacts: ContactDto[] = [
+		{
+			id: PREVIEW_MAIL_CONTACT_ID,
+			email: 'customer@acme.example',
+			displayName: 'Acme Customer',
+			title: 'Operations Lead',
+			phone: '+1-555-0140',
+			vipTier: 'vip',
+			notes: 'Prefers concise technical updates.',
+			metadata: {},
+			organizationId: PREVIEW_MAIL_ORG_ID,
+			organizationName: 'Acme Corp',
+			version: 1,
+			createdAt: '2026-11-20T09:00:00Z',
+			updatedAt: '2026-11-22T09:00:00Z'
+		}
+	]
+	const previewMailRoutingByInbox = new Map<string, MailRoutingConfigDto>([
+		[PREVIEW_MAIL_INBOX_ID, { enabled: true, maxOpenCap: 5, requireOnline: false, respectDnd: true }]
+	])
+	let previewMailSlaPolicies: MailSlaPolicyDto[] = [
+		{
+			id: '0190a0b1-0000-7000-8000-000000000a71',
+			inboxId: PREVIEW_MAIL_INBOX_ID,
+			tagId: null,
+			name: 'First reply in 1h',
+			firstReplyMinutes: 60,
+			nextReplyMinutes: 120,
+			resolutionMinutes: 480,
+			businessHours: {},
+			active: true,
+			version: 1,
+			createdAt: '2026-11-22T09:00:00Z',
+			updatedAt: '2026-11-22T09:00:00Z'
+		}
+	]
+	let previewRoutingIndex = 0
 
 	function resolvePreviewRichLinks(bodyText: string): ChatMessageDto['richLinks'] {
 		const tokens = extractRichLinks(bodyText)
@@ -1568,6 +2023,10 @@ export function createPreviewApiBridge(
 							authorId: PREVIEW_USER_ID,
 							authorDisplayName: 'Hagen (Owner)',
 							threadParentId: null,
+							broadcastToChannel: false,
+							replyToMessageId: null,
+							messageKind: 'text',
+							metadata: {},
 							replyCount: 0,
 							lastReplyAt: null,
 							clientId: null,
@@ -1770,6 +2229,46 @@ export function createPreviewApiBridge(
 				headings: built.extracted.headings
 			})
 			return created
+		},
+		async appendDocPage(pageId, body) {
+			const page = engine.collections.docPages.get(pageId)
+			if (!page) throw new Error('Document not found')
+			const st = ensurePreviewDocState(page)
+			const currentDoc = new Y.Doc()
+			Y.applyUpdate(currentDoc, st.state)
+			const currentJson = ydocToProseMirrorJson(currentDoc)
+			const existing = Array.isArray(currentJson['content'])
+				? (currentJson['content'] as Record<string, unknown>[])
+				: []
+			const appended = body.nodes
+				? [...body.nodes]
+				: body.markdown
+					? ((markdownToProseMirrorJson(body.markdown, `preview-append:${pageId}`)['content'] as unknown as
+							| Record<string, unknown>[]
+							| undefined) ?? [])
+					: []
+			if (appended.length === 0) throw new Error('Append requires content')
+			const nextDoc = prosemirrorJsonToYDoc({ type: 'doc', content: [...existing, ...appended] })
+			const state = Y.encodeStateAsUpdate(nextDoc)
+			const extracted = extractDocumentContent(nextDoc)
+			docStatesByPage.set(pageId, {
+				state,
+				stateVector: Y.encodeStateVector(nextDoc),
+				plainText: extracted.plainText,
+				headings: extracted.headings
+			})
+			return {
+				page,
+				stateBase64: bytesToBase64(state),
+				stateVectorBase64: bytesToBase64(Y.encodeStateVector(nextDoc)),
+				byteSize: state.byteLength,
+				plainText: extracted.plainText,
+				headings: extracted.headings,
+				comments: docCommentsByPage.get(page.id) ?? [],
+				canWrite: true,
+				canShare: true,
+				...buildPreviewM9Extras(page.id)
+			}
 		},
 		async exportDocMarkdown(pageId) {
 			const page = engine.collections.docPages.get(pageId)
@@ -2100,7 +2599,12 @@ export function createPreviewApiBridge(
 			const c = previewChannels.find((item) => item.id === channelId)
 			if (!c) throw new Error('Channel not found')
 			const msgs = [...previewMessages.values()]
-				.filter((m) => m.channelId === channelId && m.threadParentId === null && m.deletedAt === null)
+				.filter(
+					(m) =>
+						m.channelId === channelId &&
+						m.deletedAt === null &&
+						(m.threadParentId === null || m.broadcastToChannel === true)
+				)
 				.sort((a, b) => (a.channelSeq ?? 0) - (b.channelSeq ?? 0))
 				.map(hydratePreviewMsg)
 			return {
@@ -2130,7 +2634,8 @@ export function createPreviewApiBridge(
 			if (!c) throw new Error('Channel not found')
 			const ts = new Date().toISOString()
 			const isTop = !body.threadParentId
-			const nextSeq = isTop ? c.lastMsgSeq + 1 : null
+			const broadcastToChannel = Boolean(!isTop && body.broadcastToChannel)
+			const nextSeq = isTop || broadcastToChannel ? c.lastMsgSeq + 1 : null
 			const nextRev = c.lastRev + 1
 			let threadSeq: number | null = null
 			if (body.threadParentId) {
@@ -2170,6 +2675,10 @@ export function createPreviewApiBridge(
 				authorId: PREVIEW_USER_ID,
 				authorDisplayName: 'Hagen (Owner)',
 				threadParentId: body.threadParentId ?? null,
+				broadcastToChannel,
+				replyToMessageId: body.replyToMessageId ?? null,
+				messageKind: 'text',
+				metadata: body.replyToMessageId ? { quoteOf: body.replyToMessageId } : {},
 				replyCount: 0,
 				lastReplyAt: null,
 				clientId: body.clientId ?? null,
@@ -2292,9 +2801,512 @@ export function createPreviewApiBridge(
 				unreadCount: c?.unreadCount ?? 0
 			}
 		},
-		async updateChannelMute(channelId, muted) {
-			previewChannels = previewChannels.map((c) => (c.id === channelId ? { ...c, muted } : c))
-			return { channelId, muted }
+		async updateChannelMute(channelId, muted, opts) {
+			const notifyLevel = opts?.notifyLevel ?? (muted ? 'none' : 'default')
+			const mutedUntil = opts?.mutedUntil ?? null
+			previewChannels = previewChannels.map((c) =>
+				c.id === channelId ? { ...c, muted, notifyLevel, mutedUntil } : c
+			)
+			return { channelId, muted, notifyLevel, mutedUntil }
+		},
+		async listPinnedMessages(channelId) {
+			return previewChannelPins.get(channelId) ?? []
+		},
+		async pinMessage(messageId) {
+			const msg = previewMessages.get(messageId)
+			if (!msg) return {}
+			const existing = previewChannelPins.get(msg.channelId) ?? []
+			if (existing.some((p) => p.messageId === messageId)) return existing[0] ?? {}
+			const pin: ChatPinnedMessageDto = {
+				messageId: msg.id,
+				pinnedBy: PREVIEW_USER_ID,
+				position: existing.length + 1,
+				createdAt: new Date().toISOString(),
+				bodyText: msg.bodyText,
+				authorId: msg.authorId ?? PREVIEW_USER_ID,
+				messageCreatedAt: msg.createdAt
+			}
+			previewChannelPins.set(msg.channelId, [pin, ...existing])
+			return pin
+		},
+		async unpinMessage(messageId) {
+			const msg = previewMessages.get(messageId)
+			if (msg) {
+				previewChannelPins.set(
+					msg.channelId,
+					(previewChannelPins.get(msg.channelId) ?? []).filter((p) => p.messageId !== messageId)
+				)
+			} else {
+				for (const [chId, list] of previewChannelPins.entries()) {
+					previewChannelPins.set(
+						chId,
+						list.filter((p) => p.messageId !== messageId)
+					)
+				}
+			}
+			return { unpinned: true }
+		},
+		async listChatDrafts() {
+			return [...previewChatDrafts.values()]
+		},
+		async upsertChatDraft(channelId, body) {
+			const key = `${channelId}:${body.threadParentId ?? 'root'}`
+			const empty = body.bodyText.trim().length === 0 && (body.attachmentFileIds ?? []).length === 0
+			if (empty) {
+				previewChatDrafts.delete(key)
+				return { deleted: true, channelId, threadParentId: body.threadParentId ?? null }
+			}
+			const existing = previewChatDrafts.get(key)
+			const ts = new Date().toISOString()
+			const draft: ChatDraftDto = {
+				id: existing?.id ?? generateUuidV7(),
+				channelId,
+				threadParentId: body.threadParentId ?? null,
+				body: body.body ?? {},
+				bodyText: body.bodyText,
+				attachmentFileIds: [...(body.attachmentFileIds ?? [])],
+				createdAt: existing?.createdAt ?? ts,
+				updatedAt: ts
+			}
+			previewChatDrafts.set(key, draft)
+			return draft
+		},
+		async deleteChatDraft(draftId) {
+			for (const [k, d] of previewChatDrafts.entries()) {
+				if (d.id === draftId) previewChatDrafts.delete(k)
+			}
+		},
+		async listScheduledChatMessages() {
+			return previewScheduledMessages
+		},
+		async scheduleChatMessage(channelId, body) {
+			const ts = new Date().toISOString()
+			const item: ChatScheduledMessageDto = {
+				id: generateUuidV7(),
+				channelId,
+				threadParentId: body.threadParentId ?? null,
+				bodyText: body.bodyText,
+				attachmentFileIds: [...(body.attachmentFileIds ?? [])],
+				scheduledFor: body.scheduledFor,
+				status: 'scheduled',
+				sentMessageId: null,
+				errorDetail: null,
+				version: 1,
+				createdAt: ts,
+				updatedAt: ts
+			}
+			previewScheduledMessages = [...previewScheduledMessages, item]
+			return item
+		},
+		async cancelScheduledChatMessage(id, version) {
+			previewScheduledMessages = previewScheduledMessages.map((item) =>
+				item.id === id ? { ...item, status: 'cancelled', version: version + 1 } : item
+			)
+			return { id, status: 'cancelled', version: version + 1 }
+		},
+		async listSavedChatItems() {
+			return previewSavedItems
+		},
+		async createSavedChatItem(body) {
+			const msg = body.messageId ? previewMessages.get(body.messageId) : undefined
+			const ts = new Date().toISOString()
+			const existing = body.messageId
+				? previewSavedItems.find((item) => item.messageId === body.messageId)
+				: undefined
+			if (existing) {
+				const updated: ChatSavedItemDto = {
+					...existing,
+					note: body.note ?? existing.note,
+					remindAt: body.remindAt ?? existing.remindAt,
+					updatedAt: ts
+				}
+				previewSavedItems = previewSavedItems.map((i) => (i.id === existing.id ? updated : i))
+				return updated
+			}
+			const created: ChatSavedItemDto = {
+				id: generateUuidV7(),
+				messageId: body.messageId ?? null,
+				customText: body.customText ?? '',
+				note: body.note ?? '',
+				status: 'saved',
+				remindAt: body.remindAt ?? null,
+				completedAt: null,
+				version: 1,
+				createdAt: ts,
+				updatedAt: ts,
+				channelId: msg?.channelId ?? null,
+				messageText: msg?.bodyText ?? null
+			}
+			previewSavedItems = [created, ...previewSavedItems]
+			return created
+		},
+		async updateSavedChatItem(id, body) {
+			const ts = new Date().toISOString()
+			let result: ChatSavedItemDto | null = null
+			previewSavedItems = previewSavedItems.map((item) => {
+				if (item.id !== id) return item
+				result = {
+					...item,
+					status: body.status ?? item.status,
+					note: body.note ?? item.note,
+					remindAt: body.remindAt === undefined ? item.remindAt : body.remindAt,
+					completedAt: body.status === 'completed' ? ts : item.completedAt,
+					version: item.version + 1,
+					updatedAt: ts
+				}
+				return result
+			})
+			if (!result) throw new Error('Saved item not found')
+			return result
+		},
+		async deleteSavedChatItem(id) {
+			previewSavedItems = previewSavedItems.filter((item) => item.id !== id)
+		},
+		async listChatSidebarSections() {
+			return previewSidebarSections
+		},
+		async createChatSidebarSection(body) {
+			const ts = new Date().toISOString()
+			const section: ChatSidebarSectionDto = {
+				id: generateUuidV7(),
+				name: body.name,
+				position: body.position ?? 'Z',
+				collapsed: body.collapsed ?? false,
+				unreadOnly: body.unreadOnly ?? false,
+				version: 1,
+				createdAt: ts,
+				updatedAt: ts,
+				items: []
+			}
+			previewSidebarSections = [...previewSidebarSections, section]
+			return section
+		},
+		async updateChatSidebarSection(id, body) {
+			let updated: ChatSidebarSectionDto | null = null
+			previewSidebarSections = previewSidebarSections.map((sec) => {
+				if (sec.id !== id) return sec
+				updated = {
+					...sec,
+					name: body.name ?? sec.name,
+					position: body.position ?? sec.position,
+					collapsed: body.collapsed ?? sec.collapsed,
+					unreadOnly: body.unreadOnly ?? sec.unreadOnly,
+					version: sec.version + 1
+				}
+				return updated
+			})
+			if (!updated) throw new Error('Sidebar section not found')
+			return updated
+		},
+		async deleteChatSidebarSection(id) {
+			previewSidebarSections = previewSidebarSections.filter((s) => s.id !== id)
+		},
+		async addChatSidebarSectionItem(sectionId, body) {
+			const item = { channelId: body.channelId, position: body.position ?? 'F' }
+			previewSidebarSections = previewSidebarSections.map((sec) => {
+				if (sec.id !== sectionId) return sec
+				const rest = (sec.items ?? []).filter((i) => i.channelId !== body.channelId)
+				return { ...sec, items: [...rest, item] }
+			})
+			return item
+		},
+		async removeChatSidebarSectionItem(sectionId, channelId) {
+			previewSidebarSections = previewSidebarSections.map((sec) =>
+				sec.id === sectionId
+					? { ...sec, items: (sec.items ?? []).filter((i) => i.channelId !== channelId) }
+					: sec
+			)
+		},
+		async listChannelBookmarks(channelId) {
+			return previewBookmarksByChannel.get(channelId) ?? []
+		},
+		async createChannelBookmark(channelId, body) {
+			const ts = new Date().toISOString()
+			const created: ChatChannelBookmarkDto = {
+				id: generateUuidV7(),
+				targetType: body.targetType,
+				targetId: body.targetId ?? null,
+				title: body.title,
+				url: body.url ?? null,
+				icon: body.icon ?? null,
+				folder: body.folder ?? null,
+				position: body.position ?? 'Z',
+				createdBy: PREVIEW_USER_ID,
+				version: 1,
+				createdAt: ts,
+				updatedAt: ts
+			}
+			previewBookmarksByChannel.set(channelId, [...(previewBookmarksByChannel.get(channelId) ?? []), created])
+			return created
+		},
+		async deleteChannelBookmark(id) {
+			for (const [chId, list] of previewBookmarksByChannel.entries()) {
+				previewBookmarksByChannel.set(
+					chId,
+					list.filter((b) => b.id !== id)
+				)
+			}
+		},
+		async getMyChatStatus() {
+			return previewMyChatStatus
+		},
+		async updateMyChatStatus(body) {
+			previewMyChatStatus = {
+				...previewMyChatStatus,
+				statusEmoji: body.statusEmoji !== undefined ? body.statusEmoji : previewMyChatStatus.statusEmoji,
+				statusText: body.statusText !== undefined ? body.statusText : previewMyChatStatus.statusText,
+				statusExpiresAt:
+					body.statusExpiresAt !== undefined ? body.statusExpiresAt : previewMyChatStatus.statusExpiresAt,
+				dndUntil: body.dndUntil !== undefined ? body.dndUntil : previewMyChatStatus.dndUntil,
+				updatedAt: new Date().toISOString()
+			}
+			return previewMyChatStatus
+		},
+		async listUserGroups() {
+			return previewUserGroups
+		},
+		async createUserGroup(body) {
+			const ts = new Date().toISOString()
+			const group: UserGroupDto = {
+				id: generateUuidV7(),
+				handle: body.handle,
+				name: body.name,
+				description: body.description ?? '',
+				autoJoinChannelIds: [...(body.autoJoinChannelIds ?? [])],
+				memberIds: [...(body.memberIds ?? [])],
+				version: 1,
+				createdAt: ts,
+				updatedAt: ts
+			}
+			previewUserGroups = [...previewUserGroups, group]
+			return group
+		},
+		async setUserGroupMembers(groupId, memberIds) {
+			previewUserGroups = previewUserGroups.map((g) =>
+				g.id === groupId ? { ...g, memberIds: [...memberIds], version: g.version + 1 } : g
+			)
+			return { memberIds }
+		},
+		async listWorkspaceEmojis() {
+			return previewWorkspaceEmojis
+		},
+		async createWorkspaceEmoji(body) {
+			const ts = new Date().toISOString()
+			const emoji: WorkspaceEmojiDto = {
+				id: generateUuidV7(),
+				shortcode: body.shortcode,
+				fileId: body.fileId,
+				createdBy: PREVIEW_USER_ID,
+				createdAt: ts,
+				filename: `${body.shortcode}.png`,
+				contentType: 'image/png'
+			}
+			previewWorkspaceEmojis = [...previewWorkspaceEmojis, emoji]
+			return emoji
+		},
+		async deleteWorkspaceEmoji(id) {
+			previewWorkspaceEmojis = previewWorkspaceEmojis.filter((e) => e.id !== id)
+		},
+		async listChannelPolls(channelId) {
+			return [...previewPolls.values()].filter((p) => p.channelId === channelId)
+		},
+		async createChatPoll(channelId, body) {
+			const pollId = generateUuidV7()
+			const c = previewChannels.find((item) => item.id === channelId)
+			if (!c) throw new Error('Channel not found')
+			const ts = new Date().toISOString()
+			const msgId = generateUuidV7()
+			const nextSeq = c.lastMsgSeq + 1
+			const nextRev = c.lastRev + 1
+			const pollMsg: ChatMessageDto = {
+				id: msgId,
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				channelId,
+				channelSeq: nextSeq,
+				threadSeq: null,
+				rev: nextRev,
+				authorType: 'user',
+				authorId: PREVIEW_USER_ID,
+				authorDisplayName: 'Hagen (Owner)',
+				threadParentId: body.threadParentId ?? null,
+				broadcastToChannel: Boolean(body.threadParentId && body.broadcastToChannel),
+				replyToMessageId: null,
+				messageKind: 'poll',
+				metadata: { pollId, pollQuestion: body.question, options: body.options },
+				replyCount: 0,
+				lastReplyAt: null,
+				clientId: null,
+				body: { type: 'text', text: body.question },
+				bodyText: body.question,
+				reactions: [],
+				attachments: [],
+				linkPreviews: [],
+				richLinks: [],
+				editedAt: null,
+				deletedAt: null,
+				createdAt: ts,
+				updatedAt: ts,
+				version: 1
+			}
+			previewMessages.set(msgId, pollMsg)
+			previewChannels = previewChannels.map((item) =>
+				item.id === channelId
+					? { ...item, lastMsgSeq: nextSeq, lastRev: nextRev, lastReadSeq: nextSeq }
+					: item
+			)
+			const poll: ChatPollDto = {
+				id: pollId,
+				channelId,
+				messageId: msgId,
+				question: body.question,
+				options: body.options.map((o) => ({ id: o.id, label: o.label })),
+				multiChoice: body.multiChoice ?? false,
+				anonymous: body.anonymous ?? false,
+				status: 'open',
+				closesAt: body.closesAt ?? null,
+				createdBy: PREVIEW_USER_ID,
+				version: 1,
+				createdAt: ts,
+				totalVotes: 0,
+				counts: {},
+				voters: [],
+				message: pollMsg
+			}
+			previewPolls.set(pollId, poll)
+			return poll
+		},
+		async getChatPoll(pollId) {
+			const poll = previewPolls.get(pollId)
+			if (!poll) throw new Error('Poll not found')
+			return poll
+		},
+		async voteChatPoll(pollId, body) {
+			const poll = previewPolls.get(pollId)
+			if (!poll) throw new Error('Poll not found')
+			const others = (poll.voters ?? []).filter((v) => v.userId !== PREVIEW_USER_ID)
+			const nextVoters = [...others, { userId: PREVIEW_USER_ID, optionIds: [...body.optionIds] }]
+			const counts: Record<string, number> = {}
+			for (const v of nextVoters) {
+				for (const oid of v.optionIds) counts[oid] = (counts[oid] ?? 0) + 1
+			}
+			previewPolls.set(pollId, {
+				...poll,
+				totalVotes: nextVoters.length,
+				counts,
+				voters: poll.anonymous ? [] : nextVoters
+			})
+			return { pollId, userId: PREVIEW_USER_ID, optionIds: body.optionIds }
+		},
+		async closeChatPoll(pollId) {
+			const poll = previewPolls.get(pollId)
+			if (!poll) throw new Error('Poll not found')
+			const updated = { ...poll, status: 'closed' as const, version: poll.version + 1 }
+			previewPolls.set(pollId, updated)
+			return { id: pollId, status: 'closed', version: updated.version }
+		},
+		async forwardChatMessage(messageId, body) {
+			const source = previewMessages.get(messageId)
+			const target = previewChannels.find((c) => c.id === body.targetChannelId)
+			if (!source || !target) throw new Error('Message or channel not found')
+			const ts = new Date().toISOString()
+			const prefix = body.bodyText?.trim() ? `${body.bodyText.trim()}\n\n` : ''
+			const msgId = generateUuidV7()
+			const nextSeq = target.lastMsgSeq + 1
+			const nextRev = target.lastRev + 1
+			const created: ChatMessageDto = {
+				id: msgId,
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				channelId: target.id,
+				channelSeq: nextSeq,
+				threadSeq: null,
+				rev: nextRev,
+				authorType: 'user',
+				authorId: PREVIEW_USER_ID,
+				authorDisplayName: 'Hagen (Owner)',
+				threadParentId: null,
+				broadcastToChannel: false,
+				replyToMessageId: null,
+				messageKind: 'text',
+				metadata: {
+					forwardedFrom: { messageId: source.id, channelId: source.channelId, snapshot: true }
+				},
+				replyCount: 0,
+				lastReplyAt: null,
+				clientId: null,
+				body: { type: 'text', text: `${prefix}${source.bodyText}` },
+				bodyText: `${prefix}${source.bodyText}`,
+				reactions: [],
+				attachments: [],
+				linkPreviews: [],
+				richLinks: resolvePreviewRichLinks(source.bodyText),
+				editedAt: null,
+				deletedAt: null,
+				createdAt: ts,
+				updatedAt: ts,
+				version: 1
+			}
+			previewMessages.set(msgId, created)
+			previewChannels = previewChannels.map((c) =>
+				c.id === target.id ? { ...c, lastMsgSeq: nextSeq, lastRev: nextRev } : c
+			)
+			return created
+		},
+		async ensureChannelCanvas(channelId) {
+			const c = previewChannels.find((item) => item.id === channelId)
+			if (!c) throw new Error('Channel not found')
+			if (c.canvasPageId) {
+				const existing = engine.collections.docPages.get(c.canvasPageId)
+				if (existing) return { pageId: existing.id, slug: existing.slug, title: existing.title }
+			}
+			const label = c.name ? `#${c.name}` : 'Channel'
+			const created = await engine.createDocPage({
+				title: `${label} Canvas`,
+				visibility: 'workspace'
+			})
+			const built = buildPreviewYDocState(
+				`# ${label} Canvas\n\nShared channel notes, decisions, and runbooks.`,
+				created.id
+			)
+			docStatesByPage.set(created.id, {
+				state: built.state,
+				stateVector: built.stateVector,
+				plainText: built.extracted.plainText,
+				headings: built.extracted.headings
+			})
+			previewChannels = previewChannels.map((item) =>
+				item.id === channelId ? { ...item, canvasPageId: created.id } : item
+			)
+			return { pageId: created.id, slug: created.slug, title: created.title }
+		},
+		async getActiveChannelHuddle(channelId) {
+			return previewHuddlesByChannel.get(channelId) ?? null
+		},
+		async startChatHuddle(channelId) {
+			const ts = new Date().toISOString()
+			const huddle: ChatHuddleSessionDto = {
+				id: generateUuidV7(),
+				channelId,
+				roomName: `huriro_preview_${channelId.slice(0, 8)}`,
+				status: 'active',
+				startedAt: ts
+			}
+			previewHuddlesByChannel.set(channelId, huddle)
+			return huddle
+		},
+		async joinChatHuddle(huddleId) {
+			return {
+				huddleId,
+				roomName: 'huriro_preview',
+				livekitUrl: 'wss://livekit.preview.local',
+				token: 'preview-token',
+				expiresIn: 900
+			}
+		},
+		async endChatHuddle(huddleId) {
+			for (const [chId, h] of previewHuddlesByChannel.entries()) {
+				if (h?.id === huddleId) previewHuddlesByChannel.set(chId, null)
+			}
+			return { id: huddleId, status: 'ended' }
 		},
 		async listThreads() {
 			const parents = [...previewMessages.values()].filter((m) => m.replyCount > 0 && m.deletedAt === null)
@@ -2717,13 +3729,17 @@ export function createPreviewApiBridge(
 			return previewMailInboxes
 		},
 		async createMailInbox(body) {
+			const visibility = body.visibility ?? 'shared'
 			const inbox: MailInboxDto = {
 				id: generateUuidV7(),
 				workspaceId: PREVIEW_WORKSPACE_ID,
 				name: body.name,
 				position: 'a9',
-				settings: {},
+				settings: body.settings ?? {},
+				visibility,
+				ownerUserId: visibility === 'private' ? (body.ownerUserId ?? PREVIEW_USER_ID) : null,
 				openCount: 0,
+				version: 1,
 				createdAt: new Date().toISOString()
 			}
 			previewMailInboxes = [...previewMailInboxes, inbox]
@@ -2735,8 +3751,9 @@ export function createPreviewApiBridge(
 			const data = previewMailConversations.filter(
 				(c) =>
 					(!filter.inboxId || c.inboxId === filter.inboxId) &&
-					(!filter.status || c.status === filter.status) &&
+					(!filter.status ? c.status !== 'snoozed' : c.status === filter.status) &&
 					(assigneeTarget === undefined || c.assigneeId === assigneeTarget) &&
+					(!filter.tagId || (previewConversationTags.get(c.id) ?? []).includes(filter.tagId)) &&
 					(!filter.q ||
 						c.subject.toLowerCase().includes(filter.q.toLowerCase()) ||
 						(c.customerEmail ?? '').toLowerCase().includes(filter.q.toLowerCase()))
@@ -2751,9 +3768,11 @@ export function createPreviewApiBridge(
 				messages: previewMailMessages.filter((m) => m.conversationId === id),
 				events: previewMailEvents.filter((e) => e.conversationId === id),
 				notes: previewMailNotes.filter((n) => n.conversationId === id),
-				drafts: previewMailDrafts.filter((d) => d.conversationId === id && d.status === 'draft'),
-				linkedTasks: [],
-				linkedDocs: []
+				drafts: previewMailDrafts.filter(
+					(d) => d.conversationId === id && (d.status === 'draft' || d.status === 'sending')
+				),
+				linkedTasks: previewMailLinkedTasks.get(id) ?? [],
+				linkedDocs: previewMailLinkedDocs.get(id) ?? []
 			}
 		},
 		async updateMailConversation(id, body) {
@@ -2763,7 +3782,12 @@ export function createPreviewApiBridge(
 				...existing,
 				...(body.status !== undefined ? { status: body.status } : {}),
 				...(body.assigneeId !== undefined ? { assigneeId: body.assigneeId } : {}),
-				...(body.snoozedUntil !== undefined ? { snoozedUntil: body.snoozedUntil } : {}),
+				...(body.snoozedUntil !== undefined
+					? { snoozedUntil: body.snoozedUntil, ...(body.snoozedUntil ? { status: 'snoozed' as const } : {}) }
+					: {}),
+				...(body.priority !== undefined ? { priority: body.priority } : {}),
+				...(body.followUpAt !== undefined ? { followUpAt: body.followUpAt } : {}),
+				...(body.followUpCondition !== undefined ? { followUpCondition: body.followUpCondition } : {}),
 				updatedAt: new Date().toISOString(),
 				version: existing.version + 1
 			}
@@ -2784,11 +3808,55 @@ export function createPreviewApiBridge(
 			previewMailNotes = [...previewMailNotes, note]
 			return note
 		},
-		async linkMailConversation() {},
-		async unlinkMailTask() {},
-		async unlinkMailDoc() {},
-		async convertMailToIssue() {
-			return { issueId: generateUuidV7(), identifier: 'HR-42' }
+		async linkMailConversation(id, body) {
+			if (body.taskId) {
+				const issue = engine.collections.issues.get(body.taskId)
+				const current = previewMailLinkedTasks.get(id) ?? []
+				if (!current.some((item) => item.taskId === body.taskId)) {
+					previewMailLinkedTasks.set(id, [
+						...current,
+						{
+							taskId: body.taskId,
+							identifier: issue?.identifier ?? 'HR-1',
+							title: issue?.title ?? 'Linked task'
+						}
+					])
+				}
+			}
+			if (body.pageId) {
+				const doc = engine.collections.docPages.get(body.pageId)
+				const current = previewMailLinkedDocs.get(id) ?? []
+				if (!current.some((item) => item.pageId === body.pageId)) {
+					previewMailLinkedDocs.set(id, [
+						...current,
+						{
+							pageId: body.pageId,
+							slug: doc?.slug ?? null,
+							title: doc?.title ?? 'Linked doc'
+						}
+					])
+				}
+			}
+		},
+		async unlinkMailTask(id, taskId) {
+			previewMailLinkedTasks.set(
+				id,
+				(previewMailLinkedTasks.get(id) ?? []).filter((item) => item.taskId !== taskId)
+			)
+		},
+		async unlinkMailDoc(id, pageId) {
+			previewMailLinkedDocs.set(
+				id,
+				(previewMailLinkedDocs.get(id) ?? []).filter((item) => item.pageId !== pageId)
+			)
+		},
+		async convertMailToIssue(id, body) {
+			const issueId = generateUuidV7()
+			const conv = previewMailConversations.find((c) => c.id === id)
+			const current = previewMailLinkedTasks.get(id) ?? []
+			const title = body.title ?? conv?.subject ?? 'Mail follow-up task'
+			previewMailLinkedTasks.set(id, [...current, { taskId: issueId, identifier: 'HR-42', title }])
+			return { issueId, identifier: 'HR-42' }
 		},
 		async upsertMailDraft(conversationId, body) {
 			const draft: MailDraftDto = {
@@ -2796,14 +3864,20 @@ export function createPreviewApiBridge(
 				conversationId,
 				identityId: body.identityId,
 				createdBy: PREVIEW_USER_ID,
-				body: { type: 'doc', content: [] },
+				body: body.body ?? { type: 'doc', content: [] },
 				bodyText: body.bodyText ?? '',
 				recipients: body.recipients ?? {},
 				inReplyToId: body.inReplyToId ?? null,
-				scheduledSendAt: null,
+				scheduledSendAt: body.scheduledSendAt ?? null,
 				status: 'draft',
 				lockedBy: null,
 				lockedUntil: null,
+				collabEnabled: body.collabEnabled ?? false,
+				reviewStatus: 'none',
+				reviewerId: null,
+				reviewedAt: null,
+				reviewNote: null,
+				metadata: body.attachmentFileIds ? { attachmentFileIds: body.attachmentFileIds } : {},
 				version: 1,
 				createdAt: new Date().toISOString(),
 				updatedAt: new Date().toISOString()
@@ -2820,22 +3894,50 @@ export function createPreviewApiBridge(
 		async updateMailDraft(draftId, body) {
 			const existing = previewMailDrafts.find((d) => d.id === draftId)
 			if (!existing) throw new Error('draft not found')
-			const updated = {
+			const existingMeta =
+				existing.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata)
+					? (existing.metadata as Record<string, unknown>)
+					: {}
+			const updated: MailDraftDto = {
 				...existing,
 				bodyText: body.bodyText ?? existing.bodyText,
 				recipients: body.recipients ?? existing.recipients,
+				collabEnabled: body.collabEnabled ?? existing.collabEnabled,
+				scheduledSendAt: body.scheduledSendAt !== undefined ? body.scheduledSendAt : existing.scheduledSendAt,
+				metadata:
+					body.attachmentFileIds !== undefined
+						? { ...existingMeta, attachmentFileIds: body.attachmentFileIds }
+						: existingMeta,
 				version: existing.version + 1,
 				updatedAt: new Date().toISOString()
 			}
 			previewMailDrafts = previewMailDrafts.map((d) => (d.id === draftId ? updated : d))
 			return updated
 		},
-		async sendMailDraft(draftId) {
+		async issueMailDraftCollabTicket(draftId) {
+			return {
+				ticket: `preview-mail-draft-${draftId}`,
+				documentName: `mail_draft:${PREVIEW_WORKSPACE_ID}:${draftId}`,
+				permission: 'write',
+				expiresAt: new Date(Date.now() + 60_000).toISOString(),
+				collabUrl: '/collab'
+			}
+		},
+		async sendMailDraft(draftId, body) {
 			const existing = previewMailDrafts.find((d) => d.id === draftId)
 			if (!existing) throw new Error('draft not found')
+			if (existing.reviewStatus === 'requested') {
+				throw new Error('Draft requires review approval before sending')
+			}
+			const isScheduledFuture =
+				typeof body?.scheduledSendAt === 'string' && Date.parse(body.scheduledSendAt) > Date.now()
 			const sent: MailDraftDto = {
 				...existing,
-				status: 'sent',
+				status: isScheduledFuture ? 'sending' : 'sent',
+				scheduledSendAt: isScheduledFuture
+					? (body.scheduledSendAt ?? null)
+					: new Date(Date.now() + 10_000).toISOString(),
+				version: existing.version + 1,
 				updatedAt: new Date().toISOString()
 			}
 			previewMailDrafts = previewMailDrafts.map((d) => (d.id === draftId ? sent : d))
@@ -2847,6 +3949,8 @@ export function createPreviewApiBridge(
 			const undone: MailDraftDto = {
 				...existing,
 				status: 'draft',
+				scheduledSendAt: null,
+				version: existing.version + 1,
 				updatedAt: new Date().toISOString()
 			}
 			previewMailDrafts = previewMailDrafts.map((d) => (d.id === draftId ? undone : d))
@@ -2854,6 +3958,593 @@ export function createPreviewApiBridge(
 		},
 		async discardMailDraft(draftId) {
 			previewMailDrafts = previewMailDrafts.filter((d) => d.id !== draftId)
+		},
+		async listMailTags(inboxId) {
+			if (!inboxId) return previewMailTags
+			return previewMailTags.filter((tag) => tag.inboxId === null || tag.inboxId === inboxId)
+		},
+		async createMailTag(body) {
+			const created: MailTagDto = {
+				id: generateUuidV7(),
+				inboxId: body.inboxId ?? null,
+				name: body.name.trim(),
+				color: body.color ?? 'neutral',
+				version: 1,
+				createdAt: new Date().toISOString()
+			}
+			previewMailTags = [...previewMailTags, created]
+			return created
+		},
+		async deleteMailTag(id) {
+			previewMailTags = previewMailTags.filter((tag) => tag.id !== id)
+			for (const [convId, list] of previewConversationTags.entries()) {
+				previewConversationTags.set(
+					convId,
+					list.filter((tId) => tId !== id)
+				)
+			}
+		},
+		async listConversationTags(conversationId) {
+			const ids = new Set(previewConversationTags.get(conversationId) ?? [])
+			return previewMailTags.filter((tag) => ids.has(tag.id))
+		},
+		async setConversationTags(conversationId, body) {
+			const tagIds = [...new Set(body.tagIds)]
+			previewConversationTags.set(conversationId, tagIds)
+			previewMailConversations = previewMailConversations.map((conv) =>
+				conv.id === conversationId ? { ...conv, tagIds } : conv
+			)
+			return { tagIds }
+		},
+		async listMailTemplates(filter) {
+			return previewMailTemplates.filter(
+				(tpl) =>
+					(!filter?.inboxId || tpl.inboxId === null || tpl.inboxId === filter.inboxId) &&
+					(filter?.personal === undefined ||
+						(filter.personal ? tpl.ownerUserId === PREVIEW_USER_ID : tpl.ownerUserId === null))
+			)
+		},
+		async upsertMailTemplate(body, id) {
+			const now = new Date().toISOString()
+			if (id) {
+				const updated = previewMailTemplates.find((t) => t.id === id)
+				if (!updated) throw new Error('template not found')
+				const next: MailTemplateDto = {
+					...updated,
+					inboxId: body.inboxId ?? null,
+					ownerUserId: body.ownerUserId ?? null,
+					name: body.name,
+					shortcut: body.shortcut,
+					bodyText: body.bodyText,
+					body: body.body ?? {},
+					bodyHtml: body.bodyHtml ?? null,
+					attachmentFileIds: body.attachmentFileIds ?? [],
+					mergeVariables: body.mergeVariables ?? [],
+					version: updated.version + 1,
+					updatedAt: now
+				}
+				previewMailTemplates = previewMailTemplates.map((t) => (t.id === id ? next : t))
+				return next
+			}
+			const created: MailTemplateDto = {
+				id: generateUuidV7(),
+				inboxId: body.inboxId ?? null,
+				ownerUserId: body.ownerUserId ?? null,
+				name: body.name,
+				shortcut: body.shortcut,
+				bodyText: body.bodyText,
+				body: body.body ?? {},
+				bodyHtml: body.bodyHtml ?? null,
+				attachmentFileIds: body.attachmentFileIds ?? [],
+				mergeVariables: body.mergeVariables ?? [],
+				version: 1,
+				createdAt: now,
+				updatedAt: now
+			}
+			previewMailTemplates = [...previewMailTemplates, created]
+			return created
+		},
+		async deleteMailTemplate(id) {
+			previewMailTemplates = previewMailTemplates.filter((t) => t.id !== id)
+		},
+		async renderMailTemplate(id, body) {
+			const tpl = previewMailTemplates.find((t) => t.id === id)
+			if (!tpl) throw new Error('template not found')
+			let bodyText = tpl.bodyText
+			for (const [key, value] of Object.entries(body.variables ?? {})) {
+				bodyText = bodyText.replaceAll(`{{${key}}}`, value)
+			}
+			return { bodyText, shortcut: tpl.shortcut }
+		},
+		async listMailMacros(inboxId) {
+			if (!inboxId) return previewMailMacros
+			return previewMailMacros.filter((m) => m.inboxId === null || m.inboxId === inboxId)
+		},
+		async upsertMailMacro(body, id) {
+			const now = new Date().toISOString()
+			if (id) {
+				const existing = previewMailMacros.find((m) => m.id === id)
+				if (!existing) throw new Error('macro not found')
+				const next: MailMacroDto = {
+					...existing,
+					inboxId: body.inboxId ?? null,
+					name: body.name,
+					shortcut: body.shortcut ?? null,
+					steps: [...body.steps],
+					version: existing.version + 1,
+					updatedAt: now
+				}
+				previewMailMacros = previewMailMacros.map((m) => (m.id === id ? next : m))
+				return next
+			}
+			const created: MailMacroDto = {
+				id: generateUuidV7(),
+				inboxId: body.inboxId ?? null,
+				name: body.name,
+				shortcut: body.shortcut ?? null,
+				steps: [...body.steps],
+				version: 1,
+				createdAt: now,
+				updatedAt: now
+			}
+			previewMailMacros = [...previewMailMacros, created]
+			return created
+		},
+		async deleteMailMacro(id) {
+			previewMailMacros = previewMailMacros.filter((m) => m.id !== id)
+		},
+		async applyMailMacro(id, body) {
+			const macro = previewMailMacros.find((m) => m.id === id)
+			if (!macro) throw new Error('macro not found')
+			for (const convId of body.conversationIds) {
+				for (const step of macro.steps) {
+					if (step.action === 'set_status' && step.value) {
+						previewMailConversations = previewMailConversations.map((c) =>
+							c.id === convId
+								? { ...c, status: step.value as MailConversationDto['status'], version: c.version + 1 }
+								: c
+						)
+					} else if (step.action === 'add_tag' && step.value) {
+						const existing = previewConversationTags.get(convId) ?? []
+						if (!existing.includes(step.value)) {
+							previewConversationTags.set(convId, [...existing, step.value])
+						}
+					} else if (step.action === 'remove_tag' && step.value) {
+						previewConversationTags.set(
+							convId,
+							(previewConversationTags.get(convId) ?? []).filter((tId) => tId !== step.value)
+						)
+					}
+				}
+			}
+			return { appliedCount: body.conversationIds.length }
+		},
+		async createOutboundConversation(body) {
+			const now = new Date().toISOString()
+			const convId = generateUuidV7()
+			const recipientEmail = body.recipients.to[0]?.email ?? 'customer@acme.example'
+			const newConv: MailConversationDto = {
+				id: convId,
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				inboxId: body.inboxId,
+				accountId: PREVIEW_MAIL_ACCOUNT_ID,
+				subject: body.subject,
+				status: 'open',
+				assigneeId: body.assigneeId ?? PREVIEW_USER_ID,
+				assigneeName: 'Hagen (Owner)',
+				snoozedUntil: null,
+				mergedIntoId: null,
+				lastMessageAt: now,
+				firstReplyAt: null,
+				customerEmail: recipientEmail,
+				contactId: null,
+				followUpAt: body.followUpAt ?? null,
+				followUpCondition: body.followUpCondition ?? null,
+				slaNextDueAt: null,
+				slaBreachedAt: null,
+				priority: 'normal',
+				snippet: body.bodyText.slice(0, 120),
+				messageCount: 0,
+				createdAt: now,
+				updatedAt: now,
+				version: 1
+			}
+			previewMailConversations = [newConv, ...previewMailConversations]
+			const draft: MailDraftDto = {
+				id: generateUuidV7(),
+				conversationId: convId,
+				identityId: body.identityId,
+				createdBy: PREVIEW_USER_ID,
+				body: body.body ?? {},
+				bodyText: body.bodyText,
+				recipients: body.recipients,
+				inReplyToId: null,
+				scheduledSendAt: body.scheduledSendAt ?? null,
+				status: 'draft',
+				lockedBy: null,
+				lockedUntil: null,
+				collabEnabled: body.collabEnabled ?? false,
+				reviewStatus: 'none',
+				reviewerId: null,
+				reviewedAt: null,
+				reviewNote: null,
+				metadata: body.attachmentFileIds ? { attachmentFileIds: body.attachmentFileIds } : {},
+				version: 1,
+				createdAt: now,
+				updatedAt: now
+			}
+			previewMailDrafts = [draft, ...previewMailDrafts]
+			return { conversationId: convId, draft }
+		},
+		async forwardConversation(conversationId, body) {
+			const conv = previewMailConversations.find((c) => c.id === conversationId)
+			if (!conv) throw new Error('conversation not found')
+			const now = new Date().toISOString()
+			const fwdConvId = generateUuidV7()
+			const history = body.includeHistory
+				? `\n\n--- Forwarded from "${conv.subject}" ---\n${conv.snippet}`
+				: ''
+			const newConv: MailConversationDto = {
+				...conv,
+				id: fwdConvId,
+				subject: `Fwd: ${conv.subject}`,
+				customerEmail: body.recipients.to[0]?.email ?? conv.customerEmail,
+				followUpAt: body.followUpAt ?? null,
+				followUpCondition: body.followUpCondition ?? null,
+				lastMessageAt: now,
+				createdAt: now,
+				updatedAt: now,
+				messageCount: 0,
+				version: 1
+			}
+			previewMailConversations = [newConv, ...previewMailConversations]
+			const draft: MailDraftDto = {
+				id: generateUuidV7(),
+				conversationId: fwdConvId,
+				identityId: body.identityId,
+				createdBy: PREVIEW_USER_ID,
+				body: {},
+				bodyText: `${body.bodyText}${history}`,
+				recipients: body.recipients,
+				inReplyToId: null,
+				scheduledSendAt: body.scheduledSendAt ?? null,
+				status: 'draft',
+				lockedBy: null,
+				lockedUntil: null,
+				collabEnabled: false,
+				reviewStatus: 'none',
+				reviewerId: null,
+				reviewedAt: null,
+				reviewNote: null,
+				metadata: body.attachmentFileIds ? { attachmentFileIds: body.attachmentFileIds } : {},
+				version: 1,
+				createdAt: now,
+				updatedAt: now
+			}
+			previewMailDrafts = [draft, ...previewMailDrafts]
+			return { conversationId: fwdConvId, draft }
+		},
+		async splitConversation(conversationId, body) {
+			const conv = previewMailConversations.find((c) => c.id === conversationId)
+			if (!conv) throw new Error('conversation not found')
+			const now = new Date().toISOString()
+			const newConvId = generateUuidV7()
+			const newConv: MailConversationDto = {
+				...conv,
+				id: newConvId,
+				subject: body.subject ?? `Split: ${conv.subject}`,
+				lastMessageAt: now,
+				createdAt: now,
+				updatedAt: now,
+				messageCount: 1,
+				version: 1
+			}
+			previewMailConversations = [newConv, ...previewMailConversations]
+			return { conversationId: newConvId }
+		},
+		async bulkTriageConversations(body) {
+			const idSet = new Set(body.conversationIds)
+			let updatedCount = 0
+			previewMailConversations = previewMailConversations.map((conv) => {
+				if (!idSet.has(conv.id)) return conv
+				updatedCount += 1
+				const currentTags = new Set(previewConversationTags.get(conv.id) ?? conv.tagIds ?? [])
+				for (const tId of body.addTagIds ?? []) currentTags.add(tId)
+				for (const tId of body.removeTagIds ?? []) currentTags.delete(tId)
+				const tagIds = [...currentTags]
+				previewConversationTags.set(conv.id, tagIds)
+				return {
+					...conv,
+					...(body.status !== undefined ? { status: body.status } : {}),
+					...(body.assigneeId !== undefined ? { assigneeId: body.assigneeId } : {}),
+					tagIds,
+					version: conv.version + 1,
+					updatedAt: new Date().toISOString()
+				}
+			})
+			return { updatedCount }
+		},
+		async listContacts(q) {
+			const query = q?.trim().toLowerCase()
+			if (!query) return previewContacts
+			return previewContacts.filter(
+				(c) => c.email.toLowerCase().includes(query) || (c.displayName ?? '').toLowerCase().includes(query)
+			)
+		},
+		async upsertContact(body, id) {
+			const now = new Date().toISOString()
+			const org = body.organizationId
+				? (previewContactOrgs.find((o) => o.id === body.organizationId) ?? null)
+				: null
+			if (id) {
+				const existing = previewContacts.find((c) => c.id === id)
+				if (!existing) throw new Error('contact not found')
+				const next: ContactDto = {
+					...existing,
+					email: body.email.toLowerCase(),
+					displayName: body.displayName ?? null,
+					title: body.title ?? null,
+					phone: body.phone ?? null,
+					vipTier: body.vipTier ?? existing.vipTier,
+					notes: body.notes ?? null,
+					metadata: body.metadata ?? existing.metadata,
+					organizationId: body.organizationId ?? existing.organizationId,
+					organizationName: org?.name ?? existing.organizationName ?? null,
+					version: existing.version + 1,
+					updatedAt: now
+				}
+				previewContacts = previewContacts.map((c) => (c.id === id ? next : c))
+				return next
+			}
+			const created: ContactDto = {
+				id: generateUuidV7(),
+				email: body.email.toLowerCase(),
+				displayName: body.displayName ?? null,
+				title: body.title ?? null,
+				phone: body.phone ?? null,
+				vipTier: body.vipTier ?? 'standard',
+				notes: body.notes ?? null,
+				metadata: body.metadata ?? {},
+				organizationId: body.organizationId ?? null,
+				organizationName: org?.name ?? null,
+				version: 1,
+				createdAt: now,
+				updatedAt: now
+			}
+			previewContacts = [created, ...previewContacts]
+			return created
+		},
+		async listContactOrganizations() {
+			return previewContactOrgs
+		},
+		async upsertContactOrganization(body, id) {
+			const now = new Date().toISOString()
+			if (id) {
+				const existing = previewContactOrgs.find((o) => o.id === id)
+				if (!existing) throw new Error('organization not found')
+				const next: ContactOrganizationDto = {
+					...existing,
+					name: body.name,
+					domain: body.domain ?? null,
+					tier: body.tier ?? existing.tier,
+					notes: body.notes ?? null,
+					metadata: body.metadata ?? existing.metadata,
+					version: existing.version + 1,
+					updatedAt: now
+				}
+				previewContactOrgs = previewContactOrgs.map((o) => (o.id === id ? next : o))
+				return next
+			}
+			const created: ContactOrganizationDto = {
+				id: generateUuidV7(),
+				name: body.name,
+				domain: body.domain ?? null,
+				tier: body.tier ?? 'standard',
+				notes: body.notes ?? null,
+				metadata: body.metadata ?? {},
+				version: 1,
+				createdAt: now,
+				updatedAt: now
+			}
+			previewContactOrgs = [created, ...previewContactOrgs]
+			return created
+		},
+		async getMailRoutingConfig(inboxId) {
+			return (
+				previewMailRoutingByInbox.get(inboxId) ?? {
+					enabled: false,
+					maxOpenCap: 10,
+					requireOnline: true,
+					respectDnd: true
+				}
+			)
+		},
+		async upsertMailRoutingConfig(inboxId, body) {
+			const next: MailRoutingConfigDto = {
+				enabled: body.enabled,
+				maxOpenCap: body.maxOpenCap ?? 10,
+				requireOnline: body.requireOnline ?? true,
+				respectDnd: body.respectDnd ?? true
+			}
+			previewMailRoutingByInbox.set(inboxId, next)
+			return next
+		},
+		async routeConversationRoundRobin(conversationId) {
+			const conv = previewMailConversations.find((c) => c.id === conversationId)
+			if (!conv) throw new Error('conversation not found')
+			const cfg = previewMailRoutingByInbox.get(conv.inboxId)
+			if (!cfg?.enabled) return { assignedUserId: null }
+			const candidates = [PREVIEW_USER_ID, '0190a0b1-0000-7000-8000-000000000002']
+			const assignedUserId = candidates[previewRoutingIndex % candidates.length] ?? PREVIEW_USER_ID
+			previewRoutingIndex += 1
+			previewMailConversations = previewMailConversations.map((c) =>
+				c.id === conversationId ? { ...c, assigneeId: assignedUserId, version: c.version + 1 } : c
+			)
+			return { assignedUserId }
+		},
+		async listMailSlaPolicies(inboxId) {
+			if (!inboxId) return previewMailSlaPolicies
+			return previewMailSlaPolicies.filter((p) => p.inboxId === null || p.inboxId === inboxId)
+		},
+		async upsertMailSlaPolicy(body, id) {
+			const now = new Date().toISOString()
+			if (id) {
+				const existing = previewMailSlaPolicies.find((p) => p.id === id)
+				if (!existing) throw new Error('policy not found')
+				const next: MailSlaPolicyDto = {
+					...existing,
+					inboxId: body.inboxId ?? null,
+					tagId: body.tagId ?? null,
+					name: body.name,
+					firstReplyMinutes: body.firstReplyMinutes ?? null,
+					nextReplyMinutes: body.nextReplyMinutes ?? null,
+					resolutionMinutes: body.resolutionMinutes ?? null,
+					businessHours: body.businessHours ?? {},
+					active: body.active ?? existing.active,
+					version: existing.version + 1,
+					updatedAt: now
+				}
+				previewMailSlaPolicies = previewMailSlaPolicies.map((p) => (p.id === id ? next : p))
+				return next
+			}
+			const created: MailSlaPolicyDto = {
+				id: generateUuidV7(),
+				inboxId: body.inboxId ?? null,
+				tagId: body.tagId ?? null,
+				name: body.name,
+				firstReplyMinutes: body.firstReplyMinutes ?? null,
+				nextReplyMinutes: body.nextReplyMinutes ?? null,
+				resolutionMinutes: body.resolutionMinutes ?? null,
+				businessHours: body.businessHours ?? {},
+				active: body.active ?? true,
+				version: 1,
+				createdAt: now,
+				updatedAt: now
+			}
+			previewMailSlaPolicies = [...previewMailSlaPolicies, created]
+			return created
+		},
+		async deleteMailSlaPolicy(id) {
+			previewMailSlaPolicies = previewMailSlaPolicies.filter((p) => p.id !== id)
+		},
+		async getMailSlaAnalytics(inboxId) {
+			const scoped = inboxId
+				? previewMailConversations.filter((c) => c.inboxId === inboxId)
+				: previewMailConversations
+			const repliedCount = scoped.filter((c) => c.firstReplyAt !== null).length
+			const breachedCount = scoped.filter((c) => c.slaBreachedAt !== null).length
+			return {
+				conversationCount: scoped.length,
+				repliedCount,
+				avgFirstReplyMinutes: repliedCount > 0 ? 15 : null,
+				avgResolutionMinutes: null,
+				breachedCount
+			}
+		},
+		async requestMailDraftReview(draftId, body) {
+			const existing = previewMailDrafts.find((d) => d.id === draftId)
+			if (!existing) throw new Error('draft not found')
+			const next: MailDraftDto = {
+				...existing,
+				reviewStatus: 'requested',
+				reviewerId: body.reviewerId,
+				reviewNote: body.note ?? null,
+				version: existing.version + 1,
+				updatedAt: new Date().toISOString()
+			}
+			previewMailDrafts = previewMailDrafts.map((d) => (d.id === draftId ? next : d))
+			return next
+		},
+		async completeMailDraftReview(draftId, body) {
+			const existing = previewMailDrafts.find((d) => d.id === draftId)
+			if (!existing) throw new Error('draft not found')
+			const next: MailDraftDto = {
+				...existing,
+				reviewStatus: body.decision,
+				reviewedAt: new Date().toISOString(),
+				reviewNote: body.note ?? existing.reviewNote,
+				version: existing.version + 1,
+				updatedAt: new Date().toISOString()
+			}
+			previewMailDrafts = previewMailDrafts.map((d) => (d.id === draftId ? next : d))
+			return next
+		},
+		async updateMailInboxSettings(inboxId, body) {
+			const existing = previewMailInboxes.find((i) => i.id === inboxId)
+			if (!existing) throw new Error('inbox not found')
+			const next: MailInboxDto = {
+				...existing,
+				settings: body.settings,
+				version: (existing.version ?? 1) + 1
+			}
+			previewMailInboxes = previewMailInboxes.map((i) => (i.id === inboxId ? next : i))
+			return next
+		},
+		async assistDocBlockWithAi(body) {
+			return {
+				pageId: body.pageId,
+				blockId: body.blockId,
+				text: `AI preview response for: ${body.instruction}`,
+				model: 'preview-assistant',
+				cached: false
+			}
+		},
+		async assistMailWithAi(body) {
+			const conv = previewMailConversations.find((c) => c.id === body.conversationId)
+			if (!conv) throw new Error('conversation not found')
+			const tasks = previewMailLinkedTasks.get(conv.id) ?? []
+			const docs = previewMailLinkedDocs.get(conv.id) ?? []
+			const citations: AiMailAssistResponse['citations'] = [
+				...docs.map((d) => ({
+					entityType: 'doc_page' as const,
+					entityId: d.pageId,
+					label: d.title ?? d.slug ?? d.pageId.slice(0, 8),
+					slug: d.slug
+				})),
+				...tasks.map((task) => ({
+					entityType: 'issue' as const,
+					entityId: task.taskId,
+					label: task.identifier
+						? `${task.identifier}${task.title ? ` — ${task.title}` : ''}`
+						: (task.title ?? task.taskId.slice(0, 8)),
+					slug: null
+				}))
+			]
+			if (body.mode === 'summarize') {
+				return {
+					conversationId: conv.id,
+					mode: 'summarize',
+					text: `• Customer (${conv.customerEmail ?? 'unknown'}) reported: ${conv.subject}.\n• Current status: ${conv.status} (${conv.messageCount} messages).\n• Next step: confirm resolution in customer's workspace.`,
+					suggestedTags: [],
+					citations,
+					model: 'preview-assistant',
+					cached: false
+				}
+			}
+			if (body.mode === 'suggest_tags') {
+				const matching = previewMailTags
+					.filter((tag) => conv.inboxId === tag.inboxId || tag.inboxId === null)
+					.slice(0, 2)
+					.map((tag) => tag.name)
+				return {
+					conversationId: conv.id,
+					mode: 'suggest_tags',
+					text: `Suggested workspace tags for "${conv.subject}": ${matching.join(', ') || 'none'}.`,
+					suggestedTags: matching,
+					citations,
+					model: 'preview-assistant',
+					cached: false
+				}
+			}
+			return {
+				conversationId: conv.id,
+				mode: 'suggest_reply',
+				text: `Hi there,\n\nThanks for following up on "${conv.subject}". We verified the workspace export fix and everything is ready to retry now. Please let us know if you hit any further trouble.\n\nBest,\nHuriro Support`,
+				suggestedTags: [],
+				citations,
+				model: 'preview-assistant',
+				cached: false
+			}
 		},
 		async getBillingSubscription() {
 			return {
@@ -2961,14 +4652,114 @@ export function createPreviewApiBridge(
 				revokedWorkspaceIds: [PREVIEW_WORKSPACE_ID]
 			}
 		},
-		// M7 in the offline preview: the queue/query/bulk endpoints are server
-		// computations, so the preview degrades to empty results; entity links
-		// are fully functional in-memory so the graph UI stays demoable (§9.5).
-		async listTriageQueue() {
-			return []
+		// M7 in the offline preview: read/write triage and cycles directly
+		// against the local replica so full end-to-end flows work offline (§9.5).
+		async listTriageQueue(projectId, state = 'pending') {
+			return engine.collections.issues.toArray
+				.filter((issue) => {
+					if (issue.deletedAt !== null || issue.projectId !== projectId) return false
+					if (state === 'resolved') {
+						return (
+							issue.triageStatus === 'accepted' ||
+							issue.triageStatus === 'declined' ||
+							issue.triageStatus === 'merged'
+						)
+					}
+					return issue.triageStatus === state
+				})
+				.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 		},
-		async triageIssue() {
-			throw new Error('Triage actions require a connected server')
+		async triageIssue(issueId, body) {
+			const current = engine.collections.issues.get(issueId)
+			if (!current) throw new Error('Issue not found')
+			const now = new Date().toISOString()
+			const projectStatuses = engine.collections.projectStatuses.toArray
+				.filter((s) => s.projectId === current.projectId)
+				.sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0))
+			const defaultStatus = projectStatuses.find((s) => s.isDefault) ?? projectStatuses[0]
+			const cancelledStatus =
+				projectStatuses.find((s) => s.category === 'cancelled') ??
+				projectStatuses.find((s) => s.category === 'completed')
+
+			let updated: IssueDto
+			if (body.action === 'accept') {
+				const requestedStatus = body.statusId
+					? projectStatuses.find((s) => s.id === body.statusId)
+					: projectStatuses.find((s) => s.id === current.statusId)
+				const nextStatus =
+					requestedStatus &&
+					requestedStatus.category !== 'completed' &&
+					requestedStatus.category !== 'cancelled'
+						? requestedStatus
+						: (defaultStatus ?? requestedStatus)
+				const assigneeId = body.assigneeId === undefined ? current.assigneeId : body.assigneeId
+				const assigneeType =
+					assigneeId === null
+						? null
+						: body.assigneeId !== undefined
+							? ('user' as const)
+							: current.assigneeType
+				updated = {
+					...current,
+					statusId: nextStatus?.id ?? current.statusId,
+					priority: body.priority ?? current.priority,
+					assigneeId,
+					assigneeType,
+					labelIds: body.labelIds ?? current.labelIds,
+					triageStatus: 'accepted',
+					triageSnoozedUntil: null,
+					triageDeclinedReason: null,
+					updatedAt: now,
+					version: current.version + 1
+				}
+			} else if (body.action === 'snooze') {
+				updated = {
+					...current,
+					triageStatus: 'snoozed',
+					triageSnoozedUntil: body.until,
+					triageDeclinedReason: null,
+					updatedAt: now,
+					version: current.version + 1
+				}
+			} else if (body.action === 'decline') {
+				updated = {
+					...current,
+					statusId: cancelledStatus?.id ?? current.statusId,
+					closedAt: current.closedAt ?? now,
+					triageStatus: 'declined',
+					triageSnoozedUntil: null,
+					triageDeclinedReason: body.reason,
+					updatedAt: now,
+					version: current.version + 1
+				}
+			} else {
+				if (body.duplicateOfIssueId !== issueId) {
+					engine.collections.issueRelationsManaged.upsertMany([
+						{
+							id: generateUuidV7(),
+							workspaceId: PREVIEW_WORKSPACE_ID,
+							sourceIssueId: issueId,
+							targetIssueId: body.duplicateOfIssueId,
+							kind: 'duplicates',
+							createdBy: PREVIEW_USER_ID,
+							createdAt: now
+						}
+					])
+				}
+				updated = {
+					...current,
+					statusId: cancelledStatus?.id ?? current.statusId,
+					closedAt: current.closedAt ?? now,
+					triageStatus: 'merged',
+					triageSnoozedUntil: null,
+					triageDeclinedReason: null,
+					updatedAt: now,
+					version: current.version + 1
+				}
+			}
+			engine.collections.issuesManaged.upsertMany([updated])
+			void engine.persistReplica()
+			return updated
 		},
 		async getTriageSuggestions() {
 			return { duplicates: [], suggestedPriority: null, suggestedLabelIds: [], suggestedAssigneeId: null }
@@ -2981,6 +4772,25 @@ export function createPreviewApiBridge(
 		},
 		async queryIssues() {
 			return { data: [], nextCursor: null, hasMore: false }
+		},
+		async createCycle(body) {
+			const now = new Date().toISOString()
+			const created: CycleDto = {
+				id: generateUuidV7(),
+				workspaceId: PREVIEW_WORKSPACE_ID,
+				projectId: body.projectId,
+				name: body.name.trim(),
+				description: body.description ?? '',
+				status: body.status ?? 'planned',
+				startsAt: body.startsAt,
+				endsAt: body.endsAt,
+				createdAt: now,
+				updatedAt: now,
+				version: 1
+			}
+			engine.collections.cyclesManaged.upsertMany([created])
+			void engine.persistReplica()
+			return created
 		},
 		async listCycleSnapshots() {
 			return previewCycleSnapshots
@@ -3020,6 +4830,24 @@ export function createPreviewApiBridge(
 					status: { kind: 'status', label: issue.statusCategory },
 					meta: {},
 					updatedAt: issue.updatedAt
+				}
+			}
+			// Replica fallback: any synced issue is peekable in preview — without
+			// this every hover/focus peek degrades to "no access" even though the
+			// working set is right there in the local collections.
+			if (type === 'issue') {
+				const row = engine.collections.issues.get(id)
+				if (row) {
+					const status = engine.collections.projectStatuses.get(row.statusId)
+					return {
+						type,
+						id,
+						title: row.title,
+						subtitle: row.identifier,
+						...(status ? { status: { kind: 'status' as const, label: status.name } } : {}),
+						meta: {},
+						updatedAt: row.updatedAt
+					}
 				}
 			}
 			return null
@@ -3517,6 +5345,31 @@ export function createPreviewApiBridge(
 			}
 		},
 		async triggerDocButton() {},
+		async importDocDatabaseRows(databaseId, body) {
+			// Preview mode intentionally keeps import simple: create title-only rows in
+			// the local engine so offline behavior and change ordering stay realistic.
+			const lines = body.format === 'csv' ? body.data.split(/\r?\n/).slice(1) : []
+			let created = 0
+			for (const line of lines) {
+				const title = line.split(',')[0]?.trim()
+				if (!title) continue
+				await engine.createDocDatabaseRow(databaseId, { title })
+				created += 1
+			}
+			const result: ImportDocDatabaseRowsResultDto = { created, skipped: 0, errors: [] }
+			return result
+		},
+		async exportDocDatabaseRows(databaseId) {
+			const rows = engine.collections.docDatabaseRows.toArray.filter(
+				(row) => row.databaseId === databaseId && row.archivedAt === null
+			)
+			return ['Name', ...rows.map((row) => row.title.replaceAll('"', '""'))].join('\n')
+		},
+		async ensureDocDatabaseRowPage(_databaseId, rowId) {
+			const row = engine.collections.docDatabaseRows.get(rowId)
+			if (row?.pageId) return { pageId: row.pageId, created: false }
+			return { pageId: generateUuidV7(), created: true }
+		},
 		async getKnowledgeGraph(teamspaceId) {
 			const teamspaces = engine.collections.teamspaces.toArray.filter((t) => t.archivedAt === null)
 			const pages = engine.collections.docPages.toArray.filter(

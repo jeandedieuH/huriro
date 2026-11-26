@@ -43,6 +43,14 @@ import {
 	verifyLiveCollabSessionAccess,
 	verifyLiveSyncedBlockAccess
 } from '../modules/docs'
+import {
+	acquireMailDraftRoomAndState,
+	consumeAndAuthorizeMailDraftTicket,
+	persistMailDraftCollabState,
+	releaseMailDraftRoomLease,
+	renewMailDraftRoomLease,
+	verifyLiveMailDraftAccess
+} from '../modules/mail'
 import { resolveActor } from '../modules/tenancy'
 import type { RealtimePubSub } from './pubsub'
 
@@ -52,7 +60,7 @@ export interface CollabWebSocketLike {
 	readonly readyState: number
 }
 
-export type CollabRoomKind = 'doc_page' | 'synced_block'
+export type CollabRoomKind = 'doc_page' | 'synced_block' | 'mail_draft'
 
 export interface CollabContext {
 	readonly userId: string
@@ -119,6 +127,13 @@ function parseDocumentName(documentName: string): {
 	readonly pageId: string
 } {
 	const parts = documentName.split(':')
+	if (parts.length === 3 && parts[0] === 'mail_draft') {
+		const workspaceId = parts[1] ?? ''
+		const draftId = parts[2] ?? ''
+		if (isUuid(workspaceId) && isUuid(draftId)) {
+			return { kind: 'mail_draft', workspaceId, pageId: draftId }
+		}
+	}
 	if (parts.length === 3 && parts[0] === 'synced_block') {
 		const workspaceId = parts[1] ?? ''
 		const blockId = parts[2] ?? ''
@@ -131,7 +146,9 @@ function parseDocumentName(documentName: string): {
 	if (parts.length === 2 && isUuid(workspaceId) && isUuid(pageId)) {
 		return { kind: 'doc_page', workspaceId, pageId }
 	}
-	throw new Error('Invalid document room name; expected <workspaceId>:<pageId> or synced_block:<ws>:<id>')
+	throw new Error(
+		'Invalid document room name; expected <workspaceId>:<pageId>, synced_block:<ws>:<id>, or mail_draft:<ws>:<id>'
+	)
 }
 
 export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
@@ -149,6 +166,16 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 	function updateRoomMetrics() {
 		collabRoomsGauge.set(rooms.size)
 		collabConnectionsGauge.set(activeConnections.size)
+	}
+
+	async function verifyLiveAccessForConnection(
+		tx: Parameters<Parameters<typeof withWorkspace>[2]>[0],
+		actor: Awaited<ReturnType<typeof resolveActor>>,
+		conn: Pick<ActiveCollabConnection, 'kind' | 'pageId'>
+	): Promise<{ readonly allowed: boolean; readonly canWrite: boolean }> {
+		if (conn.kind === 'synced_block') return verifyLiveSyncedBlockAccess(tx, actor, conn.pageId)
+		if (conn.kind === 'mail_draft') return verifyLiveMailDraftAccess(tx, actor, conn.pageId)
+		return verifyLiveCollabSessionAccess(tx, actor, conn.pageId)
 	}
 
 	function stopRenewTimer(room: RoomLeaseState) {
@@ -172,9 +199,7 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 					{ workspaceId: conn.workspaceId, userId: conn.userId },
 					async (tx) => {
 						const actor = await resolveActor(tx, { workspaceId: conn.workspaceId, userId: conn.userId })
-						return conn.kind === 'synced_block'
-							? verifyLiveSyncedBlockAccess(tx, actor, conn.pageId)
-							: verifyLiveCollabSessionAccess(tx, actor, conn.pageId)
+						return verifyLiveAccessForConnection(tx, actor, conn)
 					}
 				)
 				if (!access.allowed) {
@@ -214,10 +239,7 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 		for (const conn of [...activeConnections.values()]) {
 			void withWorkspace(deps.sql, { workspaceId: conn.workspaceId, userId: conn.userId }, async (tx) => {
 				const actor = await resolveActor(tx, { workspaceId: conn.workspaceId, userId: conn.userId })
-				const access =
-					conn.kind === 'synced_block'
-						? await verifyLiveSyncedBlockAccess(tx, actor, conn.pageId)
-						: await verifyLiveCollabSessionAccess(tx, actor, conn.pageId)
+				const access = await verifyLiveAccessForConnection(tx, actor, conn)
 				if (!access.allowed) {
 					conn.ws.close(4003, 'access_revoked')
 					activeConnections.delete(conn.socketId)
@@ -271,9 +293,14 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 				{ workspaceId: claims.ws, userId: claims.uid },
 				async (tx) => {
 					const actor = await resolveActor(tx, { workspaceId: claims.ws, userId: claims.uid })
-					return kind === 'synced_block'
-						? consumeAndAuthorizeSyncedBlockTicket(tx, actor, claims, token)
-						: consumeAndAuthorizeCollabTicket(tx, actor, claims, token)
+					if (kind === 'synced_block') return consumeAndAuthorizeSyncedBlockTicket(tx, actor, claims, token)
+					if (kind === 'mail_draft') {
+						return consumeAndAuthorizeMailDraftTicket(tx, claims, token, async (draftId) => {
+							const access = await verifyLiveMailDraftAccess(tx, actor, draftId)
+							return access.allowed
+						})
+					}
+					return consumeAndAuthorizeCollabTicket(tx, actor, claims, token)
 				}
 			)
 
@@ -314,20 +341,25 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 			const acquired = await withWorkspace(
 				deps.sql,
 				actorUserId ? { workspaceId, userId: actorUserId } : { workspaceId },
-				(tx) =>
-					kind === 'synced_block'
-						? acquireSyncedBlockRoomAndState(tx, {
-								workspaceId,
-								blockId: pageId,
-								nodeId,
-								ttlMs: leaseTtlMs
-							})
-						: acquireCollabRoomAndState(tx, {
-								workspaceId,
-								pageId,
-								nodeId,
-								ttlMs: leaseTtlMs
-							})
+				(tx) => {
+					if (kind === 'synced_block') {
+						return acquireSyncedBlockRoomAndState(tx, {
+							workspaceId,
+							blockId: pageId,
+							nodeId,
+							ttlMs: leaseTtlMs
+						})
+					}
+					if (kind === 'mail_draft') {
+						return acquireMailDraftRoomAndState(tx, {
+							workspaceId,
+							draftId: pageId,
+							nodeId,
+							ttlMs: leaseTtlMs
+						})
+					}
+					return acquireCollabRoomAndState(tx, { workspaceId, pageId, nodeId, ttlMs: leaseTtlMs })
+				}
 			)
 
 			if (!acquired.acquired) {
@@ -353,11 +385,15 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 
 			roomState.renewTimer = setInterval(() => {
 				if (stopped || roomState.leaseLost) return
-				void withWorkspace(deps.sql, { workspaceId }, (tx) =>
-					kind === 'synced_block'
-						? renewSyncedBlockRoomLease(tx, { workspaceId, blockId: pageId, nodeId, ttlMs: leaseTtlMs })
-						: renewCollabRoomLease(tx, { workspaceId, pageId, nodeId, ttlMs: leaseTtlMs })
-				)
+				void withWorkspace(deps.sql, { workspaceId }, (tx) => {
+					if (kind === 'synced_block') {
+						return renewSyncedBlockRoomLease(tx, { workspaceId, blockId: pageId, nodeId, ttlMs: leaseTtlMs })
+					}
+					if (kind === 'mail_draft') {
+						return renewMailDraftRoomLease(tx, { workspaceId, draftId: pageId, nodeId, ttlMs: leaseTtlMs })
+					}
+					return renewCollabRoomLease(tx, { workspaceId, pageId, nodeId, ttlMs: leaseTtlMs })
+				})
 					.then((res) => {
 						if (!res.acquired || res.epoch !== roomState.epoch) {
 							roomState.leaseLost = true
@@ -428,6 +464,34 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 					{ workspaceId: room.workspaceId, pageId: room.pageId, stateSize },
 					'skipping persistence: document exceeds 10 MB limit'
 				)
+				return
+			}
+
+			if (room.kind === 'mail_draft') {
+				const res = await withWorkspace(
+					deps.sql,
+					primaryActorId
+						? { workspaceId: room.workspaceId, userId: primaryActorId }
+						: { workspaceId: room.workspaceId },
+					(tx) =>
+						persistMailDraftCollabState(tx, {
+							workspaceId: room.workspaceId,
+							draftId: room.pageId,
+							nodeId,
+							leaseEpoch: room.epoch,
+							ydoc: data.document
+						})
+				)
+				collabStoreDurationSeconds.observe((performance.now() - startedAt) / 1000)
+				collabStateBytesHistogram.observe(stateSize)
+				if (res.fenced) {
+					room.leaseLost = true
+					stopRenewTimer(room)
+					collabLeaseConflictsTotal.inc()
+					hocuspocus.closeConnections(data.documentName)
+					return
+				}
+				room.lastByteSize = stateSize
 				return
 			}
 
@@ -515,12 +579,19 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 								nodeId,
 								epoch: room.epoch
 							})
-						: releaseCollabRoomLease(tx, {
-								workspaceId: room.workspaceId,
-								pageId: room.pageId,
-								nodeId,
-								epoch: room.epoch
-							})
+						: room.kind === 'mail_draft'
+							? releaseMailDraftRoomLease(tx, {
+									workspaceId: room.workspaceId,
+									draftId: room.pageId,
+									nodeId,
+									epoch: room.epoch
+								})
+							: releaseCollabRoomLease(tx, {
+									workspaceId: room.workspaceId,
+									pageId: room.pageId,
+									nodeId,
+									epoch: room.epoch
+								})
 				).catch(() => {})
 			}
 		}
@@ -733,12 +804,19 @@ export function createCollabRuntime(deps: CollabRuntimeDeps): CollabRuntime {
 									nodeId,
 									epoch: rel.epoch
 								})
-							: releaseCollabRoomLease(tx, {
-									workspaceId: rel.workspaceId,
-									pageId: rel.pageId,
-									nodeId,
-									epoch: rel.epoch
-								})
+							: rel.kind === 'mail_draft'
+								? releaseMailDraftRoomLease(tx, {
+										workspaceId: rel.workspaceId,
+										draftId: rel.pageId,
+										nodeId,
+										epoch: rel.epoch
+									})
+								: releaseCollabRoomLease(tx, {
+										workspaceId: rel.workspaceId,
+										pageId: rel.pageId,
+										nodeId,
+										epoch: rel.epoch
+									})
 					).catch(() => {})
 				}
 				await hocuspocus.hooks('onDestroy', { instance: hocuspocus }).catch(() => {})

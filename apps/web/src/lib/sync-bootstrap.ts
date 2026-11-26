@@ -8,6 +8,8 @@
 import type {
 	AgentApprovalDto,
 	AgentPrincipalDto,
+	AiDocBlockAssistResponse,
+	AiMailAssistResponse,
 	AiProviderDto,
 	AiSettingsResponse,
 	BillingPortalDto,
@@ -15,14 +17,28 @@ import type {
 	BookmarkMetadataDto,
 	BulkIssuesResponse,
 	ChannelChangesResponse,
+	ChatCanvasDto,
+	ChatChannelBookmarkDto,
 	ChatChannelDto,
 	ChatChannelMemberDto,
+	ChatDraftDto,
+	ChatHuddleJoinDto,
+	ChatHuddleSessionDto,
 	ChatMessageDto,
+	ChatPinnedMessageDto,
+	ChatPollDto,
+	ChatSavedItemDto,
+	ChatScheduledMessageDto,
+	ChatSidebarSectionDto,
+	ChatSidebarSectionItemDto,
 	ChatThreadSummaryDto,
 	CheckoutSessionDto,
 	CollabTicketResponse,
+	ContactDto,
+	ContactOrganizationDto,
 	CreateWebhookResponse,
 	CycleDailySnapshotDto,
+	CycleDto,
 	DocCommentDto,
 	DocExportHtmlResponse,
 	DocExportMarkdownResponse,
@@ -39,6 +55,7 @@ import type {
 	EraseAccountResponse,
 	FileDto,
 	GithubInstallationDto,
+	ImportDocDatabaseRowsResultDto,
 	ImportDryRunPreviewDto,
 	ImportJobDto,
 	IssueCommentDto,
@@ -48,22 +65,36 @@ import type {
 	KnowledgeGraphResponse,
 	ListMessagesResponse,
 	MailAccountDto,
+	MailBulkTriageResultDto,
 	MailConversationDto,
 	MailDraftDto,
 	MailIdentityDto,
 	MailInboxDto,
+	MailMacroDto,
 	MailNoteDto,
+	MailOutboundResultDto,
+	MailRouteResultDto,
+	MailRoutingConfigDto,
+	MailSlaAnalyticsDto,
+	MailSlaPolicyDto,
+	MailSplitResultDto,
+	MailTagDto,
+	MailTemplateDto,
 	MailTimelineDto,
 	NotificationPreferencesDto,
 	PeekCardDto,
+	RenderedMailTemplateDto,
 	SearchResponse,
 	SendTestEmailResponse,
 	TeamspaceDto,
 	TeamspaceMemberDto,
 	TriageSuggestionsDto,
+	UserGroupDto,
+	UserWorkspaceProfileDto,
 	WebhookDeliveryDto,
 	WebhookEndpointDto,
 	WebPushSubscriptionDto,
+	WorkspaceEmojiDto,
 	WorkspaceExportDto
 } from '@huriro/contracts'
 import { t } from '@huriro/i18n'
@@ -248,6 +279,13 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 				})
 			})
 		},
+		async appendDocPage(pageId, body) {
+			return apiFetch<DocPageDetailDto>(`/api/v1/docs/${encodeURIComponent(pageId)}/append`, {
+				method: 'POST',
+				headers: { 'idempotency-key': generateUuidV7() },
+				body: JSON.stringify(body)
+			})
+		},
 		async exportDocMarkdown(pageId) {
 			return apiFetch<DocExportMarkdownResponse>(
 				`/api/v1/docs/${encodeURIComponent(pageId)}/export?format=markdown`
@@ -420,15 +458,228 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 				body: JSON.stringify({ seq })
 			})
 		},
-		async updateChannelMute(channelId, muted) {
-			return apiFetch<{ readonly channelId: string; readonly muted: boolean }>(
-				`/api/v1/chat/channels/${encodeURIComponent(channelId)}/mute`,
-				{ method: 'PATCH', body: JSON.stringify({ muted }) }
+		async updateChannelMute(channelId, muted, opts) {
+			return apiFetch<{
+				readonly channelId: string
+				readonly muted: boolean
+				readonly notifyLevel?: 'default' | 'all' | 'mentions' | 'none'
+				readonly mutedUntil?: string | null
+			}>(`/api/v1/chat/channels/${encodeURIComponent(channelId)}/mute`, {
+				method: 'PATCH',
+				body: JSON.stringify({ muted, ...opts })
+			})
+		},
+		async listPinnedMessages(channelId) {
+			const res = await apiFetch<{ data: ChatPinnedMessageDto[] }>(
+				`/api/v1/chat/channels/${encodeURIComponent(channelId)}/pins`
 			)
+			return res.data
+		},
+		async pinMessage(messageId) {
+			return apiFetch(`/api/v1/chat/messages/${encodeURIComponent(messageId)}/pin`, { method: 'POST' })
+		},
+		async unpinMessage(messageId) {
+			return apiFetch(`/api/v1/chat/messages/${encodeURIComponent(messageId)}/pin`, { method: 'DELETE' })
 		},
 		async listThreads() {
 			const res = await apiFetch<{ data: ChatThreadSummaryDto[] }>('/api/v1/chat/threads')
 			return res.data
+		},
+		async listChatDrafts() {
+			const res = await apiFetch<{ data: ChatDraftDto[] }>('/api/v1/chat/drafts')
+			return res.data
+		},
+		async upsertChatDraft(channelId, body) {
+			return apiFetch<
+				| ChatDraftDto
+				| { readonly deleted: true; readonly channelId: string; readonly threadParentId: string | null }
+			>(`/api/v1/chat/channels/${encodeURIComponent(channelId)}/draft`, {
+				method: 'PUT',
+				body: JSON.stringify(body)
+			})
+		},
+		async deleteChatDraft(draftId) {
+			await apiFetch(`/api/v1/chat/drafts/${encodeURIComponent(draftId)}`, { method: 'DELETE' })
+		},
+		async listScheduledChatMessages() {
+			const res = await apiFetch<{ data: ChatScheduledMessageDto[] }>('/api/v1/chat/scheduled')
+			return res.data
+		},
+		async scheduleChatMessage(channelId, body) {
+			return apiFetch<ChatScheduledMessageDto>(
+				`/api/v1/chat/channels/${encodeURIComponent(channelId)}/scheduled`,
+				{ method: 'POST', body: JSON.stringify(body) }
+			)
+		},
+		async cancelScheduledChatMessage(id, version) {
+			return apiFetch<{ readonly id: string; readonly status: string; readonly version: number }>(
+				`/api/v1/chat/scheduled/${encodeURIComponent(id)}/cancel`,
+				{ method: 'POST', body: JSON.stringify({ version }) }
+			)
+		},
+		async listSavedChatItems() {
+			const res = await apiFetch<{ data: ChatSavedItemDto[] }>('/api/v1/chat/saved')
+			return res.data
+		},
+		async createSavedChatItem(body) {
+			return apiFetch<ChatSavedItemDto>('/api/v1/chat/saved', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async updateSavedChatItem(id, body) {
+			return apiFetch<ChatSavedItemDto>(`/api/v1/chat/saved/${encodeURIComponent(id)}`, {
+				method: 'PATCH',
+				body: JSON.stringify(body)
+			})
+		},
+		async deleteSavedChatItem(id) {
+			await apiFetch(`/api/v1/chat/saved/${encodeURIComponent(id)}`, { method: 'DELETE' })
+		},
+		async listChatSidebarSections() {
+			const res = await apiFetch<{ data: ChatSidebarSectionDto[] }>('/api/v1/chat/sidebar/sections')
+			return res.data
+		},
+		async createChatSidebarSection(body) {
+			return apiFetch<ChatSidebarSectionDto>('/api/v1/chat/sidebar/sections', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async updateChatSidebarSection(id, body) {
+			return apiFetch<ChatSidebarSectionDto>(`/api/v1/chat/sidebar/sections/${encodeURIComponent(id)}`, {
+				method: 'PATCH',
+				body: JSON.stringify(body)
+			})
+		},
+		async deleteChatSidebarSection(id) {
+			await apiFetch(`/api/v1/chat/sidebar/sections/${encodeURIComponent(id)}`, { method: 'DELETE' })
+		},
+		async addChatSidebarSectionItem(sectionId, body) {
+			return apiFetch<ChatSidebarSectionItemDto>(
+				`/api/v1/chat/sidebar/sections/${encodeURIComponent(sectionId)}/items`,
+				{ method: 'POST', body: JSON.stringify(body) }
+			)
+		},
+		async removeChatSidebarSectionItem(sectionId, channelId) {
+			await apiFetch(
+				`/api/v1/chat/sidebar/sections/${encodeURIComponent(sectionId)}/items/${encodeURIComponent(channelId)}`,
+				{ method: 'DELETE' }
+			)
+		},
+		async listChannelBookmarks(channelId) {
+			const res = await apiFetch<{ data: ChatChannelBookmarkDto[] }>(
+				`/api/v1/chat/channels/${encodeURIComponent(channelId)}/bookmarks`
+			)
+			return res.data
+		},
+		async createChannelBookmark(channelId, body) {
+			return apiFetch<ChatChannelBookmarkDto>(
+				`/api/v1/chat/channels/${encodeURIComponent(channelId)}/bookmarks`,
+				{ method: 'POST', body: JSON.stringify(body) }
+			)
+		},
+		async deleteChannelBookmark(id) {
+			await apiFetch(`/api/v1/chat/bookmarks/${encodeURIComponent(id)}`, { method: 'DELETE' })
+		},
+		async getMyChatStatus() {
+			return apiFetch<UserWorkspaceProfileDto>('/api/v1/chat/me/status')
+		},
+		async updateMyChatStatus(body) {
+			return apiFetch<UserWorkspaceProfileDto>('/api/v1/chat/me/status', {
+				method: 'PUT',
+				body: JSON.stringify(body)
+			})
+		},
+		async listUserGroups() {
+			const res = await apiFetch<{ data: UserGroupDto[] }>('/api/v1/chat/user-groups')
+			return res.data
+		},
+		async createUserGroup(body) {
+			return apiFetch<UserGroupDto>('/api/v1/chat/user-groups', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async setUserGroupMembers(groupId, memberIds) {
+			return apiFetch<{ readonly memberIds: readonly string[] }>(
+				`/api/v1/chat/user-groups/${encodeURIComponent(groupId)}/members`,
+				{ method: 'PUT', body: JSON.stringify({ memberIds }) }
+			)
+		},
+		async listWorkspaceEmojis() {
+			const res = await apiFetch<{ data: WorkspaceEmojiDto[] }>('/api/v1/chat/emojis')
+			return res.data
+		},
+		async createWorkspaceEmoji(body) {
+			return apiFetch<WorkspaceEmojiDto>('/api/v1/chat/emojis', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async deleteWorkspaceEmoji(id) {
+			await apiFetch(`/api/v1/chat/emojis/${encodeURIComponent(id)}`, { method: 'DELETE' })
+		},
+		async listChannelPolls(channelId) {
+			const res = await apiFetch<{ data: ChatPollDto[] }>(
+				`/api/v1/chat/channels/${encodeURIComponent(channelId)}/polls`
+			)
+			return res.data
+		},
+		async createChatPoll(channelId, body) {
+			return apiFetch<ChatPollDto>(`/api/v1/chat/channels/${encodeURIComponent(channelId)}/polls`, {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async getChatPoll(pollId) {
+			return apiFetch<ChatPollDto>(`/api/v1/chat/polls/${encodeURIComponent(pollId)}`)
+		},
+		async voteChatPoll(pollId, body) {
+			return apiFetch(`/api/v1/chat/polls/${encodeURIComponent(pollId)}/vote`, {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async closeChatPoll(pollId) {
+			return apiFetch<{ readonly id: string; readonly status: string; readonly version: number }>(
+				`/api/v1/chat/polls/${encodeURIComponent(pollId)}/close`,
+				{ method: 'POST' }
+			)
+		},
+		async forwardChatMessage(messageId, body) {
+			return apiFetch<ChatMessageDto>(`/api/v1/chat/messages/${encodeURIComponent(messageId)}/forward`, {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async ensureChannelCanvas(channelId) {
+			return apiFetch<ChatCanvasDto>(`/api/v1/chat/channels/${encodeURIComponent(channelId)}/canvas`, {
+				method: 'POST'
+			})
+		},
+		async getActiveChannelHuddle(channelId) {
+			const res = await apiFetch<{ huddle: ChatHuddleSessionDto | null }>(
+				`/api/v1/chat/channels/${encodeURIComponent(channelId)}/huddle`
+			)
+			return res.huddle
+		},
+		async startChatHuddle(channelId) {
+			return apiFetch<ChatHuddleSessionDto>('/api/v1/chat/huddles', {
+				method: 'POST',
+				body: JSON.stringify({ channelId })
+			})
+		},
+		async joinChatHuddle(huddleId) {
+			return apiFetch<ChatHuddleJoinDto>(`/api/v1/chat/huddles/${encodeURIComponent(huddleId)}/join`, {
+				method: 'POST'
+			})
+		},
+		async endChatHuddle(huddleId) {
+			return apiFetch<{ readonly id: string; readonly status: string }>(
+				`/api/v1/chat/huddles/${encodeURIComponent(huddleId)}/end`,
+				{ method: 'POST' }
+			)
 		},
 		async uploadFile(file) {
 			const init = await apiFetch<{ file: FileDto; uploadUrl: string }>('/api/v1/files/uploads', {
@@ -688,6 +939,7 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 			if (filter.inboxId) qs.set('inboxId', filter.inboxId)
 			if (filter.status) qs.set('status', filter.status)
 			if (filter.assignee) qs.set('assignee', filter.assignee)
+			if (filter.tagId) qs.set('tagId', filter.tagId)
 			if (filter.q) qs.set('q', filter.q)
 			if (filter.cursor) qs.set('cursor', filter.cursor)
 			const suffix = qs.size > 0 ? `?${qs.toString()}` : ''
@@ -749,6 +1001,12 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 				body: JSON.stringify(body)
 			})
 		},
+		async issueMailDraftCollabTicket(draftId) {
+			return apiFetch<CollabTicketResponse>(
+				`/api/v1/mail/drafts/${encodeURIComponent(draftId)}/collab-ticket`,
+				{ method: 'POST' }
+			)
+		},
 		async sendMailDraft(draftId, body) {
 			return apiFetch<MailDraftDto>(`/api/v1/mail/drafts/${encodeURIComponent(draftId)}/send`, {
 				method: 'POST',
@@ -762,6 +1020,182 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 		},
 		async discardMailDraft(draftId) {
 			await apiFetch(`/api/v1/mail/drafts/${encodeURIComponent(draftId)}`, { method: 'DELETE' })
+		},
+		async listMailTags(inboxId) {
+			const qs = inboxId ? `?inboxId=${encodeURIComponent(inboxId)}` : ''
+			return apiFetch<MailTagDto[]>(`/api/v1/mail/tags${qs}`)
+		},
+		async createMailTag(body) {
+			return apiFetch<MailTagDto>('/api/v1/mail/tags', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async deleteMailTag(id) {
+			await apiFetch(`/api/v1/mail/tags/${encodeURIComponent(id)}`, { method: 'DELETE' })
+		},
+		async listConversationTags(conversationId) {
+			return apiFetch<MailTagDto[]>(`/api/v1/mail/conversations/${encodeURIComponent(conversationId)}/tags`)
+		},
+		async setConversationTags(conversationId, body) {
+			return apiFetch<{ readonly tagIds: readonly string[] }>(
+				`/api/v1/mail/conversations/${encodeURIComponent(conversationId)}/tags`,
+				{ method: 'PUT', body: JSON.stringify(body) }
+			)
+		},
+		async listMailTemplates(filter) {
+			const params = new URLSearchParams()
+			if (filter?.inboxId) params.set('inboxId', filter.inboxId)
+			if (filter?.personal !== undefined) params.set('personal', String(filter.personal))
+			const qs = params.toString()
+			return apiFetch<MailTemplateDto[]>(`/api/v1/mail/templates${qs ? `?${qs}` : ''}`)
+		},
+		async upsertMailTemplate(body, id) {
+			const path = id ? `/api/v1/mail/templates/${encodeURIComponent(id)}` : '/api/v1/mail/templates'
+			return apiFetch<MailTemplateDto>(path, {
+				method: id ? 'PATCH' : 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async deleteMailTemplate(id) {
+			await apiFetch(`/api/v1/mail/templates/${encodeURIComponent(id)}`, { method: 'DELETE' })
+		},
+		async renderMailTemplate(id, body) {
+			return apiFetch<RenderedMailTemplateDto>(`/api/v1/mail/templates/${encodeURIComponent(id)}/render`, {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async listMailMacros(inboxId) {
+			const qs = inboxId ? `?inboxId=${encodeURIComponent(inboxId)}` : ''
+			return apiFetch<MailMacroDto[]>(`/api/v1/mail/macros${qs}`)
+		},
+		async upsertMailMacro(body, id) {
+			const path = id ? `/api/v1/mail/macros/${encodeURIComponent(id)}` : '/api/v1/mail/macros'
+			return apiFetch<MailMacroDto>(path, {
+				method: id ? 'PATCH' : 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async deleteMailMacro(id) {
+			await apiFetch(`/api/v1/mail/macros/${encodeURIComponent(id)}`, { method: 'DELETE' })
+		},
+		async applyMailMacro(id, body) {
+			return apiFetch<{ readonly appliedCount: number }>(
+				`/api/v1/mail/macros/${encodeURIComponent(id)}/apply`,
+				{ method: 'POST', body: JSON.stringify(body) }
+			)
+		},
+		async createOutboundConversation(body) {
+			return apiFetch<MailOutboundResultDto>('/api/v1/mail/outbound', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async forwardConversation(conversationId, body) {
+			return apiFetch<MailOutboundResultDto>(
+				`/api/v1/mail/conversations/${encodeURIComponent(conversationId)}/forward`,
+				{ method: 'POST', body: JSON.stringify(body) }
+			)
+		},
+		async splitConversation(conversationId, body) {
+			return apiFetch<MailSplitResultDto>(
+				`/api/v1/mail/conversations/${encodeURIComponent(conversationId)}/split`,
+				{ method: 'POST', body: JSON.stringify(body) }
+			)
+		},
+		async bulkTriageConversations(body) {
+			return apiFetch<MailBulkTriageResultDto>('/api/v1/mail/bulk-triage', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async listContacts(q) {
+			const qs = q ? `?q=${encodeURIComponent(q)}` : ''
+			return apiFetch<ContactDto[]>(`/api/v1/mail/contacts${qs}`)
+		},
+		async upsertContact(body, id) {
+			const path = id ? `/api/v1/mail/contacts/${encodeURIComponent(id)}` : '/api/v1/mail/contacts'
+			return apiFetch<ContactDto>(path, {
+				method: id ? 'PATCH' : 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async listContactOrganizations() {
+			return apiFetch<ContactOrganizationDto[]>('/api/v1/mail/contact-organizations')
+		},
+		async upsertContactOrganization(body, id) {
+			const path = id
+				? `/api/v1/mail/contact-organizations/${encodeURIComponent(id)}`
+				: '/api/v1/mail/contact-organizations'
+			return apiFetch<ContactOrganizationDto>(path, {
+				method: id ? 'PATCH' : 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async getMailRoutingConfig(inboxId) {
+			return apiFetch<MailRoutingConfigDto>(`/api/v1/mail/inboxes/${encodeURIComponent(inboxId)}/routing`)
+		},
+		async upsertMailRoutingConfig(inboxId, body) {
+			return apiFetch<MailRoutingConfigDto>(`/api/v1/mail/inboxes/${encodeURIComponent(inboxId)}/routing`, {
+				method: 'PUT',
+				body: JSON.stringify(body)
+			})
+		},
+		async routeConversationRoundRobin(conversationId) {
+			return apiFetch<MailRouteResultDto>(
+				`/api/v1/mail/conversations/${encodeURIComponent(conversationId)}/route`,
+				{ method: 'POST' }
+			)
+		},
+		async listMailSlaPolicies(inboxId) {
+			const qs = inboxId ? `?inboxId=${encodeURIComponent(inboxId)}` : ''
+			return apiFetch<MailSlaPolicyDto[]>(`/api/v1/mail/sla-policies${qs}`)
+		},
+		async upsertMailSlaPolicy(body, id) {
+			const path = id ? `/api/v1/mail/sla-policies/${encodeURIComponent(id)}` : '/api/v1/mail/sla-policies'
+			return apiFetch<MailSlaPolicyDto>(path, {
+				method: id ? 'PATCH' : 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async deleteMailSlaPolicy(id) {
+			await apiFetch(`/api/v1/mail/sla-policies/${encodeURIComponent(id)}`, { method: 'DELETE' })
+		},
+		async getMailSlaAnalytics(inboxId) {
+			const qs = inboxId ? `?inboxId=${encodeURIComponent(inboxId)}` : ''
+			return apiFetch<MailSlaAnalyticsDto>(`/api/v1/mail/sla-analytics${qs}`)
+		},
+		async requestMailDraftReview(draftId, body) {
+			return apiFetch<MailDraftDto>(`/api/v1/mail/drafts/${encodeURIComponent(draftId)}/review`, {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async completeMailDraftReview(draftId, body) {
+			return apiFetch<MailDraftDto>(`/api/v1/mail/drafts/${encodeURIComponent(draftId)}/review/complete`, {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async updateMailInboxSettings(inboxId, body) {
+			return apiFetch<MailInboxDto>(`/api/v1/mail/inboxes/${encodeURIComponent(inboxId)}/settings`, {
+				method: 'PATCH',
+				body: JSON.stringify(body)
+			})
+		},
+		async assistMailWithAi(body) {
+			return apiFetch<AiMailAssistResponse>('/api/v1/ai/mail/assist', {
+				method: 'POST',
+				body: JSON.stringify(body)
+			})
+		},
+		async assistDocBlockWithAi(body) {
+			return apiFetch<AiDocBlockAssistResponse>('/api/v1/ai/docs/block-assist', {
+				method: 'POST',
+				headers: { 'idempotency-key': generateUuidV7() },
+				body: JSON.stringify(body)
+			})
 		},
 		async getBillingSubscription() {
 			return apiFetch<BillingSummaryResponse>('/api/v1/billing/subscription')
@@ -835,6 +1269,13 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 				'/api/v1/issues/query',
 				{ method: 'POST', body: JSON.stringify(body) }
 			)
+		},
+		async createCycle(body) {
+			return apiFetch<CycleDto>('/api/v1/cycles', {
+				method: 'POST',
+				headers: { 'idempotency-key': generateUuidV7() },
+				body: JSON.stringify(body)
+			})
 		},
 		async listCycleSnapshots(cycleId) {
 			const res = await apiFetch<{ data: CycleDailySnapshotDto[] }>(
@@ -1017,6 +1458,32 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 				body: JSON.stringify(body)
 			})
 		},
+		async importDocDatabaseRows(databaseId, body) {
+			return apiFetch<ImportDocDatabaseRowsResultDto>(
+				`/api/v1/docs/databases/${encodeURIComponent(databaseId)}/rows/import`,
+				{
+					method: 'POST',
+					headers: { 'idempotency-key': generateUuidV7() },
+					body: JSON.stringify(body)
+				}
+			)
+		},
+		async exportDocDatabaseRows(databaseId, format, viewId) {
+			const suffix = viewId ? `&viewId=${encodeURIComponent(viewId)}` : ''
+			const res = await apiFetch<{ format: 'csv' | 'json'; data: string }>(
+				`/api/v1/docs/databases/${encodeURIComponent(databaseId)}/rows/export?format=${format}${suffix}`
+			)
+			return res.data
+		},
+		async ensureDocDatabaseRowPage(databaseId, rowId) {
+			return apiFetch<{ pageId: string; created: boolean }>(
+				`/api/v1/docs/databases/${encodeURIComponent(databaseId)}/rows/${encodeURIComponent(rowId)}/page`,
+				{
+					method: 'POST',
+					headers: { 'idempotency-key': generateUuidV7() }
+				}
+			)
+		},
 		async getKnowledgeGraph(teamspaceId) {
 			const qs = teamspaceId ? `?teamspaceId=${encodeURIComponent(teamspaceId)}` : ''
 			return apiFetch<KnowledgeGraphResponse>(`/api/v1/graph/knowledge${qs}`)
@@ -1080,6 +1547,7 @@ async function fetchSocialProviders(): Promise<readonly SocialProviderId[]> {
  */
 export async function bootstrapWorkspace(opts?: {
 	readonly preferPreview?: boolean
+	readonly onResume?: (() => void) | undefined
 	readonly onChatSignal?: ((ev: { channelId: string; rev: number; lastMsgSeq: number }) => void) | undefined
 	readonly onPresence?:
 		| ((users: readonly { userId: string; status: 'online' | 'away'; lastSeenAt: number }[]) => void)
@@ -1139,7 +1607,9 @@ export async function bootstrapWorkspace(opts?: {
 				currentUserId: userId,
 				transport,
 				wsUrl,
-				useRealtimeTicket: true,
+				// Browser signal sockets authenticate with the first-party session
+				// cookie during upgrade; single-use realtime tickets are for native/API clients.
+				useRealtimeTicket: false,
 				onMutationRejected: (error) => {
 					useUiStore.getState().pushToast({
 						tone: 'danger',
@@ -1147,6 +1617,7 @@ export async function bootstrapWorkspace(opts?: {
 						description: error
 					})
 				},
+				onResume: opts?.onResume,
 				onChatSignal: opts?.onChatSignal,
 				onPresence: opts?.onPresence,
 				onTyping: opts?.onTyping

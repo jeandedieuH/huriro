@@ -64,6 +64,28 @@ function fakeProvider(calls: string[]): typeof fetch {
 			)
 		}
 		if (url.endsWith('/v1/chat/completions')) {
+			if (body.includes('Available workspace tags:')) {
+				return new Response(
+					JSON.stringify({
+						choices: [{ message: { content: 'billing, vip — matches invoice inquiry' } }],
+						usage: { prompt_tokens: 12, completion_tokens: 8 }
+					})
+				)
+			}
+			if (body.includes('Draft a helpful, polite plain-text email reply')) {
+				return new Response(
+					JSON.stringify({
+						choices: [
+							{
+								message: {
+									content: 'Hi there, we reviewed your billing inquiry and are following up.'
+								}
+							}
+						],
+						usage: { prompt_tokens: 15, completion_tokens: 12 }
+					})
+				)
+			}
 			return new Response(
 				JSON.stringify({
 					choices: [{ message: { content: '- concise summary bullet' } }],
@@ -403,7 +425,7 @@ describe('AI gateway (M3 §11)', () => {
 		})
 		expect(settingsRead.status).toBe(403)
 
-		// Guest — no ai.use at all.
+		// Guest — no ai.use at all (including mail AI endpoints).
 		const { userId: guestId, cookie: guestCookie } = await signup(r, `ai-g-${tag}@test.huriro.dev`)
 		const guestRole = ws.roleIds['guest']
 		if (!guestRole) throw new Error('guest role missing')
@@ -415,5 +437,169 @@ describe('AI gateway (M3 §11)', () => {
 			workspaceId: ws.id
 		})
 		expect(guestSearch.status).toBe(403)
+		const guestMailAssist = await req(r, {
+			method: 'POST',
+			path: '/api/v1/ai/mail/assist',
+			cookie: guestCookie,
+			workspaceId: ws.id,
+			body: { conversationId: randomUUID(), mode: 'summarize' }
+		})
+		expect(guestMailAssist.status).toBe(403)
+	})
+
+	test('mail AI: summarize mail_conversation and guarded /ai/mail/assist modes', async () => {
+		const r = await rig()
+		if (!r || !db) return
+		const tag = randomUUID().slice(0, 6)
+		const { ws, cookie } = await seed(r, tag)
+
+		await req(r, {
+			method: 'PATCH',
+			path: '/api/v1/ai/settings',
+			cookie,
+			workspaceId: ws.id,
+			body: { aiEnabled: true, aiTracePrompts: true }
+		})
+		await req(r, {
+			method: 'PUT',
+			path: '/api/v1/ai/providers',
+			cookie,
+			workspaceId: ws.id,
+			body: {
+				kind: 'openai_compatible',
+				name: 'byo',
+				baseUrl: 'https://ai.example.test',
+				chatModel: 'gpt-test'
+			}
+		})
+
+		const acct = await req(r, {
+			method: 'POST',
+			path: '/api/v1/mail/accounts',
+			cookie,
+			workspaceId: ws.id,
+			body: { provider: 'inbound_parse', address: `support-${tag}@test.huriro.dev`, displayName: 'Support' }
+		})
+		expect(acct.status).toBe(201)
+		const accountId = String(acct.json['id'])
+
+		const identity = await req(r, {
+			method: 'POST',
+			path: '/api/v1/mail/identities',
+			cookie,
+			workspaceId: ws.id,
+			body: {
+				accountId,
+				address: `support-${tag}@test.huriro.dev`,
+				displayName: 'Support',
+				isDefault: true
+			}
+		})
+		expect(identity.status).toBe(201)
+		const identityId = String(identity.json['id'])
+
+		const inbox = await req(r, {
+			method: 'POST',
+			path: '/api/v1/mail/inboxes',
+			cookie,
+			workspaceId: ws.id,
+			body: { name: 'Support' }
+		})
+		expect(inbox.status).toBe(201)
+		const inboxId = String(inbox.json['id'])
+
+		const billingTag = await req(r, {
+			method: 'POST',
+			path: '/api/v1/mail/tags',
+			cookie,
+			workspaceId: ws.id,
+			body: { inboxId, name: 'billing', color: 'blue' }
+		})
+		expect(billingTag.status).toBe(201)
+
+		const outbound = await req(r, {
+			method: 'POST',
+			path: '/api/v1/mail/outbound',
+			cookie,
+			workspaceId: ws.id,
+			body: {
+				inboxId,
+				identityId,
+				subject: `Invoice billing question ${tag}`,
+				recipients: { to: [{ email: 'customer@acme.example', name: 'Customer' }] },
+				bodyText: 'Following up on your invoice question.'
+			}
+		})
+		expect(outbound.status).toBe(201)
+		const convId = String(outbound.json['conversationId'])
+
+		// Generic /ai/summarize works for mail_conversation and caches repeat requests.
+		const mailSum1 = await req(r, {
+			method: 'POST',
+			path: '/api/v1/ai/summarize',
+			cookie,
+			workspaceId: ws.id,
+			body: { entityType: 'mail_conversation', entityId: convId }
+		})
+		expect(mailSum1.status, JSON.stringify(mailSum1.json)).toBe(200)
+		expect(String(mailSum1.json['summary'])).toContain('summary bullet')
+		expect(mailSum1.json['cached']).toBe(false)
+
+		const mailSum2 = await req(r, {
+			method: 'POST',
+			path: '/api/v1/ai/summarize',
+			cookie,
+			workspaceId: ws.id,
+			body: { entityType: 'mail_conversation', entityId: convId }
+		})
+		expect(mailSum2.status).toBe(200)
+		expect(mailSum2.json['cached']).toBe(true)
+
+		// /ai/mail/assist supports summarize, suggest_reply, and suggest_tags without auto-sending.
+		const assistSummary = await req(r, {
+			method: 'POST',
+			path: '/api/v1/ai/mail/assist',
+			cookie,
+			workspaceId: ws.id,
+			body: { conversationId: convId, mode: 'summarize' }
+		})
+		expect(assistSummary.status, JSON.stringify(assistSummary.json)).toBe(200)
+		expect(assistSummary.json['mode']).toBe('summarize')
+		expect(String(assistSummary.json['text'])).toContain('summary bullet')
+
+		const assistReply = await req(r, {
+			method: 'POST',
+			path: '/api/v1/ai/mail/assist',
+			cookie,
+			workspaceId: ws.id,
+			body: { conversationId: convId, mode: 'suggest_reply', instruction: 'Keep it friendly' }
+		})
+		expect(assistReply.status, JSON.stringify(assistReply.json)).toBe(200)
+		expect(assistReply.json['mode']).toBe('suggest_reply')
+		expect(String(assistReply.json['text'])).toContain('reviewed your billing inquiry')
+
+		const assistTags = await req(r, {
+			method: 'POST',
+			path: '/api/v1/ai/mail/assist',
+			cookie,
+			workspaceId: ws.id,
+			body: { conversationId: convId, mode: 'suggest_tags' }
+		})
+		expect(assistTags.status, JSON.stringify(assistTags.json)).toBe(200)
+		expect(assistTags.json['mode']).toBe('suggest_tags')
+		expect(assistTags.json['suggestedTags'] as string[]).toContain('billing')
+
+		// Guardrail: AI assistance never sends messages or mutates draft status automatically.
+		const timeline = await req(r, {
+			method: 'GET',
+			path: `/api/v1/mail/conversations/${convId}/timeline`,
+			cookie,
+			workspaceId: ws.id
+		})
+		expect(timeline.status).toBe(200)
+		expect((timeline.json['messages'] as unknown[]).length).toBe(0)
+		const drafts = timeline.json['drafts'] as Record<string, unknown>[]
+		expect(drafts.length).toBe(1)
+		expect(drafts[0]?.['status']).toBe('draft')
 	})
 })

@@ -103,10 +103,14 @@ describe('M9 Docs Notion authoring & wiki surfaces', () => {
 					})
 				})
 
-				await waitFor(() => {
-					expect(container.querySelector('[data-mermaid-block] svg')).not.toBeNull()
-					expect(container.querySelector('[data-math="block"] .katex')).not.toBeNull()
-				})
+				await waitFor(
+					() => {
+						expect(container.querySelector('[data-mermaid-block] svg')).not.toBeNull()
+						expect(container.querySelector('[data-math="block"] .katex')).not.toBeNull()
+					},
+					// Upstream Mermaid is intentionally lazy-loaded and is much heavier than the old subset renderer.
+					{ timeout: 10_000 }
+				)
 
 				expect(container.querySelector('[data-toc="true"]')).not.toBeNull()
 				expect(container.querySelector('[data-bookmark="true"]')).not.toBeNull()

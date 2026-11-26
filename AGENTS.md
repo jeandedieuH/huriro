@@ -8,17 +8,17 @@ A secure, self-hostable, modular workspace platform. Monorepo: Bun workspaces
 
 ## Commands
 
-| Command                        | Purpose                                                                                                                                 |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun install`                  | install all workspaces                                                                                                                  |
-| `bun run verify`               | the gate: lint + typecheck + test + build + gen:check + boundaries + licenses + bundles + shared-code                                   |
-| `bun run dev`                  | dev (turbo)                                                                                                                             |
-| `bun run migrate`              | apply DB migrations                                                                                                                     |
-| `bun run doctor`               | instance preflight checks                                                                                                               |
-| `bun run check:bundles`        | enforce initial web entry shell `<= 200 KB` gzip and lazy editor chunks                                                                 |
-| `bun run check:shared-code`    | enforce `>= 60%` shared TypeScript client LOC in `packages/*`                                                                           |
-| `bun run dr:drill`             | disaster recovery rehearsal (`--live` runs PG18 restore & RLS drill)                                                                    |
-| `bun run chaos:smoke`          | Valkey RESP2 pub/sub failover + API rate limiter smoke test                                                                             |
+| Command                        | Purpose                                                                                                                                                                                           |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun install`                  | install all workspaces                                                                                                                                                                            |
+| `bun run verify`               | the gate: lint + typecheck + test + build + gen:check + boundaries + licenses + bundles + shared-code                                                                                             |
+| `bun run dev`                  | dev (turbo)                                                                                                                                                                                       |
+| `bun run migrate`              | apply DB migrations                                                                                                                                                                               |
+| `bun run doctor`               | instance preflight checks                                                                                                                                                                         |
+| `bun run check:bundles`        | enforce initial web entry shell `<= 200 KB` gzip and lazy editor chunks                                                                                                                           |
+| `bun run check:shared-code`    | enforce `>= 60%` shared TypeScript client LOC in `packages/*`                                                                                                                                     |
+| `bun run dr:drill`             | disaster recovery rehearsal (`--live` runs PG18 restore & RLS drill)                                                                                                                              |
+| `bun run chaos:smoke`          | Valkey RESP2 pub/sub failover + API rate limiter smoke test                                                                                                                                       |
 | `bun test packages/test-utils` | RLS/integration suite (needs `DATABASE_URL` pointing at a `*_test` database — the dev DB is refused — or `HURIRO_TESTCONTAINERS=1`; if ryuk can't pull, also `TESTCONTAINERS_RYUK_DISABLED=true`) |
 
 ## Layout

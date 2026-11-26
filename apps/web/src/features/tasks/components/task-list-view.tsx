@@ -258,14 +258,17 @@ export function IssueRow({
 				onCheckedChange={() => toggleMultiSelectIssue(issue.id)}
 				onClick={(e) => {
 					// Shift-click extends the selection across the visible order (§3.4).
+					// preventDefault suppresses Radix's internal checked-flip so the
+					// range select is not immediately undone by a toggle of the endpoint.
 					if (e.shiftKey) {
+						e.preventDefault()
 						const ordered = [...document.querySelectorAll('[data-issue-id]')]
 							.map((el) => el.getAttribute('data-issue-id'))
 							.filter((v): v is string => v !== null)
 						rangeSelectIssue(issue.id, ordered)
 					}
 				}}
-				aria-label={`Select ${issue.identifier} ${issue.title}`}
+				aria-label={t('tasks.issue.select', { identifier: issue.identifier, title: issue.title })}
 			/>
 			<button
 				type="button"

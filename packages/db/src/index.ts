@@ -18,6 +18,7 @@ export { isAcceptableClientId, isUuid, isUuidV7, uuid7, uuid7TimestampMs } from 
 export type { AppliedMigration } from './migrate'
 export { listMigrationFiles, migrate, migrationsDir, pendingMigrations } from './migrate'
 export { agentPrincipals } from './schema/agents'
+export { userAvailabilityWindows, userWorkspaceProfiles } from './schema/availability'
 export { aiCache, aiProviders, aiRuns, chunkEmbeddings, embeddingModels } from './schema/ai'
 export {
 	authAccounts,
@@ -31,19 +32,38 @@ export {
 export { automationRules, automationRunSteps, automationRuns } from './schema/automations'
 export { billingSubscriptions, billingUsageSnapshots, billingWebhookEvents } from './schema/billing'
 export {
+	chatChannelBookmarks,
 	chatChannelMembers,
 	chatChannels,
+	chatDrafts,
+	chatHuddleSessions,
 	chatLinkPreviews,
 	chatMessageAttachments,
 	chatMessageLinkPreviews,
 	chatMessageReactions,
 	chatMessages,
+	chatPinnedMessages,
+	chatPolls,
+	chatPollVotes,
 	chatReadState,
-	chatThreadReadState
+	chatSavedItems,
+	chatScheduledMessages,
+	chatSidebarSectionItems,
+	chatSidebarSections,
+	chatThreadReadState,
+	fileTranscripts,
+	userGroupMembers,
+	userGroups,
+	workspaceEmojis
 } from './schema/chat'
 export {
 	collabTickets,
 	docComments,
+	docDatabaseCellValues,
+	docDatabaseProperties,
+	docDatabaseRows,
+	docDatabases,
+	docDatabaseViews,
 	docFavorites,
 	docPages,
 	docPublicShares,
@@ -63,17 +83,25 @@ export { users } from './schema/identity'
 export { importJobs, importMappings } from './schema/imports'
 export { githubInstallations, githubWebhookEvents, issueGithubLinks } from './schema/integrations'
 export {
+	contactOrganizations,
+	contacts,
 	mailAccounts,
 	mailConversationComments,
 	mailConversationDocs,
 	mailConversationEvents,
 	mailConversations,
+	mailConversationTags,
 	mailConversationTasks,
 	mailDrafts,
 	mailIdentities,
 	mailInboxes,
+	mailInboxRoutingState,
+	mailMacros,
 	mailMessageAttachments,
-	mailMessages
+	mailMessages,
+	mailSlaPolicies,
+	mailTags,
+	mailTemplates
 } from './schema/mail'
 export {
 	mobilePushTokens,

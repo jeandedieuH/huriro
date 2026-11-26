@@ -1,3 +1,4 @@
+import type { CreateProjectBody } from '@huriro/contracts'
 import { t } from '@huriro/i18n'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -13,16 +14,16 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useUiStore } from '@/stores/ui-store'
+import {
+	DEFAULT_PROJECT_WORKFLOW_POLICY,
+	ProjectWorkflowFields,
+	type ProjectWorkflowPolicy
+} from './project-workflow-fields'
 
 const PROJECT_KEY_RE = /^[A-Z][A-Z0-9]{1,9}$/
 
 export interface CreateProjectDialogProps {
-	readonly onSubmit: (input: {
-		key: string
-		name: string
-		visibility: 'workspace' | 'private'
-		description: string
-	}) => Promise<void>
+	readonly onSubmit: (input: Omit<CreateProjectBody, 'id' | 'position'>) => Promise<void>
 }
 
 export function CreateProjectDialog({ onSubmit }: CreateProjectDialogProps) {
@@ -34,6 +35,7 @@ export function CreateProjectDialog({ onSubmit }: CreateProjectDialogProps) {
 	const [name, setName] = useState('')
 	const [visibility, setVisibility] = useState<'workspace' | 'private'>('workspace')
 	const [description, setDescription] = useState('')
+	const [workflow, setWorkflow] = useState<ProjectWorkflowPolicy>(DEFAULT_PROJECT_WORKFLOW_POLICY)
 	const [submitting, setSubmitting] = useState(false)
 	const [keyTouched, setKeyTouched] = useState(false)
 
@@ -51,13 +53,24 @@ export function CreateProjectDialog({ onSubmit }: CreateProjectDialogProps) {
 				key: cleanKey,
 				name: name.trim(),
 				visibility,
-				description: description.trim()
+				description: description.trim(),
+				triageEnabled: workflow.triageEnabled,
+				cycleEnabled: workflow.cycleEnabled,
+				...(workflow.cycleEnabled
+					? {
+							cycleDurationDays: workflow.cycleDurationDays,
+							cycleCooldownDays: workflow.cycleCooldownDays,
+							cycleAutoRolloverMode: workflow.cycleAutoRolloverMode,
+							cycleStartWeekday: workflow.cycleStartWeekday
+						}
+					: {})
 			})
 			setKey('')
 			setKeyTouched(false)
 			setName('')
 			setDescription('')
 			setVisibility('workspace')
+			setWorkflow(DEFAULT_PROJECT_WORKFLOW_POLICY)
 			setOpen(false)
 		} catch (err) {
 			pushToast({
@@ -71,7 +84,7 @@ export function CreateProjectDialog({ onSubmit }: CreateProjectDialogProps) {
 
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
-			<DialogContent>
+			<DialogContent className="max-h-[85vh] overflow-y-auto">
 				<DialogHeader>
 					<DialogTitle>{t('tasks.new-project')}</DialogTitle>
 					<DialogDescription>
@@ -127,6 +140,12 @@ export function CreateProjectDialog({ onSubmit }: CreateProjectDialogProps) {
 							</SelectContent>
 						</Select>
 					</div>
+
+					<ProjectWorkflowFields
+						idPrefix="create-proj"
+						value={workflow}
+						onChange={(patch) => setWorkflow((prev) => ({ ...prev, ...patch }))}
+					/>
 
 					<div className="space-y-1">
 						<label htmlFor="create-proj-desc" className="text-xs font-medium">

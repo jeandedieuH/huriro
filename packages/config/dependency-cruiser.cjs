@@ -19,6 +19,7 @@ const MODULE_SCHEMA_OWNERSHIP = {
 	tasks: ['tasks'],
 	docs: ['docs'],
 	chat: ['chat'],
+	availability: ['availability'],
 	mail: ['mail'],
 	notifications: ['notifications'],
 	search: ['search'],

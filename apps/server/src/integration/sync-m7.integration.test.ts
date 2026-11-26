@@ -273,7 +273,7 @@ describe('M7 sync engine v2: two-tier hydration + scope protocol (PostgreSQL 18)
 			}
 
 			// Forward-compat valid-but-unimplemented scopes → 200 with empty rows.
-			for (const scope of [`db:${randomUUID()}`, `links:issue:${randomUUID()}`, `channel:${randomUUID()}`]) {
+			for (const scope of [`links:issue:${randomUUID()}`, `channel:${randomUUID()}`]) {
 				const empty = await req(app, fixture, {
 					path: `/api/v1/sync/scope-snapshot?scope=${encodeURIComponent(scope)}`
 				})
@@ -282,6 +282,12 @@ describe('M7 sync engine v2: two-tier hydration + scope protocol (PostgreSQL 18)
 				expect(empty.json['hasMore']).toBe(false)
 				expect(empty.json['nextAfter']).toBeNull()
 			}
+
+			// M10 implemented `db:<uuid>`: unknown database ID returns 404.
+			const missingDb = await req(app, fixture, {
+				path: `/api/v1/sync/scope-snapshot?scope=${encodeURIComponent(`db:${randomUUID()}`)}`
+			})
+			expect(missingDb.status).toBe(404)
 		} finally {
 			await pubsub.close()
 		}

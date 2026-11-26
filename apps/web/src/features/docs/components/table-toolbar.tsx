@@ -1,7 +1,16 @@
 import { TABLE_CELL_TONES, type TableCellTone } from '@huriro/editor'
 import { t } from '@huriro/i18n'
 import type { Editor } from '@tiptap/react'
-import { ArrowDownAZ, ArrowUpZA, Columns, Palette, Rows, Trash2 } from 'lucide-react'
+import {
+	ArrowDownAZ,
+	ArrowUpZA,
+	Columns,
+	GripHorizontal,
+	GripVertical,
+	Palette,
+	Rows,
+	Trash2
+} from 'lucide-react'
 import { type RefObject, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
@@ -86,6 +95,47 @@ export function TableToolbar({ editor, canWrite, containerRef }: TableToolbarPro
 	const colIndex = getCurrentTableColumnIndex(editor)
 	const anchoredTop = getActiveTableTopOffset(editor, containerRef)
 
+	const startRowDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+		event.preventDefault()
+		let lastY = event.clientY
+		const move = (moveEvent: PointerEvent) => {
+			const delta = moveEvent.clientY - lastY
+			if (Math.abs(delta) < 24) return
+			editor
+				.chain()
+				.focus()
+				.moveCurrentTableRow(delta > 0 ? 1 : -1)
+				.run()
+			lastY = moveEvent.clientY
+		}
+		const up = () => {
+			window.removeEventListener('pointermove', move)
+			window.removeEventListener('pointerup', up)
+		}
+		window.addEventListener('pointermove', move)
+		window.addEventListener('pointerup', up)
+	}
+	const startColumnDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+		event.preventDefault()
+		let lastX = event.clientX
+		const move = (moveEvent: PointerEvent) => {
+			const delta = moveEvent.clientX - lastX
+			if (Math.abs(delta) < 32) return
+			editor
+				.chain()
+				.focus()
+				.moveCurrentTableColumn(delta > 0 ? 1 : -1)
+				.run()
+			lastX = moveEvent.clientX
+		}
+		const up = () => {
+			window.removeEventListener('pointermove', move)
+			window.removeEventListener('pointerup', up)
+		}
+		window.addEventListener('pointermove', move)
+		window.addEventListener('pointerup', up)
+	}
+
 	return (
 		<div
 			role="toolbar"
@@ -96,6 +146,30 @@ export function TableToolbar({ editor, canWrite, containerRef }: TableToolbarPro
 				anchoredTop !== null ? 'absolute right-12 z-(--z-raised) sm:right-16' : 'mb-2 inline-flex'
 			)}
 		>
+			<Button
+				type="button"
+				size="icon"
+				tone="ghost"
+				aria-label={t('docs.table.drag-row')}
+				title={t('docs.table.drag-row')}
+				className="size-6 cursor-grab text-muted-foreground active:cursor-grabbing"
+				onPointerDown={startRowDrag}
+			>
+				<GripVertical className="size-3.5" aria-hidden />
+			</Button>
+			<Button
+				type="button"
+				size="icon"
+				tone="ghost"
+				aria-label={t('docs.table.drag-column')}
+				title={t('docs.table.drag-column')}
+				className="size-6 cursor-grab text-muted-foreground active:cursor-grabbing"
+				onPointerDown={startColumnDrag}
+			>
+				<GripHorizontal className="size-3.5" aria-hidden />
+			</Button>
+			<Separator orientation="vertical" className="mx-0.5 h-4" />
+
 			<Button
 				type="button"
 				size="sm"
@@ -137,6 +211,29 @@ export function TableToolbar({ editor, canWrite, containerRef }: TableToolbarPro
 				onClick={() => editor.chain().focus().deleteColumn().run()}
 			>
 				{t('docs.table.del-col')}
+			</Button>
+
+			<Separator orientation="vertical" className="mx-0.5 h-4" />
+
+			<Button
+				type="button"
+				size="sm"
+				tone="ghost"
+				className="h-6 px-2 text-xs"
+				onMouseDown={(ev) => ev.preventDefault()}
+				onClick={() => editor.chain().focus().toggleHeaderRow().run()}
+			>
+				{t('docs.table.header-row')}
+			</Button>
+			<Button
+				type="button"
+				size="sm"
+				tone="ghost"
+				className="h-6 px-2 text-xs"
+				onMouseDown={(ev) => ev.preventDefault()}
+				onClick={() => editor.chain().focus().toggleHeaderColumn().run()}
+			>
+				{t('docs.table.header-col')}
 			</Button>
 
 			<Separator orientation="vertical" className="mx-0.5 h-4" />

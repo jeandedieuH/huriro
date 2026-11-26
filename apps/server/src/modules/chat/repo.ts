@@ -28,6 +28,9 @@ export interface ChannelRecord {
 	readonly lastReadSeq: number
 	readonly mentionCount: number
 	readonly muted: boolean
+	readonly notifyLevel?: 'default' | 'all' | 'mentions' | 'none'
+	readonly mutedUntil?: string | null
+	readonly canvasPageId?: string | null
 	readonly unreadCount: number
 	readonly memberCount: number
 }
@@ -43,6 +46,10 @@ export interface RawMessageRow {
 	readonly authorId: string
 	readonly authorDisplayName: string | null
 	readonly threadParentId: string | null
+	readonly broadcastToChannel: boolean
+	readonly replyToMessageId: string | null
+	readonly messageKind: 'text' | 'poll' | 'huddle_session' | 'approval_card' | 'system'
+	readonly metadata: unknown
 	readonly replyCount: number
 	readonly lastReplyAt: string | null
 	readonly clientId: string | null
@@ -75,6 +82,9 @@ export function toChannelDto(row: ChannelRecord, members?: readonly ChatChannelM
 		hasUnread: lastMsgSeq > lastReadSeq,
 		mentionCount: Number(row.mentionCount),
 		muted: row.muted,
+		...(row.notifyLevel !== undefined ? { notifyLevel: row.notifyLevel } : {}),
+		...(row.mutedUntil !== undefined ? { mutedUntil: row.mutedUntil } : {}),
+		...(row.canvasPageId !== undefined ? { canvasPageId: row.canvasPageId } : {}),
 		lastReadSeq,
 		isMember: row.isMember,
 		memberCount: Number(row.memberCount),
@@ -99,6 +109,7 @@ export async function listVisibleChannelsForUser(
 			c.name,
 			c.topic,
 			c.dm_key AS "dmKey",
+			c.canvas_page_id AS "canvasPageId",
 			c.last_msg_seq::int AS "lastMsgSeq",
 			c.last_rev::int AS "lastRev",
 			c.created_by AS "createdBy",
@@ -111,6 +122,8 @@ export async function listVisibleChannelsForUser(
 			COALESCE(rs.last_read_seq, 0)::int AS "lastReadSeq",
 			COALESCE(rs.mention_count, 0)::int AS "mentionCount",
 			COALESCE(rs.muted, false) AS muted,
+			COALESCE(rs.notify_level, 'default') AS "notifyLevel",
+			rs.muted_until::text AS "mutedUntil",
 			LEAST(
 				999,
 				COALESCE(
@@ -119,7 +132,7 @@ export async function listVisibleChannelsForUser(
 						FROM chat_messages m
 						WHERE m.workspace_id = c.workspace_id
 							AND m.channel_id = c.id
-							AND m.thread_parent_id IS NULL
+							AND m.channel_seq IS NOT NULL
 							AND m.deleted_at IS NULL
 							AND m.channel_seq > COALESCE(rs.last_read_seq, 0)
 					),
@@ -183,6 +196,7 @@ export async function getChannelByIdForUser(
 			c.name,
 			c.topic,
 			c.dm_key AS "dmKey",
+			c.canvas_page_id AS "canvasPageId",
 			c.last_msg_seq::int AS "lastMsgSeq",
 			c.last_rev::int AS "lastRev",
 			c.created_by AS "createdBy",
@@ -195,6 +209,8 @@ export async function getChannelByIdForUser(
 			COALESCE(rs.last_read_seq, 0)::int AS "lastReadSeq",
 			COALESCE(rs.mention_count, 0)::int AS "mentionCount",
 			COALESCE(rs.muted, false) AS muted,
+			COALESCE(rs.notify_level, 'default') AS "notifyLevel",
+			rs.muted_until::text AS "mutedUntil",
 			LEAST(
 				999,
 				COALESCE(
@@ -203,7 +219,7 @@ export async function getChannelByIdForUser(
 						FROM chat_messages m
 						WHERE m.workspace_id = c.workspace_id
 							AND m.channel_id = c.id
-							AND m.thread_parent_id IS NULL
+							AND m.channel_seq IS NOT NULL
 							AND m.deleted_at IS NULL
 							AND m.channel_seq > COALESCE(rs.last_read_seq, 0)
 					),
@@ -496,6 +512,10 @@ const MESSAGE_SELECT = `
 	m.author_id AS "authorId",
 	COALESCE(u.display_name, ap.name) AS "authorDisplayName",
 	m.thread_parent_id AS "threadParentId",
+	m.broadcast_to_channel AS "broadcastToChannel",
+	m.reply_to_message_id AS "replyToMessageId",
+	m.message_kind AS "messageKind",
+	m.metadata,
 	m.reply_count AS "replyCount",
 	m.last_reply_at::text AS "lastReplyAt",
 	m.client_id AS "clientId",
@@ -557,6 +577,10 @@ export async function insertMessageRow(
 		readonly authorType: 'user' | 'agent'
 		readonly authorId: string
 		readonly threadParentId: string | null
+		readonly broadcastToChannel: boolean
+		readonly replyToMessageId: string | null
+		readonly messageKind: 'text' | 'poll' | 'huddle_session' | 'approval_card' | 'system'
+		readonly metadata: unknown
 		readonly clientId: string | null
 		readonly body: unknown
 		readonly bodyText: string
@@ -566,24 +590,28 @@ export async function insertMessageRow(
 		? await tx<{ id: string }[]>`
 				INSERT INTO chat_messages (
 					id, workspace_id, channel_id, channel_seq, thread_seq, rev,
-					author_type, author_id, thread_parent_id, client_id, body, body_text
+					author_type, author_id, thread_parent_id, broadcast_to_channel, reply_to_message_id,
+					message_kind, metadata, client_id, body, body_text
 				)
 				VALUES (
 					${args.id}, ${args.workspaceId}, ${args.channelId}, ${args.channelSeq}, ${args.threadSeq},
 					${args.rev}, ${args.authorType}, ${args.authorId}, ${args.threadParentId},
-					${args.clientId}, ${tx.json((args.body ?? {}) as never)}, ${args.bodyText}
+					${args.broadcastToChannel}, ${args.replyToMessageId}, ${args.messageKind},
+					${tx.json((args.metadata ?? {}) as never)}, ${args.clientId}, ${tx.json((args.body ?? {}) as never)}, ${args.bodyText}
 				)
 				RETURNING id
 			`
 		: await tx<{ id: string }[]>`
 				INSERT INTO chat_messages (
 					workspace_id, channel_id, channel_seq, thread_seq, rev,
-					author_type, author_id, thread_parent_id, client_id, body, body_text
+					author_type, author_id, thread_parent_id, broadcast_to_channel, reply_to_message_id,
+					message_kind, metadata, client_id, body, body_text
 				)
 				VALUES (
 					${args.workspaceId}, ${args.channelId}, ${args.channelSeq}, ${args.threadSeq},
 					${args.rev}, ${args.authorType}, ${args.authorId}, ${args.threadParentId},
-					${args.clientId}, ${tx.json((args.body ?? {}) as never)}, ${args.bodyText}
+					${args.broadcastToChannel}, ${args.replyToMessageId}, ${args.messageKind},
+					${tx.json((args.metadata ?? {}) as never)}, ${args.clientId}, ${tx.json((args.body ?? {}) as never)}, ${args.bodyText}
 				)
 				RETURNING id
 			`
@@ -675,7 +703,7 @@ export async function listChannelMessageRows(
 			ON m.author_type = 'agent' AND ap.workspace_id = m.workspace_id AND ap.id = m.author_id
 		WHERE m.workspace_id = ${args.workspaceId}
 			AND m.channel_id = ${args.channelId}
-			AND m.thread_parent_id IS NULL
+			AND m.channel_seq IS NOT NULL
 			AND m.deleted_at IS NULL
 			${args.beforeSeq !== undefined ? tx`AND m.channel_seq < ${args.beforeSeq}` : tx``}
 		ORDER BY m.channel_seq DESC
@@ -1033,6 +1061,10 @@ export async function hydrateRawMessages(
 		authorId: r.authorId,
 		...(r.authorDisplayName ? { authorDisplayName: r.authorDisplayName } : {}),
 		threadParentId: r.threadParentId,
+		broadcastToChannel: r.broadcastToChannel,
+		replyToMessageId: r.replyToMessageId,
+		messageKind: r.messageKind,
+		metadata: r.metadata,
 		replyCount: Number(r.replyCount),
 		lastReplyAt: r.lastReplyAt,
 		clientId: r.clientId,
@@ -1080,16 +1112,50 @@ export async function setChannelMutedState(
 	workspaceId: string,
 	channelId: string,
 	userId: string,
-	muted: boolean
-): Promise<{ readonly muted: boolean }> {
-	const [row] = await tx<{ muted: boolean }[]>`
-		INSERT INTO chat_read_state (workspace_id, channel_id, user_id, last_read_seq, mention_count, muted)
-		VALUES (${workspaceId}, ${channelId}, ${userId}, 0, 0, ${muted})
+	opts: {
+		readonly muted: boolean
+		readonly notifyLevel?: 'default' | 'all' | 'mentions' | 'none' | undefined
+		readonly mutedUntil?: string | null | undefined
+	}
+): Promise<{
+	readonly muted: boolean
+	readonly notifyLevel: 'default' | 'all' | 'mentions' | 'none'
+	readonly mutedUntil: string | null
+}> {
+	const notifyLevel = opts.notifyLevel ?? 'default'
+	const mutedUntil = opts.mutedUntil ?? null
+	const [row] = await tx<
+		{
+			muted: boolean
+			notifyLevel: 'default' | 'all' | 'mentions' | 'none'
+			mutedUntil: string | null
+		}[]
+	>`
+		INSERT INTO chat_read_state (
+			workspace_id, channel_id, user_id, last_read_seq, mention_count, muted, notify_level, muted_until
+		)
+		VALUES (${workspaceId}, ${channelId}, ${userId}, 0, 0, ${opts.muted}, ${notifyLevel}, ${mutedUntil})
 		ON CONFLICT (workspace_id, channel_id, user_id) DO UPDATE
-		SET muted = EXCLUDED.muted
-		RETURNING muted
+		SET
+			muted = EXCLUDED.muted,
+			notify_level = CASE WHEN ${opts.notifyLevel !== undefined} THEN EXCLUDED.notify_level ELSE chat_read_state.notify_level END,
+			muted_until = CASE WHEN ${opts.mutedUntil !== undefined} THEN EXCLUDED.muted_until ELSE chat_read_state.muted_until END
+		RETURNING muted, notify_level AS "notifyLevel", muted_until::text AS "mutedUntil"
 	`
 	if (!row) throw new Error('Failed to update channel mute state')
+	return row
+}
+
+export async function getChannelSeqAndRev(
+	tx: Queryable,
+	workspaceId: string,
+	channelId: string
+): Promise<{ readonly lastMsgSeq: number; readonly lastRev: number } | undefined> {
+	const [row] = await tx<{ lastMsgSeq: number; lastRev: number }[]>`
+		SELECT last_msg_seq::int AS "lastMsgSeq", last_rev::int AS "lastRev"
+		FROM chat_channels
+		WHERE workspace_id = ${workspaceId} AND id = ${channelId}
+	`
 	return row
 }
 

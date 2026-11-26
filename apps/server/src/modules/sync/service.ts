@@ -1,5 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto'
 import {
+	CreateDocDatabaseBody,
+	CreateDocDatabasePropertyBody,
+	CreateDocDatabaseRowBody,
+	CreateDocDatabaseViewBody,
 	CreateDocPageBody,
 	CreateInitiativeBody,
 	CreateIssueBody,
@@ -21,6 +25,10 @@ import {
 	type SyncScopeSnapshotResponse,
 	type SyncSnapshotQuery,
 	type SyncSnapshotResponse,
+	UpdateDocDatabaseBody,
+	UpdateDocDatabasePropertyBody,
+	UpdateDocDatabaseRowBody,
+	UpdateDocDatabaseViewBody,
 	UpdateDocPageBody,
 	UpdateInitiativeBody,
 	UpdateIssueBody,
@@ -35,6 +43,18 @@ import type { TSchema } from 'typebox'
 import { Value } from 'typebox/value'
 import { withIdempotency } from '../../api/context'
 import { HttpError } from '../../api/error'
+import {
+	createDocDatabase,
+	createDocDatabaseProperty,
+	createDocDatabaseRow,
+	createDocDatabaseView,
+	getDocDatabaseDetail,
+	queryDocDatabaseRows,
+	updateDocDatabase,
+	updateDocDatabaseProperty,
+	updateDocDatabaseRow,
+	updateDocDatabaseView
+} from '../doc-databases'
 import {
 	createDocPage,
 	deleteDocPage,
@@ -191,8 +211,61 @@ export async function getScopeSnapshot(
 			'Malformed scope: expected <kind>:<id> with kind in links|issue_hist|db|channel'
 		)
 	}
+	if (parsed.kind === 'db') {
+		if (!isUuid(parsed.rest))
+			throw new HttpError(422, 'validation_failed', 'Malformed db scope: expected a database uuid')
+		const limit = query.limit ?? 500
+		let phase: 'meta' | 'rows' = 'meta'
+		let rowCursor: string | undefined
+		if (query.after) {
+			try {
+				const decoded = JSON.parse(Buffer.from(query.after, 'base64url').toString('utf8')) as {
+					p?: unknown
+					c?: unknown
+				}
+				if (decoded.p === 'rows') {
+					phase = 'rows'
+					rowCursor = typeof decoded.c === 'string' ? decoded.c : undefined
+				}
+			} catch {
+				throw new HttpError(422, 'validation_failed', 'Malformed db scope cursor')
+			}
+		}
+		if (phase === 'meta') {
+			// Metadata is small and is intentionally included with the lazy scope so
+			// clients can render a database without also hydrating the eager core.
+			const detail = await getDocDatabaseDetail(tx, actor, parsed.rest)
+			const rows = [
+				{ entity: 'doc_database', data: detail.database },
+				...detail.properties.map((data) => ({ entity: 'doc_database_property', data })),
+				...detail.views.map((data) => ({ entity: 'doc_database_view', data }))
+			] as unknown as Record<string, unknown>[]
+			return {
+				scope: query.scope,
+				rows,
+				nextAfter: Buffer.from(JSON.stringify({ p: 'rows' }), 'utf8').toString('base64url'),
+				hasMore: true
+			}
+		}
+		const page = await queryDocDatabaseRows(tx, actor, parsed.rest, {
+			limit,
+			...(rowCursor ? { cursor: rowCursor } : {})
+		})
+		const rows = page.rows.map((data) => ({ entity: 'doc_database_row', data })) as unknown as Record<
+			string,
+			unknown
+		>[]
+		return {
+			scope: query.scope,
+			rows,
+			nextAfter: page.nextCursor
+				? Buffer.from(JSON.stringify({ p: 'rows', c: page.nextCursor }), 'utf8').toString('base64url')
+				: null,
+			hasMore: page.hasMore
+		}
+	}
 	if (parsed.kind !== 'issue_hist') {
-		// Forward-compat no-op, see docstring above.
+		// `links:`/`channel:` remain forward-compatible empty pages until their milestones land.
 		return { scope: query.scope, rows: [], nextAfter: null, hasMore: false }
 	}
 	if (!isUuid(parsed.rest)) {
@@ -753,6 +826,102 @@ async function runSingleMutation(
 			)
 			const res = await updateSavedView(tx, actor, m.entityId, input)
 			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+		}
+	}
+
+	if (m.entity === 'doc_database') {
+		if (m.op === 'create') {
+			const input = validateMutationPayload<CreateDocDatabaseBody>(
+				CreateDocDatabaseBody,
+				{ ...patch, id: m.entityId },
+				'doc_database.create'
+			)
+			const res = await createDocDatabase(tx, actor, input)
+			return { data: res.data.database as unknown as Record<string, unknown>, cursor: res.cursor }
+		}
+		if (m.op === 'update') {
+			const version = m.baseVersion ?? Number(patch['version'] ?? 1)
+			const input = validateMutationPayload<UpdateDocDatabaseBody>(
+				UpdateDocDatabaseBody,
+				{ ...patch, version },
+				'doc_database.update'
+			)
+			const res = await updateDocDatabase(tx, actor, m.entityId, input)
+			return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+		}
+	}
+
+	if (
+		m.entity === 'doc_database_property' ||
+		m.entity === 'doc_database_view' ||
+		m.entity === 'doc_database_row'
+	) {
+		const rawDatabaseId = typeof patch['databaseId'] === 'string' ? patch['databaseId'] : ''
+		if (!isUuid(rawDatabaseId))
+			throw new HttpError(422, 'validation_failed', `Invalid ${m.entity}: missing or invalid databaseId`)
+		const { databaseId: _ignoredDatabaseId, ...entityPatch } = patch
+		if (m.entity === 'doc_database_property') {
+			if (m.op === 'create') {
+				const input = validateMutationPayload<CreateDocDatabasePropertyBody>(
+					CreateDocDatabasePropertyBody,
+					{ ...entityPatch, id: m.entityId },
+					'doc_database_property.create'
+				)
+				const res = await createDocDatabaseProperty(tx, actor, rawDatabaseId, input)
+				return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+			}
+			if (m.op === 'update') {
+				const version = m.baseVersion ?? Number(patch['version'] ?? 1)
+				const input = validateMutationPayload<UpdateDocDatabasePropertyBody>(
+					UpdateDocDatabasePropertyBody,
+					{ ...entityPatch, version },
+					'doc_database_property.update'
+				)
+				const res = await updateDocDatabaseProperty(tx, actor, rawDatabaseId, m.entityId, input)
+				return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+			}
+		}
+		if (m.entity === 'doc_database_view') {
+			if (m.op === 'create') {
+				const input = validateMutationPayload<CreateDocDatabaseViewBody>(
+					CreateDocDatabaseViewBody,
+					{ ...entityPatch, id: m.entityId },
+					'doc_database_view.create'
+				)
+				const res = await createDocDatabaseView(tx, actor, rawDatabaseId, input)
+				return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+			}
+			if (m.op === 'update') {
+				const version = m.baseVersion ?? Number(patch['version'] ?? 1)
+				const input = validateMutationPayload<UpdateDocDatabaseViewBody>(
+					UpdateDocDatabaseViewBody,
+					{ ...entityPatch, version },
+					'doc_database_view.update'
+				)
+				const res = await updateDocDatabaseView(tx, actor, rawDatabaseId, m.entityId, input)
+				return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+			}
+		}
+		if (m.entity === 'doc_database_row') {
+			if (m.op === 'create') {
+				const input = validateMutationPayload<CreateDocDatabaseRowBody>(
+					CreateDocDatabaseRowBody,
+					{ ...entityPatch, id: m.entityId },
+					'doc_database_row.create'
+				)
+				const res = await createDocDatabaseRow(tx, actor, rawDatabaseId, input)
+				return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+			}
+			if (m.op === 'update' || m.op === 'delete') {
+				const version = m.baseVersion ?? Number(patch['version'] ?? 1)
+				const input = validateMutationPayload<UpdateDocDatabaseRowBody>(
+					UpdateDocDatabaseRowBody,
+					{ ...entityPatch, ...(m.op === 'delete' ? { archived: true } : {}), version },
+					'doc_database_row.update'
+				)
+				const res = await updateDocDatabaseRow(tx, actor, rawDatabaseId, m.entityId, input)
+				return { data: res.data as unknown as Record<string, unknown>, cursor: res.cursor }
+			}
 		}
 	}
 

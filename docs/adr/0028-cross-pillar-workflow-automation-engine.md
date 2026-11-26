@@ -11,7 +11,7 @@ Every V1 mutation already flows through the transactional `outbox`, which makes 
 1. **Which identity executes a rule?** Automations mutate data across all four pillars on behalf of users who may not be online — running them as a superuser would bypass RLS and `can()` entirely, and running them as the triggering actor would silently break rules when that actor loses access.
 2. **What stops automation-triggered automations from looping?** A rule whose action emits a new domain event can retrigger itself or feed a cycle of rules (R23 — likelihood and impact both High).
 3. **How are conditions and actions expressed?** The plan requires declarative conditions and a closed cross-pillar action catalog — never arbitrary code.
-4. **How do teams author and port rules?** §7.2 asks for a visual builder *and* version-controllable definitions.
+4. **How do teams author and port rules?** §7.2 asks for a visual builder _and_ version-controllable definitions.
 
 ## Decision
 

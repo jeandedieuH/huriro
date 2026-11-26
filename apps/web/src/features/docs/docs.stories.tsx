@@ -4,6 +4,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite'
 import { useEffect, useState } from 'react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { type BootstrappedWorkspace, createPreviewWorkspace } from '@/lib/sync-bootstrap'
+import { WorkspaceProvider } from '@/lib/workspace'
 import { DocsSidebarNav } from './components/docs-sidebar-nav'
 import { DocsWorkspace } from './components/docs-workspace'
 
@@ -33,17 +34,19 @@ function PreviewDocsStory({ slug }: { readonly slug: string | null }) {
 	return (
 		<TooltipProvider>
 			<div className="flex h-160 border border-border bg-background text-foreground">
-				<SyncProvider engine={boot.engine}>
-					<div className="w-60 shrink-0 border-r border-border bg-sidebar p-3">
-						<DocsSidebarNav activeSlug={slug} />
-					</div>
-					<DocsWorkspace
-						api={boot.api}
-						currentUserId={boot.currentUserId}
-						isPreview={true}
-						activeSlug={slug}
-					/>
-				</SyncProvider>
+				<WorkspaceProvider boot={boot}>
+					<SyncProvider engine={boot.engine}>
+						<div className="w-60 shrink-0 overflow-y-auto border-r border-border bg-sidebar p-3">
+							<DocsSidebarNav activeSlug={slug} />
+						</div>
+						<DocsWorkspace
+							api={boot.api}
+							currentUserId={boot.currentUserId}
+							isPreview={true}
+							activeSlug={slug}
+						/>
+					</SyncProvider>
+				</WorkspaceProvider>
 			</div>
 		</TooltipProvider>
 	)

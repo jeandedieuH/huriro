@@ -310,6 +310,7 @@ export function defaultPreferencesDto(workspaceId: string, userId: string): Noti
 		webPushEnabled: false,
 		mobilePushEnabled: true,
 		emailInstantEnabled: true,
+		alertKeywords: [],
 		lastDigestSentAt: null,
 		updatedAt: new Date(0).toISOString()
 	}
@@ -332,6 +333,7 @@ export async function getOrDefaultNotificationPreferences(
 			web_push_enabled AS "webPushEnabled",
 			mobile_push_enabled AS "mobilePushEnabled",
 			email_instant_enabled AS "emailInstantEnabled",
+			alert_keywords AS "alertKeywords",
 			last_digest_sent_at::text AS "lastDigestSentAt",
 			updated_at::text AS "updatedAt"
 		FROM notification_preferences
@@ -359,6 +361,7 @@ export async function getNotificationPreferencesMap(
 			web_push_enabled AS "webPushEnabled",
 			mobile_push_enabled AS "mobilePushEnabled",
 			email_instant_enabled AS "emailInstantEnabled",
+			alert_keywords AS "alertKeywords",
 			last_digest_sent_at::text AS "lastDigestSentAt",
 			updated_at::text AS "updatedAt"
 		FROM notification_preferences
@@ -385,6 +388,7 @@ export async function upsertNotificationPreferences(
 		readonly webPushEnabled?: boolean | undefined
 		readonly mobilePushEnabled?: boolean | undefined
 		readonly emailInstantEnabled?: boolean | undefined
+		readonly alertKeywords?: readonly string[] | undefined
 	}
 ): Promise<NotificationPreferencesDto> {
 	const current = await getOrDefaultNotificationPreferences(tx, workspaceId, userId)
@@ -396,16 +400,17 @@ export async function upsertNotificationPreferences(
 	const nextPush = patch.webPushEnabled ?? current.webPushEnabled
 	const nextMobilePush = patch.mobilePushEnabled ?? current.mobilePushEnabled
 	const nextEmailInstant = patch.emailInstantEnabled ?? current.emailInstantEnabled
+	const nextAlertKeywords = patch.alertKeywords ?? current.alertKeywords
 
 	const [row] = await tx<NotificationPreferencesDto[]>`
 		INSERT INTO notification_preferences (
 			workspace_id, user_id, chat_level, email_digest_frequency,
 			quiet_hours_start, quiet_hours_end, timezone, web_push_enabled,
-			mobile_push_enabled, email_instant_enabled
+			mobile_push_enabled, email_instant_enabled, alert_keywords
 		)
 		VALUES (
 			${workspaceId}, ${userId}, ${nextChatLevel}, ${nextDigest},
-			${nextStart}, ${nextEnd}, ${nextTz}, ${nextPush}, ${nextMobilePush}, ${nextEmailInstant}
+			${nextStart}, ${nextEnd}, ${nextTz}, ${nextPush}, ${nextMobilePush}, ${nextEmailInstant}, ${nextAlertKeywords as unknown as string[]}::text[]
 		)
 		ON CONFLICT (workspace_id, user_id) DO UPDATE
 		SET
@@ -416,7 +421,8 @@ export async function upsertNotificationPreferences(
 			timezone = EXCLUDED.timezone,
 			web_push_enabled = EXCLUDED.web_push_enabled,
 			mobile_push_enabled = EXCLUDED.mobile_push_enabled,
-			email_instant_enabled = EXCLUDED.email_instant_enabled
+			email_instant_enabled = EXCLUDED.email_instant_enabled,
+			alert_keywords = EXCLUDED.alert_keywords
 		RETURNING
 			workspace_id AS "workspaceId",
 			user_id AS "userId",
@@ -428,6 +434,7 @@ export async function upsertNotificationPreferences(
 			web_push_enabled AS "webPushEnabled",
 			mobile_push_enabled AS "mobilePushEnabled",
 			email_instant_enabled AS "emailInstantEnabled",
+			alert_keywords AS "alertKeywords",
 			last_digest_sent_at::text AS "lastDigestSentAt",
 			updated_at::text AS "updatedAt"
 	`

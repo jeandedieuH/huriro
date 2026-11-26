@@ -1,39 +1,80 @@
 import { t } from '@huriro/i18n'
 import { useSyncEngine, useSyncStatus } from '@huriro/sync-client'
 import { Chip } from 'heroui-native'
-import { RefreshCw, Wifi, WifiOff } from 'lucide-react-native'
+import { AlertTriangle, RefreshCw, Wifi, WifiOff } from 'lucide-react-native'
 import { Pressable, Text, View } from 'react-native'
 
 export function SyncStatusBanner() {
 	const engine = useSyncEngine()
 	const status = useSyncStatus()
-	const isOfflineOrQueued = !status.online || status.pendingCount > 0
+	const isHealthy =
+		status.online &&
+		status.pendingCount === 0 &&
+		!status.lastError &&
+		status.conflictCount === 0 &&
+		!status.revokedReason
+
+	if (isHealthy) return null
+
+	if (status.revokedReason) {
+		return (
+			<View className="flex-row items-center gap-2 px-4 py-2 bg-danger-soft border-b border-danger/30">
+				<AlertTriangle size={14} color="#dc2626" />
+				<Text className="text-xs font-medium text-danger flex-1">{t('sync.revoked')}</Text>
+			</View>
+		)
+	}
+
+	const summaryText = !status.online
+		? t('mobile.sync.offline', { count: status.pendingCount })
+		: status.lastError
+			? status.lastError
+			: status.conflictCount > 0
+				? t(status.conflictCount === 1 ? 'sync.conflict.banner' : 'sync.conflict.banner.plural', {
+						count: status.conflictCount
+					})
+				: t('sync.pending', { count: status.pendingCount })
 
 	return (
 		<View className="flex-row items-center justify-between px-4 py-2 bg-surface border-b border-border/50">
-			<View className="flex-row items-center gap-2 flex-1">
-				{status.online ? <Wifi size={14} color="#16a34a" /> : <WifiOff size={14} color="#d97706" />}
-				<Text className="text-xs font-medium text-foreground" numberOfLines={1}>
-					{isOfflineOrQueued
-						? t('mobile.sync.offline', { count: status.pendingCount })
-						: t('mobile.sync.synced', { mode: status.storageMode.toUpperCase() })}
+			<View className="flex-row items-center gap-2 flex-1 pr-2">
+				{!status.online ? (
+					<WifiOff size={14} color="#d97706" />
+				) : status.lastError || status.conflictCount > 0 ? (
+					<AlertTriangle size={14} color="#dc2626" />
+				) : (
+					<Wifi size={14} color="#16a34a" />
+				)}
+				<Text className="text-xs font-medium text-foreground flex-1" numberOfLines={1}>
+					{summaryText}
 				</Text>
 			</View>
 
 			<View className="flex-row items-center gap-2">
-				<Chip
-					size="sm"
-					variant="soft"
-					color={isOfflineOrQueued ? 'warning' : 'success'}
-					onPress={() => {
-						if (status.online) void engine.syncNow()
-					}}
-				>
-					{status.syncing ? <RefreshCw size={11} /> : null}
-					<Chip.Label>
-						{status.pendingCount > 0 ? `${status.pendingCount} queued` : status.storageMode}
-					</Chip.Label>
-				</Chip>
+				{status.pendingCount > 0 ? (
+					<Chip
+						size="sm"
+						variant="soft"
+						color="warning"
+						onPress={() => {
+							if (status.online) void engine.flushOutbox({ force: true }).then(() => engine.syncNow())
+						}}
+					>
+						{status.syncing ? <RefreshCw size={11} /> : null}
+						<Chip.Label>{`${status.pendingCount} queued`}</Chip.Label>
+					</Chip>
+				) : null}
+				{status.lastError && status.online ? (
+					<Chip
+						size="sm"
+						variant="soft"
+						color="danger"
+						onPress={() => void engine.flushOutbox({ force: true }).then(() => engine.syncNow())}
+					>
+						<RefreshCw size={11} />
+						<Chip.Label>{t('error.retry')}</Chip.Label>
+					</Chip>
+				) : null}
 				{!status.online ? (
 					<Pressable
 						onPress={() => engine.setOnline(true)}

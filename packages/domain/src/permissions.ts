@@ -30,6 +30,9 @@ export const ACTIONS = [
 	'doc.verify',
 	'doc.publish',
 	'teamspace.manage',
+	'database.read',
+	'database.write',
+	'database.manage',
 	// chat
 	'channel.read',
 	'channel.post',
@@ -109,6 +112,8 @@ export const SYSTEM_ROLES: readonly SystemRole[] = [
 			'doc.comment',
 			'doc.write',
 			'doc.verify',
+			'database.read',
+			'database.write',
 			'channel.read',
 			'channel.post',
 			'mail.read',

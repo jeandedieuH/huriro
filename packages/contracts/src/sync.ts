@@ -1,5 +1,4 @@
 import { type Static, Type } from 'typebox'
-import { IssueDto } from './tasks'
 
 export const SyncEntityType = Type.Union([
 	Type.Literal('project'),
@@ -17,6 +16,10 @@ export const SyncEntityType = Type.Union([
 	Type.Literal('doc_page'),
 	Type.Literal('doc_comment'),
 	Type.Literal('teamspace'),
+	Type.Literal('doc_database'),
+	Type.Literal('doc_database_property'),
+	Type.Literal('doc_database_row'),
+	Type.Literal('doc_database_view'),
 	Type.Literal('mail_inbox'),
 	Type.Literal('mail_conversation'),
 	// ADR-0033 graph edges. Never delivered as core change-feed rows — only
@@ -109,7 +112,7 @@ export type SyncScopeSnapshotQuery = Static<typeof SyncScopeSnapshotQuery>
 
 export const SyncScopeSnapshotResponse = Type.Object({
 	scope: Type.String(),
-	rows: Type.Array(IssueDto),
+	rows: Type.Array(Type.Record(Type.String(), Type.Unknown())),
 	nextAfter: Type.Union([Type.String(), Type.Null()]),
 	hasMore: Type.Boolean()
 })
@@ -122,6 +125,10 @@ export const MutationEntity = Type.Union([
 	Type.Literal('saved_view'),
 	Type.Literal('notification'),
 	Type.Literal('doc_page'),
+	Type.Literal('doc_database'),
+	Type.Literal('doc_database_property'),
+	Type.Literal('doc_database_view'),
+	Type.Literal('doc_database_row'),
 	Type.Literal('initiative'),
 	Type.Literal('project_milestone'),
 	Type.Literal('project_update')

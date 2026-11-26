@@ -3,6 +3,7 @@ import { t } from '@huriro/i18n'
 import { ArrowRightLeft, Clock } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -386,11 +387,19 @@ function BoardCard({
 }: BoardCardProps) {
 	const focusedIssueId = useUiStore((s) => s.focusedIssueId)
 	const selectedIssueId = useUiStore((s) => s.selectedIssueId)
+	const selectedIssueIds = useUiStore((s) => s.selectedIssueIds)
 	const selectIssue = useUiStore((s) => s.selectIssue)
 	const setFocusedIssueId = useUiStore((s) => s.setFocusedIssueId)
+	const toggleMultiSelectIssue = useUiStore((s) => s.toggleMultiSelectIssue)
+	const rangeSelectIssue = useUiStore((s) => s.rangeSelectIssue)
 
 	const isFocused = focusedIssueId === issue.id
 	const isSelected = selectedIssueId === issue.id
+	const isChecked = selectedIssueIds.includes(issue.id)
+	// Hover-reveal parity with the mail/task list pattern: checkboxes stay
+	// visible while any selection is active so the bulk-selection state of the
+	// board is scannable without scrubbing every card.
+	const revealCheckbox = isChecked || selectedIssueIds.length > 0
 
 	return (
 		<article
@@ -418,7 +427,39 @@ function BoardCard({
 			)}
 		>
 			<div className="flex items-center justify-between gap-2">
-				<span className="font-mono text-xs text-muted-foreground tnum">{issue.identifier}</span>
+				<span className="flex min-w-0 items-center gap-1.5">
+					<Checkbox
+						checked={isChecked}
+						onCheckedChange={() => toggleMultiSelectIssue(issue.id)}
+						onMouseDown={(e) => {
+							// Never let the checkbox steal DOM focus: the click would
+							// otherwise re-anchor `focusedIssueId` onto the shift-clicked
+							// card before the range handler reads it (focus moves on
+							// mousedown, before click), collapsing the range to the target.
+							e.preventDefault()
+						}}
+						onClick={(e) => {
+							// Shift-click extends the selection across the flattened board
+							// order (column-major DOM order — the same visible order the list
+							// view uses). preventDefault suppresses Radix's internal toggle
+							// so the range select is not immediately undone by a toggle of
+							// the endpoint.
+							if (e.shiftKey) {
+								e.preventDefault()
+								const ordered = [...document.querySelectorAll('[data-issue-id]')]
+									.map((el) => el.getAttribute('data-issue-id'))
+									.filter((v): v is string => v !== null)
+								rangeSelectIssue(issue.id, ordered)
+							}
+						}}
+						aria-label={t('tasks.issue.select', { identifier: issue.identifier, title: issue.title })}
+						className={cn(
+							'transition-opacity',
+							!revealCheckbox && 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+						)}
+					/>
+					<span className="font-mono text-xs text-muted-foreground tnum">{issue.identifier}</span>
+				</span>
 				<div className="flex items-center gap-1">
 					{isPending ? <Clock className="size-3 text-warning" aria-label={t('tasks.pending-sync')} /> : null}
 					<DropdownMenu>

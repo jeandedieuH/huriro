@@ -82,6 +82,7 @@ export const NotificationPreferencesDto = Type.Object({
 	webPushEnabled: Type.Boolean(),
 	mobilePushEnabled: Type.Boolean(),
 	emailInstantEnabled: Type.Boolean(),
+	alertKeywords: Type.Array(Type.String()),
 	lastDigestSentAt: Type.Union([Type.String(), Type.Null()]),
 	updatedAt: Type.String()
 })
@@ -95,7 +96,8 @@ export const UpdateNotificationPreferencesBody = Type.Object({
 	timezone: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
 	webPushEnabled: Type.Optional(Type.Boolean()),
 	mobilePushEnabled: Type.Optional(Type.Boolean()),
-	emailInstantEnabled: Type.Optional(Type.Boolean())
+	emailInstantEnabled: Type.Optional(Type.Boolean()),
+	alertKeywords: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 80 }), { maxItems: 50 }))
 })
 export type UpdateNotificationPreferencesBody = Static<typeof UpdateNotificationPreferencesBody>
 

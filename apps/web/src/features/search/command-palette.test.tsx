@@ -1,7 +1,7 @@
 import { activateI18n } from '@huriro/i18n'
 import { SyncProvider } from '@huriro/sync-client'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPreviewWorkspace } from '@/lib/sync-bootstrap'
 import { expectNoViolations } from '@/lib/test-setup'
 import { useUiStore } from '@/stores/ui-store'
@@ -38,6 +38,15 @@ describe('CommandPalette', () => {
 
 			fireEvent.change(input, { target: { value: '> Toggle dark mode' } })
 			expect(screen.getByRole('option', { name: /Toggle dark mode/ })).toBeInTheDocument()
+
+			fireEvent.change(input, { target: { value: '> Force resync workspace' } })
+			const resyncOption = screen.getByRole('option', { name: /Force resync workspace/ })
+			expect(resyncOption).toBeInTheDocument()
+			const resyncSpy = vi.spyOn(boot.engine, 'resyncSnapshot').mockResolvedValue(true)
+			fireEvent.click(resyncOption)
+			await waitFor(() => {
+				expect(resyncSpy).toHaveBeenCalledTimes(1)
+			})
 		} finally {
 			boot.engine.dispose()
 		}

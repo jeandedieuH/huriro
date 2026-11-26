@@ -11,7 +11,7 @@
 
 import { type Sql, withSystem } from '@huriro/db'
 import type { AclResourceType } from '@huriro/domain'
-import { can } from '@huriro/domain'
+import { ADMIN_BYPASS_RANK, can } from '@huriro/domain'
 import { Elysia } from 'elysia'
 import { HttpError } from '../../api/error'
 import { log } from '../../api/observability'
@@ -88,6 +88,72 @@ const InvitationErrorMap = {
 	already_member: { status: 409, code: 'conflict' },
 	not_pending: { status: 410, code: 'not_found' }
 } as const
+
+/**
+ * Authorize ACL read/grant/revoke for a resource.
+ * Private `mail_inbox` resources cannot rely on `canManageResourceAcl` alone because workspace
+ * members hold `mail.assign`, which `can()` treats as a manage-level bypass for `mail_inbox`.
+ * Only the inbox owner, explicit `'manage'` ACL holders, or non-guest workspace admins (audited,
+ * respecting agent scope ceilings) may manage private mail inbox ACLs.
+ */
+async function authorizeResourceAclManagement(
+	tx: Parameters<typeof resolveResourceAcl>[0],
+	actor: Parameters<typeof canManageResourceAcl>[0],
+	workspaceId: string,
+	userId: string,
+	resourceType: AclResourceType,
+	resourceId: string,
+	auditAction: 'acl.admin_bypass.read' | 'acl.admin_bypass.grant' | 'acl.admin_bypass.revoke',
+	denyMessage: string
+): Promise<void> {
+	const acl = await resolveResourceAcl(tx, {
+		workspaceId,
+		resourceType,
+		resourceId,
+		userId
+	})
+	const decision = canManageResourceAcl(actor, resourceType, resourceId, acl)
+	if (decision.effect !== 'allow') {
+		throw new HttpError(403, 'insufficient_role', denyMessage)
+	}
+	let auditedBypass = Boolean(decision.auditedBypass)
+	if (resourceType === 'mail_inbox') {
+		const [inbox] = await tx<{ visibility: string; ownerUserId: string | null }[]>`
+			SELECT visibility, owner_user_id AS "ownerUserId"
+			FROM mail_inboxes
+			WHERE workspace_id = ${workspaceId} AND id = ${resourceId}
+		`
+		if (!inbox) {
+			throw new HttpError(404, 'not_found', 'Mail inbox not found')
+		}
+		if (inbox.visibility === 'private') {
+			if (actor.kind === 'agent' && actor.agentScopeCeiling && !actor.agentScopeCeiling.has('mail.assign')) {
+				throw new HttpError(403, 'insufficient_role', denyMessage)
+			}
+			const isActiveNonGuest = actor.membership === 'active' && actor.roleKey !== 'guest'
+			const isOwner = isActiveNonGuest && inbox.ownerUserId === actor.userId
+			const hasManageAcl = acl === 'manage' && actor.membership === 'active'
+			const canAdminBypass = isActiveNonGuest && actor.roleRank >= ADMIN_BYPASS_RANK
+			auditedBypass = false
+			if (!isOwner && !hasManageAcl) {
+				if (!canAdminBypass) {
+					throw new HttpError(403, 'resource_private', denyMessage)
+				}
+				auditedBypass = true
+			}
+		}
+	}
+	if (auditedBypass) {
+		await audit(tx, {
+			workspaceId,
+			actorType: actor.kind === 'agent' ? 'agent' : 'user',
+			actorId: actor.principalId,
+			action: auditAction,
+			targetType: resourceType,
+			targetId: resourceId
+		})
+	}
+}
 
 export function tenancyModule(
 	sql: Sql,
@@ -281,26 +347,16 @@ export function tenancyModule(
 			)
 			.get('/acl', { query: AclListQuery }, ({ query, workspaceCtx, inWorkspace }) =>
 				inWorkspace(async (tx, actor) => {
-					const acl = await resolveResourceAcl(tx, {
-						workspaceId: workspaceCtx.workspaceId,
-						resourceType: query.resourceType,
-						resourceId: query.resourceId,
-						userId: workspaceCtx.session.userId
-					})
-					const decision = canManageResourceAcl(actor, query.resourceType, query.resourceId, acl)
-					if (decision.effect !== 'allow') {
-						throw new HttpError(403, 'insufficient_role', 'Cannot inspect ACLs for this resource')
-					}
-					if (decision.auditedBypass) {
-						await audit(tx, {
-							workspaceId: workspaceCtx.workspaceId,
-							actorType: 'user',
-							actorId: workspaceCtx.session.userId,
-							action: 'acl.admin_bypass.read',
-							targetType: query.resourceType,
-							targetId: query.resourceId
-						})
-					}
+					await authorizeResourceAclManagement(
+						tx,
+						actor,
+						workspaceCtx.workspaceId,
+						workspaceCtx.session.userId,
+						query.resourceType,
+						query.resourceId,
+						'acl.admin_bypass.read',
+						'Cannot inspect ACLs for this resource'
+					)
 					return {
 						data: await listAclEntriesForResource(
 							tx,
@@ -313,26 +369,16 @@ export function tenancyModule(
 			)
 			.post('/acl', { body: GrantAclBody }, async ({ body, workspaceCtx, inWorkspace }) => {
 				const result = await inWorkspace(async (tx, actor) => {
-					const acl = await resolveResourceAcl(tx, {
-						workspaceId: workspaceCtx.workspaceId,
-						resourceType: body.resourceType,
-						resourceId: body.resourceId,
-						userId: workspaceCtx.session.userId
-					})
-					const decision = canManageResourceAcl(actor, body.resourceType, body.resourceId, acl)
-					if (decision.effect !== 'allow') {
-						throw new HttpError(403, 'insufficient_role', 'Cannot manage ACLs for this resource')
-					}
-					if (decision.auditedBypass) {
-						await audit(tx, {
-							workspaceId: workspaceCtx.workspaceId,
-							actorType: 'user',
-							actorId: workspaceCtx.session.userId,
-							action: 'acl.admin_bypass.grant',
-							targetType: body.resourceType,
-							targetId: body.resourceId
-						})
-					}
+					await authorizeResourceAclManagement(
+						tx,
+						actor,
+						workspaceCtx.workspaceId,
+						workspaceCtx.session.userId,
+						body.resourceType,
+						body.resourceId,
+						'acl.admin_bypass.grant',
+						'Cannot manage ACLs for this resource'
+					)
 					return grantAcl(tx, {
 						workspaceId: workspaceCtx.workspaceId,
 						resourceType: body.resourceType,
@@ -355,16 +401,16 @@ export function tenancyModule(
 						`
 					if (!target) throw new HttpError(404, 'not_found', 'ACL entry not found')
 
-					const acl = await resolveResourceAcl(tx, {
-						workspaceId: workspaceCtx.workspaceId,
-						resourceType: target.resourceType,
-						resourceId: target.resourceId,
-						userId: workspaceCtx.session.userId
-					})
-					const decision = canManageResourceAcl(actor, target.resourceType, target.resourceId, acl)
-					if (decision.effect !== 'allow') {
-						throw new HttpError(403, 'insufficient_role', 'Cannot revoke ACLs for this resource')
-					}
+					await authorizeResourceAclManagement(
+						tx,
+						actor,
+						workspaceCtx.workspaceId,
+						workspaceCtx.session.userId,
+						target.resourceType,
+						target.resourceId,
+						'acl.admin_bypass.revoke',
+						'Cannot revoke ACLs for this resource'
+					)
 					return revokeAcl(tx, {
 						workspaceId: workspaceCtx.workspaceId,
 						aclId: params.id,

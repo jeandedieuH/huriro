@@ -85,6 +85,7 @@ export async function listVisibleDocPages(
 			LEFT JOIN doc_state ds ON ds.workspace_id = dp.workspace_id AND ds.page_id = dp.id
 			LEFT JOIN doc_verifications dv ON dv.workspace_id = dp.workspace_id AND dv.page_id = dp.id
 			WHERE dp.workspace_id = ${args.workspaceId}
+				AND dp.is_database_row = false
 				${archiveFilter}
 				${templateFilter}
 				${parentFilter}
@@ -792,9 +793,10 @@ export async function insertCollabTicketRow(
 	args: {
 		readonly id: string
 		readonly workspaceId: string
-		readonly roomKind?: 'doc_page' | 'synced_block' | undefined
+		readonly roomKind?: 'doc_page' | 'synced_block' | 'mail_draft' | undefined
 		readonly pageId?: string | null | undefined
 		readonly syncedBlockId?: string | null | undefined
+		readonly mailDraftId?: string | null | undefined
 		readonly userId: string
 		readonly permission: 'read' | 'write'
 		readonly tokenHash: string
@@ -804,9 +806,10 @@ export async function insertCollabTicketRow(
 	const roomKind = args.roomKind ?? 'doc_page'
 	const pageId = roomKind === 'doc_page' ? (args.pageId ?? null) : null
 	const syncedBlockId = roomKind === 'synced_block' ? (args.syncedBlockId ?? null) : null
+	const mailDraftId = roomKind === 'mail_draft' ? (args.mailDraftId ?? null) : null
 	await tx`
 		INSERT INTO collab_tickets (
-			id, workspace_id, room_kind, page_id, synced_block_id, user_id, permission, token_hash, expires_at
+			id, workspace_id, room_kind, page_id, synced_block_id, mail_draft_id, user_id, permission, token_hash, expires_at
 		)
 		VALUES (
 			${args.id},
@@ -814,6 +817,7 @@ export async function insertCollabTicketRow(
 			${roomKind},
 			${pageId},
 			${syncedBlockId},
+			${mailDraftId},
 			${args.userId},
 			${args.permission},
 			${args.tokenHash},
@@ -827,9 +831,10 @@ export async function consumeCollabTicketRow(
 	args: {
 		readonly workspaceId: string
 		readonly ticketId: string
-		readonly roomKind?: 'doc_page' | 'synced_block' | undefined
+		readonly roomKind?: 'doc_page' | 'synced_block' | 'mail_draft' | undefined
 		readonly pageId?: string | null | undefined
 		readonly syncedBlockId?: string | null | undefined
+		readonly mailDraftId?: string | null | undefined
 		readonly userId: string
 		readonly tokenHash: string
 	}
@@ -838,7 +843,9 @@ export async function consumeCollabTicketRow(
 	const targetFilter =
 		roomKind === 'synced_block'
 			? tx`AND synced_block_id = ${args.syncedBlockId ?? ''}`
-			: tx`AND page_id = ${args.pageId ?? ''}`
+			: roomKind === 'mail_draft'
+				? tx`AND mail_draft_id = ${args.mailDraftId ?? ''}`
+				: tx`AND page_id = ${args.pageId ?? ''}`
 	const [row] = await tx<{ permission: 'read' | 'write' }[]>`
 		UPDATE collab_tickets
 		SET consumed_at = now()

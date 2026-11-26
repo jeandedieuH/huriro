@@ -36,6 +36,13 @@ export default function DocsTabScreen() {
 								<SearchField.ClearButton />
 							</SearchField.Group>
 						</SearchField>
+						<Pressable
+							onPress={() => router.push('/databases' as never)}
+							accessibilityRole="button"
+							className="mt-2 self-start rounded-full bg-accent px-3 py-1.5"
+						>
+							<Text className="font-medium text-accent-foreground text-xs">Databases</Text>
+						</Pressable>
 					</View>
 				</>
 			}

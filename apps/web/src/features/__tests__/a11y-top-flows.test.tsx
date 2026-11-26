@@ -226,14 +226,17 @@ describe('Top 20 GA flows accessibility audit (vitest-axe)', () => {
 			await expectNoViolations(r19.container)
 			r19.unmount()
 
-			// 20a. SyncStatusBanner + 20b. ShortcutsDialog
+			// 20a. SyncStatusBanner (offline/degraded state so banner DOM is mounted) + 20b. ShortcutsDialog
+			cloudBoot.engine.setOnline(false)
 			const r20a = render(
 				<SyncProvider engine={cloudBoot.engine}>
 					<SyncStatusBanner />
 				</SyncProvider>
 			)
+			expect(screen.getByText('Offline')).toBeInTheDocument()
 			await expectNoViolations(r20a.container)
 			r20a.unmount()
+			cloudBoot.engine.setOnline(true)
 
 			useUiStore.setState({ shortcutsDialogOpen: true })
 			const r20b = render(<ShortcutsDialog />)

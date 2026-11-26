@@ -1,9 +1,35 @@
-import { SEMANTIC_TONES, type SemanticTone } from '@huriro/editor'
+import type { DocPageDto } from '@huriro/contracts'
+import {
+	encodeProseMirrorAnchor,
+	markdownToProseMirrorJson,
+	SEMANTIC_TONES,
+	type SemanticTone
+} from '@huriro/editor'
 import { t } from '@huriro/i18n'
 import type { Editor } from '@tiptap/react'
-import { ArrowDown, ArrowUp, Copy, GripVertical, Link2, Plus, Trash2 } from 'lucide-react'
+import {
+	ArrowDown,
+	ArrowUp,
+	Copy,
+	FileInput,
+	GripVertical,
+	Link2,
+	MessageSquare,
+	Plus,
+	Sparkles,
+	Trash2
+} from 'lucide-react'
 import { type DragEvent, type RefObject, useEffect, useRef, useState } from 'react'
+import type * as Y from 'yjs'
 import { Button } from '@/components/ui/button'
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle
+} from '@/components/ui/dialog'
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -12,6 +38,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { useUiStore } from '@/stores/ui-store'
 
@@ -19,6 +46,16 @@ export interface BlockGutterMenuProps {
 	readonly editor: Editor | null
 	readonly canWrite: boolean
 	readonly containerRef?: RefObject<HTMLElement | null> | undefined
+	readonly ydoc?: Y.Doc | undefined
+	readonly onStartAnchoredComment?:
+		| ((anchor: ReturnType<typeof encodeProseMirrorAnchor>, selectedText: string) => void)
+		| undefined
+	readonly pages?: readonly DocPageDto[] | undefined
+	readonly currentPageId?: string | undefined
+	readonly onMoveBlockToPage?:
+		| ((targetPageId: string, nodes: readonly Record<string, unknown>[]) => Promise<void>)
+		| undefined
+	readonly onAskAi?: ((blockId: string, instruction: string) => Promise<string>) | undefined
 }
 
 interface HoveredBlock {
@@ -30,6 +67,9 @@ interface HoveredBlock {
 interface DropIndicator {
 	readonly top: number
 	readonly targetPos: number
+	readonly columnSide?: 'left' | 'right' | undefined
+	readonly railX?: number | undefined
+	readonly railHeight?: number | undefined
 }
 
 function getSelectedBlockId(editor: Editor): string | null {
@@ -85,8 +125,38 @@ function resolveBlockFromDom(editor: Editor, blockEl: HTMLElement): { pos: numbe
 	}
 }
 
-export function BlockGutterMenu({ editor, canWrite, containerRef }: BlockGutterMenuProps) {
+function findBlockPositionById(editor: Editor, blockId: string): { pos: number; nodeSize: number } | null {
+	let found: { pos: number; nodeSize: number } | null = null
+	editor.state.doc.descendants((node, pos) => {
+		if (found) return false
+		if (node.attrs['blockId'] === blockId) {
+			found = { pos, nodeSize: node.nodeSize }
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+export function BlockGutterMenu({
+	editor,
+	canWrite,
+	containerRef,
+	ydoc,
+	onStartAnchoredComment,
+	pages = [],
+	currentPageId,
+	onMoveBlockToPage,
+	onAskAi
+}: BlockGutterMenuProps) {
 	const [open, setOpen] = useState(false)
+	const [moveDialogOpen, setMoveDialogOpen] = useState(false)
+	const [movingToPage, setMovingToPage] = useState(false)
+	const [aiDialogOpen, setAiDialogOpen] = useState(false)
+	const [aiInstruction, setAiInstruction] = useState('')
+	const [aiResult, setAiResult] = useState('')
+	const [aiBusy, setAiBusy] = useState(false)
+	const aiBlockRef = useRef<{ blockId: string } | null>(null)
 	const [hoveredBlock, setHoveredBlock] = useState<HoveredBlock | null>(null)
 	const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null)
 	const dropIndicatorRef = useRef<DropIndicator | null>(null)
@@ -192,12 +262,25 @@ export function BlockGutterMenu({ editor, canWrite, containerRef }: BlockGutterM
 				const midY = rect.top + rect.height / 2
 				const placeBefore = ev.clientY < midY
 				const edgeY = placeBefore ? rect.top : rect.bottom
-				const dist = Math.abs(ev.clientY - edgeY)
+				const horizontalRatio = rect.width > 0 ? (ev.clientX - rect.left) / rect.width : 0.5
+				const columnSide = horizontalRatio <= 0.22 ? 'left' : horizontalRatio >= 0.78 ? 'right' : null
+				const dist = columnSide ? Math.abs(ev.clientY - midY) * 0.5 : Math.abs(ev.clientY - edgeY)
 				if (dist < minDist) {
 					minDist = dist
 					best = {
-						top: edgeY - containerRect.top,
-						targetPos: placeBefore ? resolved.pos : resolved.pos + resolved.nodeSize
+						top: columnSide ? rect.top - containerRect.top : edgeY - containerRect.top,
+						targetPos: columnSide
+							? resolved.pos
+							: placeBefore
+								? resolved.pos
+								: resolved.pos + resolved.nodeSize,
+						...(columnSide
+							? {
+									columnSide,
+									railX: (columnSide === 'left' ? rect.left : rect.right) - containerRect.left,
+									railHeight: rect.height
+								}
+							: {})
 					}
 				}
 			}
@@ -220,7 +303,15 @@ export function BlockGutterMenu({ editor, canWrite, containerRef }: BlockGutterM
 			ev.preventDefault()
 			const target = dropIndicatorRef.current
 			if (target) {
-				editor.chain().focus().moveBlock(source.fromPos, target.targetPos).run()
+				if (target.columnSide) {
+					editor
+						.chain()
+						.focus()
+						.moveBlockToColumnSide(source.fromPos, target.targetPos, target.columnSide)
+						.run()
+				} else {
+					editor.chain().focus().moveBlock(source.fromPos, target.targetPos).run()
+				}
 			}
 			clearDrag()
 		}
@@ -276,6 +367,96 @@ export function BlockGutterMenu({ editor, canWrite, containerRef }: BlockGutterM
 		pushToast({ tone: 'success', title: t('docs.link.copied') })
 	}
 
+	function handleStartBlockComment() {
+		if (!editor || !hoveredBlock) return
+		const from = Math.min(hoveredBlock.pos + 1, editor.state.doc.content.size)
+		const to = Math.max(
+			from,
+			Math.min(hoveredBlock.pos + hoveredBlock.nodeSize - 1, editor.state.doc.content.size)
+		)
+		const selectedText = editor.state.doc.textBetween(from, to, ' ')
+		const anchor = ydoc ? encodeProseMirrorAnchor(editor.state, ydoc, from, to) : null
+		onStartAnchoredComment?.(anchor, selectedText)
+		setOpen(false)
+	}
+
+	function handleOpenAskAi() {
+		if (!editor || !hoveredBlock || !onAskAi) return
+		const node = editor.state.doc.nodeAt(hoveredBlock.pos)
+		const blockId = typeof node?.attrs['blockId'] === 'string' ? String(node.attrs['blockId']) : null
+		if (!blockId) return
+		aiBlockRef.current = { blockId }
+		setAiInstruction('')
+		setAiResult('')
+		setAiDialogOpen(true)
+		setOpen(false)
+	}
+
+	async function handleAskAiSubmit() {
+		const blockId = aiBlockRef.current?.blockId
+		if (!blockId || !onAskAi || !aiInstruction.trim()) return
+		setAiBusy(true)
+		try {
+			const text = await onAskAi(blockId, aiInstruction.trim())
+			setAiResult(text)
+		} catch (error) {
+			pushToast({
+				tone: 'danger',
+				title: t('docs.block.ai-error'),
+				description: error instanceof Error ? error.message : undefined
+			})
+		} finally {
+			setAiBusy(false)
+		}
+	}
+
+	function handleInsertAiResult() {
+		const blockId = aiBlockRef.current?.blockId
+		if (!editor || !blockId || !aiResult.trim()) return
+		const target = findBlockPositionById(editor, blockId)
+		if (!target) return
+		const parsed = markdownToProseMirrorJson(aiResult, `ask-ai:${blockId}`)
+		const content = Array.isArray(parsed['content']) ? parsed['content'] : []
+		if (content.length === 0) return
+		editor
+			.chain()
+			.focus()
+			.insertContentAt(target.pos + target.nodeSize, content)
+			.run()
+		setAiDialogOpen(false)
+		pushToast({ tone: 'success', title: t('docs.block.ai-inserted') })
+	}
+
+	async function handleMoveToPage(targetPageId: string) {
+		if (!editor || !hoveredBlock || !onMoveBlockToPage) return
+		const node = editor.state.doc.nodeAt(hoveredBlock.pos)
+		if (!node) return
+		setMovingToPage(true)
+		try {
+			// Structured JSON keeps database embeds, colors, tables, media, and other
+			// custom attrs intact; the original block is removed only after append succeeds.
+			const blockId = typeof node.attrs['blockId'] === 'string' ? node.attrs['blockId'] : null
+			await onMoveBlockToPage(targetPageId, [node.toJSON() as Record<string, unknown>])
+			// Re-resolve after the network/sync await: collaborative edits may have moved
+			// the block, and deleting the current selection could remove the wrong node.
+			const fresh = blockId ? findBlockPositionById(editor, blockId) : null
+			const from = fresh?.pos ?? hoveredBlock.pos
+			const to = fresh ? fresh.pos + fresh.nodeSize : hoveredBlock.pos + hoveredBlock.nodeSize
+			editor.chain().focus().deleteRange({ from, to }).run()
+			setMoveDialogOpen(false)
+			setOpen(false)
+			pushToast({ tone: 'success', title: t('docs.block.move-page-success') })
+		} catch (error) {
+			pushToast({
+				tone: 'danger',
+				title: t('docs.block.move-page-error'),
+				description: error instanceof Error ? error.message : undefined
+			})
+		} finally {
+			setMovingToPage(false)
+		}
+	}
+
 	function handleDragStart(ev: DragEvent<HTMLButtonElement>) {
 		if (!editor || !hoveredBlock) return
 		const dom = editor.view.nodeDOM(hoveredBlock.pos)
@@ -308,6 +489,24 @@ export function BlockGutterMenu({ editor, canWrite, containerRef }: BlockGutterM
 				<Link2 className="size-3.5 text-muted-foreground" aria-hidden />
 				<span>{t('docs.block.copy-link')}</span>
 			</DropdownMenuItem>
+			<DropdownMenuItem disabled={!onStartAnchoredComment} onSelect={handleStartBlockComment}>
+				<MessageSquare className="size-3.5 text-muted-foreground" aria-hidden />
+				<span>{t('docs.block.comment')}</span>
+			</DropdownMenuItem>
+			<DropdownMenuItem
+				disabled={!onMoveBlockToPage || pages.filter((page) => page.id !== currentPageId).length === 0}
+				onSelect={() => {
+					focusHoveredBlock()
+					setMoveDialogOpen(true)
+				}}
+			>
+				<FileInput className="size-3.5 text-muted-foreground" aria-hidden />
+				<span>{t('docs.block.move-to-page')}</span>
+			</DropdownMenuItem>
+			<DropdownMenuItem disabled={!onAskAi} onSelect={handleOpenAskAi}>
+				<Sparkles className="size-3.5 text-muted-foreground" aria-hidden />
+				<span>{t('docs.block.ask-ai')}</span>
+			</DropdownMenuItem>
 
 			<DropdownMenuSeparator />
 			<DropdownMenuLabel>{t('docs.block.turn-into')}</DropdownMenuLabel>
@@ -334,6 +533,20 @@ export function BlockGutterMenu({ editor, canWrite, containerRef }: BlockGutterM
 			</DropdownMenuItem>
 			<DropdownMenuItem onSelect={() => editor.chain().focus().toggleBlockquote().run()}>
 				{t('docs.slash.quote')}
+			</DropdownMenuItem>
+			<DropdownMenuItem
+				onSelect={() =>
+					editor
+						.chain()
+						.focus()
+						.setToggle({ summary: t('docs.slash.toggle') })
+						.run()
+				}
+			>
+				{t('docs.slash.toggle')}
+			</DropdownMenuItem>
+			<DropdownMenuItem onSelect={() => editor.chain().focus().setCallout({ tone: 'info' }).run()}>
+				{t('docs.slash.callout')}
 			</DropdownMenuItem>
 			<DropdownMenuItem onSelect={() => editor.chain().focus().setToggleHeading({ level: 2 }).run()}>
 				{t('docs.slash.toggle-h2')}
@@ -425,11 +638,28 @@ export function BlockGutterMenu({ editor, canWrite, containerRef }: BlockGutterM
 			{dropIndicator ? (
 				<div
 					aria-hidden="true"
-					style={{ top: dropIndicator.top }}
-					className="pointer-events-none absolute inset-x-10 z-(--z-raised) flex items-center sm:inset-x-14"
+					style={
+						dropIndicator.columnSide
+							? {
+									top: dropIndicator.top,
+									left: dropIndicator.railX,
+									height: dropIndicator.railHeight
+								}
+							: { top: dropIndicator.top }
+					}
+					className={cn(
+						'pointer-events-none absolute z-(--z-raised)',
+						dropIndicator.columnSide
+							? 'w-0.5 rounded-full bg-primary'
+							: 'inset-x-10 flex items-center sm:inset-x-14'
+					)}
 				>
-					<span className="-ml-1 size-2 rounded-full bg-primary" />
-					<span className="h-0.5 flex-1 rounded-full bg-primary" />
+					{dropIndicator.columnSide ? null : (
+						<>
+							<span className="-ml-1 size-2 rounded-full bg-primary" />
+							<span className="h-0.5 flex-1 rounded-full bg-primary" />
+						</>
+					)}
 				</div>
 			) : null}
 
@@ -477,6 +707,69 @@ export function BlockGutterMenu({ editor, canWrite, containerRef }: BlockGutterM
 					{dropdownContent}
 				</DropdownMenu>
 			</div>
+			<Dialog open={aiDialogOpen} onOpenChange={setAiDialogOpen}>
+				<DialogContent className="max-w-xl">
+					<DialogHeader>
+						<DialogTitle>{t('docs.block.ask-ai')}</DialogTitle>
+						<DialogDescription>{t('docs.block.ai-description')}</DialogDescription>
+					</DialogHeader>
+					<Textarea
+						aria-label={t('docs.block.ai-instruction')}
+						value={aiInstruction}
+						onChange={(event) => setAiInstruction(event.target.value)}
+						placeholder={t('docs.block.ai-placeholder')}
+						rows={4}
+					/>
+					{aiResult ? (
+						<div className="max-h-64 overflow-y-auto rounded-lg border border-border/70 bg-muted/30 p-3">
+							<span className="mb-1 block font-medium text-xs">{t('docs.block.ai-result')}</span>
+							<pre className="whitespace-pre-wrap font-sans text-sm">{aiResult}</pre>
+						</div>
+					) : null}
+					<DialogFooter>
+						{aiResult ? (
+							<Button type="button" onClick={handleInsertAiResult}>
+								{t('docs.block.ai-insert')}
+							</Button>
+						) : (
+							<Button
+								type="button"
+								disabled={aiBusy || !aiInstruction.trim()}
+								onClick={() => void handleAskAiSubmit()}
+							>
+								{aiBusy ? t('docs.block.ai-running') : t('docs.block.ai-submit')}
+							</Button>
+						)}
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			<Dialog open={moveDialogOpen} onOpenChange={setMoveDialogOpen}>
+				<DialogContent className="max-w-md">
+					<DialogHeader>
+						<DialogTitle>{t('docs.block.move-to-page')}</DialogTitle>
+						<DialogDescription>{t('docs.block.move-page-description')}</DialogDescription>
+					</DialogHeader>
+					<div className="max-h-80 space-y-1 overflow-y-auto">
+						{pages
+							.filter((page) => page.id !== currentPageId && page.archivedAt === null)
+							.map((page) => (
+								<button
+									key={page.id}
+									type="button"
+									disabled={movingToPage}
+									onClick={() => void handleMoveToPage(page.id)}
+									className="w-full rounded-lg border border-border/70 px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-50"
+								>
+									<span className="block truncate font-medium">
+										{page.icon} {page.title}
+									</span>
+									<span className="block truncate text-muted-foreground text-xs">{page.slug}</span>
+								</button>
+							))}
+					</div>
+				</DialogContent>
+			</Dialog>
 		</>
 	)
 }

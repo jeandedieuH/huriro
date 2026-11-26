@@ -31,6 +31,6 @@ ADR-0004 fixed cursor correctness: a single commit-ordered `workspace_seq` count
 
 - Cold start is bounded by the core set, not workspace size — the `<= 1.5 s` budget and R24's 150 MB client-memory guardrail both hold at 50k-issue scale.
 - Lazy scopes are exactly the collections whose size is unbounded (database cells, issue history, link graph, chat feed), so memory stays flat as workspaces grow.
-- A single cursor keeps the ADR-0004 correctness proof valid; scopes change *which* rows ship, never *how* they're ordered.
+- A single cursor keeps the ADR-0004 correctness proof valid; scopes change _which_ rows ship, never _how_ they're ordered.
 - Revocation purge preserves the security invariant that losing access removes local copies — important now that far more data can be cached.
 - The CDC trigger turns "migrate to logical replication" into an observable threshold decision with a pre-decided path, instead of an emergency rewrite under load.

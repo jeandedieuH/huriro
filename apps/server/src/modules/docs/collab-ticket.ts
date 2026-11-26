@@ -46,7 +46,7 @@ export interface CollabTicketClaims {
 	readonly jti: string
 	readonly ws: string
 	readonly page: string
-	readonly kind?: 'doc_page' | 'synced_block' | undefined
+	readonly kind?: 'doc_page' | 'synced_block' | 'mail_draft' | undefined
 	readonly uid: string
 	readonly perm: 'read' | 'write'
 	readonly exp: number

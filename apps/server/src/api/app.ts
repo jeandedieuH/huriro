@@ -15,6 +15,7 @@ import { aiModule } from '../modules/ai'
 import { automationsModule } from '../modules/automations'
 import { type BillingModuleConfig, billingModule, billingWebhookPublicModule } from '../modules/billing'
 import { chatModule } from '../modules/chat'
+import { docDatabasesModule } from '../modules/doc-databases'
 import { type CollabDirectBridge, docsModule, docsPublicModule } from '../modules/docs'
 import { type BlobStorage, filesModule, MemoryBlobStorage } from '../modules/files'
 import { governanceModule } from '../modules/governance'
@@ -103,6 +104,7 @@ export function createApp(deps: AppDeps) {
 	}
 	const mailCfg: MailModuleConfig = {
 		rootSecret,
+		collabTicketSecret: deps.collabTicketSecret,
 		maxMessageBytes: deps.mail?.maxMessageBytes ?? 52_428_800,
 		undoSendSeconds: deps.mail?.undoSendSeconds ?? 10,
 		inboundDomain: deps.mail?.inboundDomain,
@@ -315,6 +317,7 @@ export function createApp(deps: AppDeps) {
 						...(deps.egressResolver ? { resolver: deps.egressResolver } : {})
 					})
 				)
+				.use(docDatabasesModule(sql, auth, pubsub))
 				.use(graphModule(sql, auth, pubsub))
 				.use(syncModule(sql, auth, pubsub))
 				.use(searchModule(sql, auth))

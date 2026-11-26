@@ -3,7 +3,7 @@ import { t } from '@huriro/i18n'
 import { useSyncEngine, useSyncStatus } from '@huriro/sync-client'
 import { useRouter } from 'expo-router'
 import { Alert, Avatar, Button, Card, Chip, Separator, Switch } from 'heroui-native'
-import { Bell, CreditCard, Database, LogOut, ShieldCheck } from 'lucide-react-native'
+import { Bell, CreditCard, Database, LogOut, RefreshCw, ShieldCheck } from 'lucide-react-native'
 import { useEffect, useState } from 'react'
 import { Platform, View } from 'react-native'
 import { Container } from '../../src/components/app/container'
@@ -162,6 +162,17 @@ export default function SettingsTabScreen() {
 					<Chip size="sm" variant="soft" color="default">
 						<Chip.Label>Workspace: {engine.workspaceId.slice(0, 8)}…</Chip.Label>
 					</Chip>
+					{syncStatus.online ? (
+						<Chip
+							size="sm"
+							variant="soft"
+							color="accent"
+							onPress={() => void engine.flushOutbox({ force: true }).then(() => engine.resyncSnapshot())}
+						>
+							<RefreshCw size={11} />
+							<Chip.Label>{t('sync.force-resync')}</Chip.Label>
+						</Chip>
+					) : null}
 				</View>
 			</Card>
 

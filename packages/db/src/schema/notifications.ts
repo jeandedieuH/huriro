@@ -104,7 +104,17 @@ export const notificationDeliveryLog = pgTable(
 		channel: text('channel', {
 			enum: ['in_app', 'email_digest', 'email_instant', 'web_push', 'mobile_push']
 		}).notNull(),
-		status: text('status', { enum: ['pending', 'sent', 'skipped_quiet_hours', 'failed'] }).notNull(),
+		status: text('status', {
+			enum: [
+				'pending',
+				'sent',
+				'skipped_quiet_hours',
+				'skipped_dnd',
+				'skipped_ooo',
+				'skipped_off_hours',
+				'failed'
+			]
+		}).notNull(),
 		dedupeKey: text('dedupe_key'),
 		detail: text('detail'),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()

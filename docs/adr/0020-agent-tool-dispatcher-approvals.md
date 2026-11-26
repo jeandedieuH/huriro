@@ -7,8 +7,8 @@
 ## Context
 
 Agent credentials (ADR-0019) now reach two surfaces — REST `/api/v1/agent/*`
-and, in stage 3, `/mcp`. Both must expose the *same* capability set with the
-*same* authorization and audit behavior. Risk tiers (R0–R3) require two
+and, in stage 3, `/mcp`. Both must expose the _same_ capability set with the
+_same_ authorization and audit behavior. Risk tiers (R0–R3) require two
 different escalation paths: cheap in-client confirmation for reversible
 writes, and out-of-band human approval for high-impact writes. Undo must
 exist for the reversible ones. We needed one choke point where all of this
@@ -18,7 +18,7 @@ applies regardless of transport.
 
 ### One registry, specs only
 
-`packages/agent-tools` holds a single `TOOLS` registry of tool *specs* —
+`packages/agent-tools` holds a single `TOOLS` registry of tool _specs_ —
 name, model-facing description, TypeBox input/output schemas, required
 `AgentScope`, base `RiskTier`, read/write kind, `untrustedFields`,
 `idempotent`/`undoable` flags, optional `tierForInput` (input-dependent
@@ -45,7 +45,7 @@ separate short tx so they survive handler rollback). Handler calls module
 
 ### Why the server executes stored approval args, as the agent
 
-For R2 the dispatcher validates and *hashes* the input (canonical JSON
+For R2 the dispatcher validates and _hashes_ the input (canonical JSON
 SHA-256) and stores it in `agent_approvals` — no domain row is written at
 request time. On human approval, the server executes the **stored** args
 through the same dispatcher, with the credential re-derived from the
@@ -66,7 +66,7 @@ through the same dispatcher, with the credential re-derived from the
 ### Why REST R1 is "pre-approved" while MCP R1 elicits
 
 REST agent calls are made by a human running the `huriro` CLI or a script
-they deliberately wrote — the act of invoking the command *is* the
+they deliberately wrote — the act of invoking the command _is_ the
 confirmation, and pausing for a second confirmation provides no security
 value while breaking non-interactive use. MCP calls are proposed by a
 model on the user's behalf, so the client must round-trip a confirmation

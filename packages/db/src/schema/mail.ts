@@ -2,6 +2,7 @@
 import { sql } from 'drizzle-orm'
 import {
 	boolean,
+	customType,
 	foreignKey,
 	integer,
 	jsonb,
@@ -28,6 +29,10 @@ export const mailInboxes = pgTable(
 		name: text('name').notNull(),
 		position: text('position').notNull(),
 		settings: jsonb('settings').notNull().default({}),
+		visibility: text('visibility', { enum: ['shared', 'private'] })
+			.notNull()
+			.default('shared'),
+		ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
 		createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -122,6 +127,16 @@ export const mailConversations = pgTable(
 		lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull(),
 		firstReplyAt: timestamp('first_reply_at', { withTimezone: true }),
 		customerEmail: text('customer_email'), // citext in SQL
+		contactId: uuid('contact_id'),
+		followUpAt: timestamp('follow_up_at', { withTimezone: true }),
+		followUpCondition: text('follow_up_condition', { enum: ['if_no_reply', 'always'] }),
+		followUpCompletedAt: timestamp('follow_up_completed_at', { withTimezone: true }),
+		slaNextDueAt: timestamp('sla_next_due_at', { withTimezone: true }),
+		slaBreachedAt: timestamp('sla_breached_at', { withTimezone: true }),
+		slaBreachCount: integer('sla_breach_count').notNull().default(0),
+		priority: text('priority', { enum: ['low', 'normal', 'high', 'urgent'] })
+			.notNull()
+			.default('normal'),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 		version: integer('version').notNull().default(1)
@@ -274,6 +289,23 @@ export const mailDrafts = pgTable(
 		sentMessageId: uuid('sent_message_id'),
 		lockedBy: uuid('locked_by').references(() => users.id, { onDelete: 'set null' }),
 		lockedUntil: timestamp('locked_until', { withTimezone: true }),
+		collabEnabled: boolean('collab_enabled').notNull().default(false),
+		draftState: customType<{ data: Uint8Array; driverData: Buffer }>({ dataType: () => 'bytea' })(
+			'draft_state'
+		),
+		draftStateVector: customType<{ data: Uint8Array; driverData: Buffer }>({ dataType: () => 'bytea' })(
+			'draft_state_vector'
+		),
+		leaseNodeId: text('lease_node_id'),
+		leaseEpoch: integer('lease_epoch').notNull().default(0),
+		leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+		reviewStatus: text('review_status', { enum: ['none', 'requested', 'approved', 'changes_requested'] })
+			.notNull()
+			.default('none'),
+		reviewerId: uuid('reviewer_id').references(() => users.id, { onDelete: 'set null' }),
+		reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+		reviewNote: text('review_note'),
+		metadata: jsonb('metadata').notNull().default({}),
 		version: integer('version').notNull().default(1),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
@@ -377,6 +409,233 @@ export const mailMessageAttachments = pgTable(
 			columns: [t.workspaceId, t.fileId],
 			foreignColumns: [files.workspaceId, files.id],
 			name: 'fk_mail_message_attachments_file'
+		}).onDelete('cascade')
+	]
+)
+
+// ---------- M11 Front/Superhuman-parity expansion (migration 0027) ----------
+
+export const contactOrganizations = pgTable(
+	'contact_organizations',
+	{
+		id: uuid('id').primaryKey().default(sql`uuidv7()`),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		domain: text('domain'), // citext in SQL
+		tier: text('tier', { enum: ['standard', 'vip', 'strategic'] })
+			.notNull()
+			.default('standard'),
+		notes: text('notes').notNull().default(''),
+		metadata: jsonb('metadata').notNull().default({}),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		version: integer('version').notNull().default(1)
+	},
+	(t) => [unique('uq_contact_orgs_ws_id').on(t.workspaceId, t.id)]
+)
+
+export const contacts = pgTable(
+	'contacts',
+	{
+		id: uuid('id').primaryKey().default(sql`uuidv7()`),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		organizationId: uuid('organization_id'),
+		email: text('email').notNull(), // citext in SQL
+		displayName: text('display_name'),
+		title: text('title'),
+		phone: text('phone'),
+		vipTier: text('vip_tier', { enum: ['standard', 'vip', 'strategic'] })
+			.notNull()
+			.default('standard'),
+		notes: text('notes').notNull().default(''),
+		metadata: jsonb('metadata').notNull().default({}),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		version: integer('version').notNull().default(1)
+	},
+	(t) => [
+		unique('uq_contacts_ws_id').on(t.workspaceId, t.id),
+		unique('uq_contacts_email').on(t.workspaceId, t.email),
+		foreignKey({
+			columns: [t.workspaceId, t.organizationId],
+			foreignColumns: [contactOrganizations.workspaceId, contactOrganizations.id],
+			name: 'fk_contacts_org'
+		}).onDelete('set null')
+	]
+)
+
+export const mailTags = pgTable(
+	'mail_tags',
+	{
+		id: uuid('id').primaryKey().default(sql`uuidv7()`),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		inboxId: uuid('inbox_id'),
+		name: text('name').notNull(),
+		color: text('color').notNull().default('neutral'),
+		createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		version: integer('version').notNull().default(1)
+	},
+	(t) => [
+		unique('uq_mail_tags_ws_id').on(t.workspaceId, t.id),
+		foreignKey({
+			columns: [t.workspaceId, t.inboxId],
+			foreignColumns: [mailInboxes.workspaceId, mailInboxes.id],
+			name: 'fk_mail_tags_inbox'
+		}).onDelete('cascade')
+	]
+)
+
+export const mailConversationTags = pgTable(
+	'mail_conversation_tags',
+	{
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		conversationId: uuid('conversation_id').notNull(),
+		tagId: uuid('tag_id').notNull(),
+		createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		primaryKey({ columns: [t.workspaceId, t.conversationId, t.tagId] }),
+		foreignKey({
+			columns: [t.workspaceId, t.conversationId],
+			foreignColumns: [mailConversations.workspaceId, mailConversations.id],
+			name: 'fk_mail_conv_tags_conv'
+		}).onDelete('cascade'),
+		foreignKey({
+			columns: [t.workspaceId, t.tagId],
+			foreignColumns: [mailTags.workspaceId, mailTags.id],
+			name: 'fk_mail_conv_tags_tag'
+		}).onDelete('cascade')
+	]
+)
+
+export const mailTemplates = pgTable(
+	'mail_templates',
+	{
+		id: uuid('id').primaryKey().default(sql`uuidv7()`),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		inboxId: uuid('inbox_id'),
+		ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		shortcut: text('shortcut').notNull(),
+		body: jsonb('body').notNull().default({}),
+		bodyHtml: text('body_html'),
+		bodyText: text('body_text').notNull(),
+		attachmentFileIds: uuid('attachment_file_ids').array().notNull().default([]),
+		mergeVariables: jsonb('merge_variables').notNull().default([]),
+		createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		version: integer('version').notNull().default(1)
+	},
+	(t) => [
+		unique('uq_mail_templates_ws_id').on(t.workspaceId, t.id),
+		foreignKey({
+			columns: [t.workspaceId, t.inboxId],
+			foreignColumns: [mailInboxes.workspaceId, mailInboxes.id],
+			name: 'fk_mail_templates_inbox'
+		}).onDelete('cascade')
+	]
+)
+
+export const mailMacros = pgTable(
+	'mail_macros',
+	{
+		id: uuid('id').primaryKey().default(sql`uuidv7()`),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		inboxId: uuid('inbox_id'),
+		name: text('name').notNull(),
+		shortcut: text('shortcut'),
+		steps: jsonb('steps').notNull(),
+		createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		version: integer('version').notNull().default(1)
+	},
+	(t) => [
+		unique('uq_mail_macros_ws_id').on(t.workspaceId, t.id),
+		foreignKey({
+			columns: [t.workspaceId, t.inboxId],
+			foreignColumns: [mailInboxes.workspaceId, mailInboxes.id],
+			name: 'fk_mail_macros_inbox'
+		}).onDelete('cascade')
+	]
+)
+
+export const mailSlaPolicies = pgTable(
+	'mail_sla_policies',
+	{
+		id: uuid('id').primaryKey().default(sql`uuidv7()`),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		inboxId: uuid('inbox_id'),
+		tagId: uuid('tag_id'),
+		name: text('name').notNull(),
+		firstReplyMinutes: integer('first_reply_minutes'),
+		nextReplyMinutes: integer('next_reply_minutes'),
+		resolutionMinutes: integer('resolution_minutes'),
+		businessHours: jsonb('business_hours').notNull().default({}),
+		active: boolean('active').notNull().default(true),
+		createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		version: integer('version').notNull().default(1)
+	},
+	(t) => [
+		unique('uq_mail_sla_ws_id').on(t.workspaceId, t.id),
+		foreignKey({
+			columns: [t.workspaceId, t.inboxId],
+			foreignColumns: [mailInboxes.workspaceId, mailInboxes.id],
+			name: 'fk_mail_sla_inbox'
+		}).onDelete('cascade'),
+		foreignKey({
+			columns: [t.workspaceId, t.tagId],
+			foreignColumns: [mailTags.workspaceId, mailTags.id],
+			name: 'fk_mail_sla_tag'
+		}).onDelete('cascade')
+	]
+)
+
+export const mailInboxRoutingState = pgTable(
+	'mail_inbox_routing_state',
+	{
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		inboxId: uuid('inbox_id').notNull(),
+		enabled: boolean('enabled').notNull().default(false),
+		lastAssignedUserId: uuid('last_assigned_user_id').references(() => users.id, { onDelete: 'set null' }),
+		maxOpenCap: integer('max_open_cap').notNull().default(10),
+		requireOnline: boolean('require_online').notNull().default(false),
+		respectDnd: boolean('respect_dnd').notNull().default(true),
+		respectWorkingHours: boolean('respect_working_hours').notNull().default(false),
+		respectOoo: boolean('respect_ooo').notNull().default(true),
+		useOooDelegate: boolean('use_ooo_delegate').notNull().default(true),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		version: integer('version').notNull().default(1)
+	},
+	(t) => [
+		primaryKey({ columns: [t.workspaceId, t.inboxId] }),
+		foreignKey({
+			columns: [t.workspaceId, t.inboxId],
+			foreignColumns: [mailInboxes.workspaceId, mailInboxes.id],
+			name: 'fk_mail_routing_inbox'
 		}).onDelete('cascade')
 	]
 )

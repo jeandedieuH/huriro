@@ -14,6 +14,8 @@ export {
 export { CommentAnchorMark } from './comment-anchor'
 export { EmbedExtension, type EmbedKind } from './embed'
 export { EntityMentionExtension, type MentionEntityType } from './entity-mention'
+export type { LinkedViewSourceType } from './linked-view-block'
+export { LinkedViewBlockExtension } from './linked-view-block'
 export { MathBlockExtension, MathInlineExtension } from './math'
 export { MermaidBlockExtension, type MermaidViewMode } from './mermaid-block'
 export { ReferenceBlockExtension, type ReferenceEntityType } from './reference-block'

@@ -1,4 +1,6 @@
 import {
+	AiDocBlockAssistRequest,
+	AiMailAssistRequest,
 	AiProviderUpsert,
 	AiSemanticSearchQuery,
 	AiSettingsPatch,
@@ -6,6 +8,13 @@ import {
 } from '@huriro/contracts'
 import { Type } from 'typebox'
 
-export { AiProviderUpsert, AiSemanticSearchQuery, AiSettingsPatch, AiSummarizeRequest }
+export {
+	AiDocBlockAssistRequest,
+	AiMailAssistRequest,
+	AiProviderUpsert,
+	AiSemanticSearchQuery,
+	AiSettingsPatch,
+	AiSummarizeRequest
+}
 
 export const AiProviderIdParam = Type.Object({ id: Type.String({ format: 'uuid' }) })

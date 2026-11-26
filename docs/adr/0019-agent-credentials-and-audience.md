@@ -20,13 +20,13 @@ REST agent surface for CLI/API callers. The design requires:
 ## Decision
 
 **One authorization server, two protected resources** on the Better Auth
-OAuth provider (`mcp()` plugin — which *is* the oauth provider configured for
+OAuth provider (`mcp()` plugin — which _is_ the oauth provider configured for
 MCP; a second `oauthProvider()` cannot coexist):
 
-| Audience                          | Surface                | Minted for                          |
-| --------------------------------- | ---------------------- | ----------------------------------- |
-| `${HURIRO_URL}/mcp`               | `/mcp` (stage 3)       | MCP clients (CIMD-registered)       |
-| `${HURIRO_URL}/api/v1/agent`      | `/api/v1/agent/*` (s2) | `huriro` CLI + admin-linked clients |
+| Audience                     | Surface                | Minted for                          |
+| ---------------------------- | ---------------------- | ----------------------------------- |
+| `${HURIRO_URL}/mcp`          | `/mcp` (stage 3)       | MCP clients (CIMD-registered)       |
+| `${HURIRO_URL}/api/v1/agent` | `/api/v1/agent/*` (s2) | `huriro` CLI + admin-linked clients |
 
 - `mcp({ resource, resources: [{identifier: agent-rest}] , scopes, refreshTokenReuseInterval: 0, allowDynamicClientRegistration: false, enforcePerClientResources: true })`.
   `enforcePerClientResources` makes `oauth_client_resource` rows authoritative —

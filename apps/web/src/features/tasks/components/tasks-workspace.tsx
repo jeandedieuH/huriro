@@ -1,9 +1,20 @@
-import { evaluateFilter, type FilterExpr } from '@huriro/domain'
+import type { ProjectStatusDto } from '@huriro/contracts'
+import { evaluateFilter, type FilterExpr, generateNKeysBetween } from '@huriro/domain'
 import { t } from '@huriro/i18n'
-import { isTier2Issue, useCollectionItems, useSyncEngine, useSyncStatus } from '@huriro/sync-client'
+import {
+	generateUuidV7,
+	isTier2Issue,
+	useCollectionItems,
+	useSyncEngine,
+	useSyncStatus
+} from '@huriro/sync-client'
+import { CalendarRange, Plus } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
 import { useKeyboardShortcuts } from '@/features/keyboard/use-keyboard-shortcuts'
 import type { TaskApiBridge, WorkspaceMemberSummary } from '@/lib/sync-bootstrap'
+import { useWorkspace } from '@/lib/workspace'
 import { type TasksPreset, useUiStore } from '@/stores/ui-store'
 import { BulkActionBar } from './bulk-action-bar'
 import { ClosedHistorySection } from './closed-history-section'
@@ -11,6 +22,7 @@ import { CreateProjectDialog } from './create-project-dialog'
 import { CreateTaskDialog } from './create-task-dialog'
 import { CycleStrip } from './cycle-strip'
 import { FilterBar } from './filter-bar'
+import { ProjectSettingsDialog } from './project-settings-dialog'
 import { IssueBoardView } from './task-board-view'
 import { IssueDetailPanel } from './task-detail-panel'
 import { IssueListView } from './task-list-view'
@@ -34,6 +46,20 @@ function comparePos(a: string, b: string): number {
 	return a < b ? -1 : a > b ? 1 : 0
 }
 
+function filterExprReferencesField(expr: FilterExpr, field: string): boolean {
+	if (expr.kind === 'pred') return expr.field === field
+	if (expr.kind === 'not') return filterExprReferencesField(expr.arg, field)
+	return expr.args.some((arg) => filterExprReferencesField(arg, field))
+}
+
+const DEFAULT_PREVIEW_STATUS_TEMPLATES = [
+	{ name: 'Backlog', category: 'backlog', color: 'neutral', isDefault: false },
+	{ name: 'Todo', category: 'unstarted', color: 'info', isDefault: true },
+	{ name: 'In Progress', category: 'started', color: 'warning', isDefault: false },
+	{ name: 'Done', category: 'completed', color: 'success', isDefault: false },
+	{ name: 'Canceled', category: 'cancelled', color: 'danger', isDefault: false }
+] as const
+
 const PRESET_LABELS: Record<
 	TasksPreset,
 	| 'tasks.all-issues'
@@ -56,6 +82,7 @@ const PRESET_LABELS: Record<
 }
 
 export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
+	const { isPreview } = useWorkspace()
 	const engine = useSyncEngine()
 	const _syncStatus = useSyncStatus()
 
@@ -83,6 +110,8 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 
 	const [members, setMembers] = useState<WorkspaceMemberSummary[]>([])
 	const [boardAnnouncement, setBoardAnnouncement] = useState('')
+	const projectSettingsOpen = useUiStore((s) => s.projectSettingsOpen)
+	const setProjectSettingsOpen = useUiStore((s) => s.setProjectSettingsOpen)
 
 	useEffect(() => {
 		let cancelled = false
@@ -101,6 +130,7 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 	const membersById = useMemo(() => new Map(members.map((m) => [m.userId, m])), [members])
 	const currentMemberRole = membersById.get(currentUserId)?.role
 	const canManageInitiatives = currentMemberRole === 'owner' || currentMemberRole === 'admin'
+	const canManageActiveProject = isPreview || canManageInitiatives
 	const canWriteProjects = currentMemberRole !== undefined && currentMemberRole !== 'guest'
 
 	const visibleStatuses = useMemo(() => {
@@ -128,6 +158,8 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 
 		const statusCategoryOf = (statusId: string) => statusesById.get(statusId)?.category
 		const exprCtx = { now: new Date(), statusCategoryOf }
+		const includesTriageFilter =
+			filterExpr !== null && filterExprReferencesField(filterExpr as FilterExpr, 'triage_status')
 
 		return issues
 			.filter((issue) => {
@@ -143,6 +175,16 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 				if (tasksPreset === 'trash') {
 					if (issue.deletedAt === null) return false
 				} else if (issue.deletedAt !== null) {
+					return false
+				}
+
+				// Triage requests live exclusively in TriageInbox until accepted,
+				// unless the user explicitly queries `triage_status` or inspects Trash.
+				if (
+					tasksPreset !== 'trash' &&
+					!includesTriageFilter &&
+					(issue.triageStatus === 'pending' || issue.triageStatus === 'snoozed')
+				) {
 					return false
 				}
 
@@ -275,10 +317,16 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 
 	const selectedIssue = selectedIssueId ? engine.collections.issues.get(selectedIssueId) : undefined
 
+	const activeProject = useMemo(
+		() => (activeProjectId ? (projects.find((p) => p.id === activeProjectId) ?? null) : null),
+		[activeProjectId, projects]
+	)
+	const canOpenProjectSettings = activeProject !== null && (isPreview || canWriteProjects)
+
 	const projectLabel = useMemo(() => {
 		if (!activeProjectId) return t('tasks.sidebar.all-projects')
-		return projects.find((p) => p.id === activeProjectId)?.name ?? t('tasks.sidebar.all-projects')
-	}, [activeProjectId, projects])
+		return activeProject?.name ?? t('tasks.sidebar.all-projects')
+	}, [activeProject, activeProjectId])
 
 	const triageProjectId = useMemo(() => {
 		if (activeProjectId) {
@@ -327,6 +375,7 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 					members={members}
 					projectLabel={projectLabel}
 					viewLabel={viewLabel}
+					onOpenProjectSettings={canOpenProjectSettings ? () => setProjectSettingsOpen(true) : undefined}
 					onSaveView={async (name) => {
 						// Saved views v2 (§3.4): persist the compound filter AST and the
 						// display options alongside the legacy flat filters — a non-null
@@ -361,9 +410,41 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 
 				{activeCycle ? <CycleStrip cycle={activeCycle} cycleIssues={cycleIssues} /> : null}
 
+				{activeProject?.cycleEnabled && !activeCycle && tasksPreset !== 'triage' ? (
+					<div className="flex items-center justify-between gap-3 border-b border-border bg-muted/20 px-4 py-2 text-xs">
+						<div className="flex items-center gap-2 text-muted-foreground">
+							<CalendarRange className="size-3.5 shrink-0" aria-hidden />
+							<span>{t('tasks.cycle.no-active')}</span>
+						</div>
+						{canManageActiveProject ? (
+							<Button
+								type="button"
+								size="sm"
+								tone="outline"
+								className="h-7 gap-1 px-2 text-xs"
+								onClick={() => setProjectSettingsOpen(true)}
+							>
+								<Plus className="size-3" aria-hidden />
+								{t('tasks.cycle.start-cycle')}
+							</Button>
+						) : null}
+					</div>
+				) : null}
+
 				<div className="min-h-0 flex-1 overflow-y-auto">
 					{tasksPreset === 'triage' && triageProjectId ? (
 						<TriageInbox key={triageProjectId} projectId={triageProjectId} />
+					) : null}
+
+					{/* Defense-in-depth behind the sidebar nav gating: the preset can
+					    outlive the last triage-enabled project (disabled in another tab,
+					    or a stale deep link) — never render a blank pane. */}
+					{tasksPreset === 'triage' && !triageProjectId ? (
+						<EmptyState
+							className="m-6"
+							title={t('tasks.triage.no-project.title')}
+							hint={t('tasks.triage.no-project.hint')}
+						/>
 					) : null}
 
 					{tasksPreset !== 'triage' && tasksLayout === 'list' ? (
@@ -471,6 +552,8 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 					allIssues={issues}
 					statuses={statuses}
 					labels={labels}
+					cycles={cycles}
+					milestones={milestones}
 					members={members}
 					api={api}
 					onUpdateIssue={(id, patch) => engine.updateIssue(id, patch)}
@@ -502,8 +585,21 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 			<CreateTaskDialog
 				projects={projects}
 				statuses={statuses}
+				members={members}
+				labels={labels}
+				cycles={cycles}
+				milestones={milestones}
+				issues={issues}
+				defaultTriage={tasksPreset === 'triage'}
 				onSubmit={async (input) => {
 					const created = await engine.createIssue(input)
+					if (created.triageStatus === 'pending') {
+						pushToast({
+							title: t('tasks.create.sent-to-triage', { identifier: created.identifier }),
+							tone: 'success'
+						})
+						return
+					}
 					selectIssue(created.id, false)
 				}}
 			/>
@@ -511,7 +607,43 @@ export function TasksWorkspace({ api, currentUserId }: TasksWorkspaceProps) {
 			<CreateProjectDialog
 				onSubmit={async (input) => {
 					const created = await engine.createProject(input)
+					if (
+						isPreview &&
+						!engine.collections.projectStatuses.toArray.some((s) => s.projectId === created.id)
+					) {
+						// Mirror server default workflow columns locally so preview projects
+						// immediately support status assignment and board columns offline.
+						const keys = generateNKeysBetween(null, null, DEFAULT_PREVIEW_STATUS_TEMPLATES.length)
+						const seededStatuses: ProjectStatusDto[] = DEFAULT_PREVIEW_STATUS_TEMPLATES.map((tpl, idx) => ({
+							id: generateUuidV7(),
+							workspaceId: created.workspaceId,
+							projectId: created.id,
+							name: tpl.name,
+							category: tpl.category,
+							position: keys[idx] ?? String(idx),
+							color: tpl.color,
+							isDefault: tpl.isDefault,
+							createdAt: created.createdAt,
+							updatedAt: created.updatedAt,
+							version: 1
+						}))
+						engine.collections.statusesManaged.upsertMany(seededStatuses)
+					}
 					setActiveProjectId(created.id)
+				}}
+			/>
+
+			<ProjectSettingsDialog
+				open={projectSettingsOpen}
+				project={activeProject}
+				cycles={cycles}
+				canManage={canManageActiveProject}
+				onOpenChange={setProjectSettingsOpen}
+				onSave={(projectId, patch) => engine.updateProject(projectId, patch)}
+				onCreateCycle={async (input) => {
+					const created = await api.createCycle(input)
+					void engine.syncNow()
+					return created
 				}}
 			/>
 		</div>

@@ -11,10 +11,15 @@ import type {
 	AddTeamspaceMemberBody,
 	AgentApprovalDto,
 	AgentPrincipalDto,
+	AiDocBlockAssistRequest,
+	AiDocBlockAssistResponse,
+	AiMailAssistRequest,
+	AiMailAssistResponse,
 	AiProviderDto,
 	AiProviderUpsert,
 	AiSettingsPatch,
 	AiSettingsResponse,
+	ApplyMailMacroBody,
 	BillingPortalDto,
 	BillingSummaryResponse,
 	BookmarkMetadataDto,
@@ -22,16 +27,39 @@ import type {
 	BulkIssuesResponse,
 	BulkRestoreBody,
 	ChannelChangesResponse,
+	ChatBookmarkBody,
+	ChatCanvasDto,
+	ChatChannelBookmarkDto,
 	ChatChannelDto,
 	ChatChannelMemberDto,
+	ChatDraftBody,
+	ChatDraftDto,
+	ChatHuddleJoinDto,
+	ChatHuddleSessionDto,
 	ChatMessageDto,
+	ChatPinnedMessageDto,
+	ChatPollDto,
+	ChatSavedItemBody,
+	ChatSavedItemDto,
+	ChatScheduledMessageDto,
+	ChatScheduleMessageBody,
+	ChatSidebarSectionBody,
+	ChatSidebarSectionDto,
+	ChatSidebarSectionItemDto,
 	ChatThreadSummaryDto,
 	CheckoutSessionDto,
 	CollabTicketResponse,
+	CompleteDraftReviewBody,
+	ContactBody,
+	ContactDto,
+	ContactOrganizationBody,
+	ContactOrganizationDto,
+	ConversationTagsBody,
 	ConvertToIssueBody,
 	CreateBillingPortalBody,
 	CreateChannelBody,
 	CreateCheckoutBody,
+	CreateCycleBody,
 	CreateDmBody,
 	CreateDocCommentBody,
 	CreateEntityLinkBody,
@@ -41,12 +69,18 @@ import type {
 	CreateMailIdentityBody,
 	CreateMailInboxBody,
 	CreateMailNoteBody,
+	CreateOutboundConversationBody,
+	CreatePollBody,
 	CreateSyncedBlockBody,
 	CreateTeamspaceBody,
+	CreateUserGroupBody,
 	CreateWebhookBody,
 	CreateWebhookResponse,
 	CreateWebPushSubscriptionBody,
+	CreateWorkspaceEmojiBody,
 	CycleDailySnapshotDto,
+	CycleDto,
+	DocAppendBody,
 	DocButtonTriggerBody,
 	DocCommentDto,
 	DocExportHtmlResponse,
@@ -66,7 +100,11 @@ import type {
 	EraseAccountBody,
 	EraseAccountResponse,
 	FileDto,
+	ForwardConversationBody,
+	ForwardMessageBody,
 	GithubInstallationDto,
+	ImportDocDatabaseRowsBody,
+	ImportDocDatabaseRowsResultDto,
 	ImportDryRunBody,
 	ImportDryRunPreviewDto,
 	ImportExecuteBody,
@@ -79,28 +117,51 @@ import type {
 	LinkConversationBody,
 	ListMessagesResponse,
 	MailAccountDto,
+	MailBulkTriageBody,
+	MailBulkTriageResultDto,
 	MailConversationDto,
 	MailConversationStatus,
 	MailDraftDto,
 	MailIdentityDto,
 	MailInboxDto,
+	MailInboxSettingsBody,
+	MailMacroBody,
+	MailMacroDto,
 	MailNoteDto,
+	MailOutboundResultDto,
+	MailRouteResultDto,
+	MailRoutingConfigBody,
+	MailRoutingConfigDto,
+	MailSlaAnalyticsDto,
+	MailSlaPolicyBody,
+	MailSlaPolicyDto,
+	MailSplitResultDto,
+	MailTagBody,
+	MailTagDto,
+	MailTemplateBody,
+	MailTemplateDto,
 	MailTimelineDto,
 	NotificationPreferencesDto,
 	PeekCardDto,
 	ProposeDocSuggestionBody,
 	QueryIssuesBody,
 	RelationKind,
+	RenderedMailTemplateDto,
+	RenderMailTemplateBody,
+	RequestDraftReviewBody,
 	SearchHitDto,
 	SendMailDraftBody,
 	SendMessageBody,
 	SendTestEmailResponse,
 	SetDocVerificationBody,
+	SplitConversationBody,
 	TeamspaceDto,
 	TeamspaceMemberDto,
 	TriageActionBody,
 	TriageSuggestionsDto,
 	UpdateChannelBody,
+	UpdateChatSavedItemBody,
+	UpdateChatSidebarSectionBody,
 	UpdateConversationBody,
 	UpdateDocCommentBody,
 	UpdateGithubInstallationBody,
@@ -109,12 +170,17 @@ import type {
 	UpdateNotificationPreferencesBody,
 	UpdateSyncedBlockBody,
 	UpdateTeamspaceBody,
+	UpdateUserStatusBody,
 	UpdateWebhookBody,
 	UpsertDocPublicShareBody,
 	UpsertMailDraftBody,
+	UserGroupDto,
+	UserWorkspaceProfileDto,
+	VotePollBody,
 	WebhookDeliveryDto,
 	WebhookEndpointDto,
 	WebPushSubscriptionDto,
+	WorkspaceEmojiDto,
 	WorkspaceExportDto
 } from '@huriro/contracts'
 import type { HuriroSyncEngine } from '@huriro/sync-client'
@@ -194,6 +260,7 @@ export interface TaskApiBridge {
 	issueCollabTicket(pageId: string): Promise<CollabTicketResponse>
 	setDocFavorite(pageId: string, favorite: boolean): Promise<DocPageDto>
 	splitDocPage(pageId: string, title: string, headingBlockId?: string, markdown?: string): Promise<DocPageDto>
+	appendDocPage(pageId: string, body: DocAppendBody): Promise<DocPageDetailDto>
 	exportDocMarkdown(pageId: string): Promise<DocExportMarkdownResponse>
 	importDocMarkdown(body: DocImportMarkdownBody): Promise<DocPageDto>
 	listDocVersions(pageId: string): Promise<DocVersionDto[]>
@@ -244,9 +311,77 @@ export interface TaskApiBridge {
 	): Promise<{ readonly channelId: string; readonly lastReadSeq: number; readonly unreadCount: number }>
 	updateChannelMute(
 		channelId: string,
-		muted: boolean
-	): Promise<{ readonly channelId: string; readonly muted: boolean }>
+		muted: boolean,
+		opts?: {
+			readonly notifyLevel?: 'default' | 'all' | 'mentions' | 'none'
+			readonly mutedUntil?: string | null
+		}
+	): Promise<{
+		readonly channelId: string
+		readonly muted: boolean
+		readonly notifyLevel?: 'default' | 'all' | 'mentions' | 'none'
+		readonly mutedUntil?: string | null
+	}>
 	listThreads(): Promise<ChatThreadSummaryDto[]>
+	listPinnedMessages(channelId: string): Promise<ChatPinnedMessageDto[]>
+	pinMessage(messageId: string): Promise<unknown>
+	unpinMessage(messageId: string): Promise<unknown>
+	// M11 Chat v2 (drafts, scheduled, saved, sidebar sections, bookmarks, status, groups, emoji, polls, forward, canvas, huddles)
+	listChatDrafts(): Promise<ChatDraftDto[]>
+	upsertChatDraft(
+		channelId: string,
+		body: ChatDraftBody
+	): Promise<
+		| ChatDraftDto
+		| { readonly deleted: true; readonly channelId: string; readonly threadParentId: string | null }
+	>
+	deleteChatDraft(draftId: string): Promise<void>
+	listScheduledChatMessages(): Promise<ChatScheduledMessageDto[]>
+	scheduleChatMessage(channelId: string, body: ChatScheduleMessageBody): Promise<ChatScheduledMessageDto>
+	cancelScheduledChatMessage(
+		id: string,
+		version: number
+	): Promise<{ readonly id: string; readonly status: string; readonly version: number }>
+	listSavedChatItems(): Promise<ChatSavedItemDto[]>
+	createSavedChatItem(body: ChatSavedItemBody): Promise<ChatSavedItemDto>
+	updateSavedChatItem(id: string, body: UpdateChatSavedItemBody): Promise<ChatSavedItemDto>
+	deleteSavedChatItem(id: string): Promise<void>
+	listChatSidebarSections(): Promise<ChatSidebarSectionDto[]>
+	createChatSidebarSection(body: ChatSidebarSectionBody): Promise<ChatSidebarSectionDto>
+	updateChatSidebarSection(id: string, body: UpdateChatSidebarSectionBody): Promise<ChatSidebarSectionDto>
+	deleteChatSidebarSection(id: string): Promise<void>
+	addChatSidebarSectionItem(
+		sectionId: string,
+		body: { readonly channelId: string; readonly position?: string }
+	): Promise<ChatSidebarSectionItemDto>
+	removeChatSidebarSectionItem(sectionId: string, channelId: string): Promise<void>
+	listChannelBookmarks(channelId: string): Promise<ChatChannelBookmarkDto[]>
+	createChannelBookmark(channelId: string, body: ChatBookmarkBody): Promise<ChatChannelBookmarkDto>
+	deleteChannelBookmark(id: string): Promise<void>
+	getMyChatStatus(): Promise<UserWorkspaceProfileDto>
+	updateMyChatStatus(body: UpdateUserStatusBody): Promise<UserWorkspaceProfileDto>
+	listUserGroups(): Promise<UserGroupDto[]>
+	createUserGroup(body: CreateUserGroupBody): Promise<UserGroupDto>
+	setUserGroupMembers(
+		groupId: string,
+		memberIds: readonly string[]
+	): Promise<{ readonly memberIds: readonly string[] }>
+	listWorkspaceEmojis(): Promise<WorkspaceEmojiDto[]>
+	createWorkspaceEmoji(body: CreateWorkspaceEmojiBody): Promise<WorkspaceEmojiDto>
+	deleteWorkspaceEmoji(id: string): Promise<void>
+	listChannelPolls(channelId: string): Promise<ChatPollDto[]>
+	createChatPoll(channelId: string, body: CreatePollBody): Promise<ChatPollDto>
+	getChatPoll(pollId: string): Promise<ChatPollDto>
+	voteChatPoll(pollId: string, body: VotePollBody): Promise<unknown>
+	closeChatPoll(
+		pollId: string
+	): Promise<{ readonly id: string; readonly status: string; readonly version: number }>
+	forwardChatMessage(messageId: string, body: ForwardMessageBody): Promise<ChatMessageDto>
+	ensureChannelCanvas(channelId: string): Promise<ChatCanvasDto>
+	getActiveChannelHuddle(channelId: string): Promise<ChatHuddleSessionDto | null>
+	startChatHuddle(channelId: string): Promise<ChatHuddleSessionDto>
+	joinChatHuddle(huddleId: string): Promise<ChatHuddleJoinDto>
+	endChatHuddle(huddleId: string): Promise<{ readonly id: string; readonly status: string }>
 	uploadFile(file: File): Promise<FileDto>
 	getNotificationPreferences(): Promise<NotificationPreferencesDto>
 	updateNotificationPreferences(body: UpdateNotificationPreferencesBody): Promise<NotificationPreferencesDto>
@@ -313,6 +448,7 @@ export interface TaskApiBridge {
 		readonly inboxId?: string | undefined
 		readonly status?: MailConversationStatus | undefined
 		readonly assignee?: 'me' | 'unassigned' | string | undefined
+		readonly tagId?: string | undefined
 		readonly q?: string | undefined
 		readonly cursor?: string | undefined
 	}): Promise<{ readonly data: MailConversationDto[]; readonly nextCursor: string | null }>
@@ -328,9 +464,50 @@ export interface TaskApiBridge {
 	): Promise<{ readonly issueId: string; readonly identifier: string }>
 	upsertMailDraft(conversationId: string, body: UpsertMailDraftBody): Promise<MailDraftDto>
 	updateMailDraft(draftId: string, body: UpsertMailDraftBody): Promise<MailDraftDto>
+	issueMailDraftCollabTicket(draftId: string): Promise<CollabTicketResponse>
 	sendMailDraft(draftId: string, body: SendMailDraftBody): Promise<MailDraftDto>
 	undoMailDraft(draftId: string): Promise<MailDraftDto>
 	discardMailDraft(draftId: string): Promise<void>
+	// M11: Mail v2 parity
+	listMailTags(inboxId?: string): Promise<MailTagDto[]>
+	createMailTag(body: MailTagBody): Promise<MailTagDto>
+	deleteMailTag(id: string): Promise<void>
+	listConversationTags(conversationId: string): Promise<MailTagDto[]>
+	setConversationTags(
+		conversationId: string,
+		body: ConversationTagsBody
+	): Promise<{ readonly tagIds: readonly string[] }>
+	listMailTemplates(filter?: {
+		readonly inboxId?: string | undefined
+		readonly personal?: boolean | undefined
+	}): Promise<MailTemplateDto[]>
+	upsertMailTemplate(body: MailTemplateBody, id?: string): Promise<MailTemplateDto>
+	deleteMailTemplate(id: string): Promise<void>
+	renderMailTemplate(id: string, body: RenderMailTemplateBody): Promise<RenderedMailTemplateDto>
+	listMailMacros(inboxId?: string): Promise<MailMacroDto[]>
+	upsertMailMacro(body: MailMacroBody, id?: string): Promise<MailMacroDto>
+	deleteMailMacro(id: string): Promise<void>
+	applyMailMacro(id: string, body: ApplyMailMacroBody): Promise<{ readonly appliedCount: number }>
+	createOutboundConversation(body: CreateOutboundConversationBody): Promise<MailOutboundResultDto>
+	forwardConversation(conversationId: string, body: ForwardConversationBody): Promise<MailOutboundResultDto>
+	splitConversation(conversationId: string, body: SplitConversationBody): Promise<MailSplitResultDto>
+	bulkTriageConversations(body: MailBulkTriageBody): Promise<MailBulkTriageResultDto>
+	listContacts(q?: string): Promise<ContactDto[]>
+	upsertContact(body: ContactBody, id?: string): Promise<ContactDto>
+	listContactOrganizations(): Promise<ContactOrganizationDto[]>
+	upsertContactOrganization(body: ContactOrganizationBody, id?: string): Promise<ContactOrganizationDto>
+	getMailRoutingConfig(inboxId: string): Promise<MailRoutingConfigDto>
+	upsertMailRoutingConfig(inboxId: string, body: MailRoutingConfigBody): Promise<MailRoutingConfigDto>
+	routeConversationRoundRobin(conversationId: string): Promise<MailRouteResultDto>
+	listMailSlaPolicies(inboxId?: string): Promise<MailSlaPolicyDto[]>
+	upsertMailSlaPolicy(body: MailSlaPolicyBody, id?: string): Promise<MailSlaPolicyDto>
+	deleteMailSlaPolicy(id: string): Promise<void>
+	getMailSlaAnalytics(inboxId?: string): Promise<MailSlaAnalyticsDto>
+	requestMailDraftReview(draftId: string, body: RequestDraftReviewBody): Promise<MailDraftDto>
+	completeMailDraftReview(draftId: string, body: CompleteDraftReviewBody): Promise<MailDraftDto>
+	updateMailInboxSettings(inboxId: string, body: MailInboxSettingsBody): Promise<MailInboxDto>
+	assistMailWithAi(body: AiMailAssistRequest): Promise<AiMailAssistResponse>
+	assistDocBlockWithAi(body: AiDocBlockAssistRequest): Promise<AiDocBlockAssistResponse>
 	getBillingSubscription(): Promise<BillingSummaryResponse>
 	createBillingCheckout(body: CreateCheckoutBody): Promise<CheckoutSessionDto>
 	createBillingPortal(body: CreateBillingPortalBody): Promise<BillingPortalDto>
@@ -349,6 +526,7 @@ export interface TaskApiBridge {
 		readonly nextCursor: string | null
 		readonly hasMore: boolean
 	}>
+	createCycle(body: CreateCycleBody): Promise<CycleDto>
 	listCycleSnapshots(cycleId: string): Promise<CycleDailySnapshotDto[]>
 	listEntityLinks(type: EntityType, id: string): Promise<EntityLinkDto[]>
 	createEntityLink(body: CreateEntityLinkBody): Promise<EntityLinkDto>
@@ -389,6 +567,16 @@ export interface TaskApiBridge {
 	unfurlBookmark(url: string): Promise<BookmarkMetadataDto>
 	triggerDocButton(pageId: string, body: DocButtonTriggerBody): Promise<void>
 	getKnowledgeGraph(teamspaceId?: string): Promise<KnowledgeGraphResponse>
+	// M10: structured document database import/export + row-page allocation. Row/property CRUD goes through HuriroSyncEngine.
+	importDocDatabaseRows(
+		databaseId: string,
+		body: ImportDocDatabaseRowsBody
+	): Promise<ImportDocDatabaseRowsResultDto>
+	exportDocDatabaseRows(databaseId: string, format: 'csv' | 'json', viewId?: string): Promise<string>
+	ensureDocDatabaseRowPage(
+		databaseId: string,
+		rowId: string
+	): Promise<{ readonly pageId: string; readonly created: boolean }>
 }
 
 export interface CreateInvitationResponse {

@@ -17,7 +17,7 @@ import { AuthGate } from '@/features/auth/components/auth-gate'
 import { AuthLayout } from '@/features/auth/components/auth-layout'
 import { OnboardingForm } from '@/features/auth/components/onboarding-form'
 import { AuthFlowProvider } from '@/features/auth/context'
-import { ChatSidebarNav } from '@/features/chat/components/chat-sidebar-nav'
+import { ChatSidebarHeaderAction, ChatSidebarNav } from '@/features/chat/components/chat-sidebar-nav'
 import { selectTotalChatUnread, useChatStore } from '@/features/chat/store/chat-store'
 import {
 	DocsSidebarFooterUtility,
@@ -27,12 +27,17 @@ import {
 import { useKeyboardShortcuts } from '@/features/keyboard/use-keyboard-shortcuts'
 import {
 	InboxSidebarFooterUtility,
+	InboxSidebarHeaderAction,
 	InboxSidebarNav
 } from '@/features/notifications/components/inbox-sidebar-nav'
 import { SettingsSidebarNav } from '@/features/settings/components/settings-sidebar-nav'
 import { isSettingsSection } from '@/features/settings/settings-sections'
 import { SyncStatusBanner } from '@/features/sync/components/sync-status-banner'
-import { TasksSidebarFooterUtility, TasksSidebarNav } from '@/features/tasks/components/tasks-sidebar-nav'
+import {
+	TasksSidebarFooterUtility,
+	TasksSidebarHeaderAction,
+	TasksSidebarNav
+} from '@/features/tasks/components/tasks-sidebar-nav'
 import { type SocialProviderId, signOut } from '@/lib/auth'
 import {
 	DESTINATION_PATHS,
@@ -218,6 +223,9 @@ function RootComponent() {
 		let activeBoot: BootstrappedWorkspace | null = null
 		void bootstrapWorkspace({
 			preferPreview: preferPreview.current,
+			onResume: () => {
+				if (activeBoot) void useChatStore.getState().handleResume(activeBoot.api)
+			},
 			onChatSignal: (ev) => {
 				if (activeBoot) void useChatStore.getState().handleChatSignal(activeBoot.api, ev)
 			},
@@ -546,6 +554,7 @@ function WorkspaceFrame() {
 				return {
 					featureTitle: t('nav.tasks'),
 					featureSidebar: <TasksSidebarNav />,
+					featureHeaderAction: <TasksSidebarHeaderAction />,
 					featureFooterUtility: <TasksSidebarFooterUtility />
 				}
 			case 'docs':
@@ -559,12 +568,14 @@ function WorkspaceFrame() {
 				return {
 					featureTitle: t('nav.inbox'),
 					featureSidebar: <InboxSidebarNav />,
+					featureHeaderAction: <InboxSidebarHeaderAction />,
 					featureFooterUtility: <InboxSidebarFooterUtility />
 				}
 			case 'chat':
 				return {
 					featureTitle: t('nav.chat'),
-					featureSidebar: <ChatSidebarNav />
+					featureSidebar: <ChatSidebarNav />,
+					featureHeaderAction: <ChatSidebarHeaderAction />
 				}
 			case 'settings':
 				return {

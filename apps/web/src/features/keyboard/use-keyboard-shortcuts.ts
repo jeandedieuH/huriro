@@ -94,6 +94,10 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
 					state.setCreateIssueOpen(false)
 					return
 				}
+				if (state.createProjectOpen) {
+					state.setCreateProjectOpen(false)
+					return
+				}
 				if (state.createDocOpen) {
 					state.setCreateDocOpen(false)
 					return
@@ -159,7 +163,12 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
 			if (key === 'c') {
 				ev.preventDefault()
 				if (state.destination === 'docs') state.setCreateDocOpen(true)
-				else state.setCreateIssueOpen(true)
+				else {
+					// CreateTaskDialog only mounts inside TasksWorkspace; switch destination
+					// first so pressing C from Chat/Mail/Home opens the dialog reliably.
+					if (state.destination !== 'tasks') state.setDestination('tasks')
+					state.setCreateIssueOpen(true)
+				}
 				return
 			}
 

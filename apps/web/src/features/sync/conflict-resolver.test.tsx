@@ -112,15 +112,71 @@ describe('SyncStatusBanner & ConflictResolverDialog', () => {
 		}
 	})
 
-	it('Sync now performs an authoritative snapshot resync', async () => {
+	it('renders nothing when healthy — no Synced indicator or manual Sync now button', async () => {
 		const seed = createPreviewSeedSnapshot()
-		let snapshotCalls = 0
+		const engine = new HuriroSyncEngine({
+			workspaceId: seed.projects[0]?.workspaceId ?? generateUuidV7(),
+			currentUserId: seed.projects[0]?.createdBy ?? generateUuidV7(),
+			storage: new MemoryReplicaStorage()
+		})
+		await engine.bootstrap({ skipNetwork: true })
+
+		try {
+			const { container } = render(
+				<SyncProvider engine={engine}>
+					<SyncStatusBanner />
+				</SyncProvider>
+			)
+			expect(container.firstChild).toBeNull()
+			expect(screen.queryByText('Synced')).not.toBeInTheDocument()
+			expect(screen.queryByRole('button', { name: 'Sync now' })).not.toBeInTheDocument()
+		} finally {
+			engine.dispose()
+		}
+	})
+
+	it('shows offline banner with auto-sync hint when offline and disappears when back online', async () => {
+		const seed = createPreviewSeedSnapshot()
+		const engine = new HuriroSyncEngine({
+			workspaceId: seed.projects[0]?.workspaceId ?? generateUuidV7(),
+			currentUserId: seed.projects[0]?.createdBy ?? generateUuidV7(),
+			storage: new MemoryReplicaStorage()
+		})
+		await engine.bootstrap({ skipNetwork: true })
+		engine.setOnline(false)
+
+		try {
+			const { container } = render(
+				<SyncProvider engine={engine}>
+					<SyncStatusBanner />
+				</SyncProvider>
+			)
+			expect(screen.getByText('Offline')).toBeInTheDocument()
+			expect(screen.getByText(/Changes will sync automatically when you reconnect/)).toBeInTheDocument()
+			await expectNoViolations(container)
+
+			engine.setOnline(true)
+			await waitFor(() => {
+				expect(container.firstChild).toBeNull()
+			})
+		} finally {
+			engine.dispose()
+		}
+	})
+
+	it('shows Retry action on sync error and hides banner once recovery succeeds', async () => {
+		const seed = createPreviewSeedSnapshot()
+		let shouldFail = false
 		const transport: SyncTransport = {
 			async fetchSnapshot() {
-				snapshotCalls += 1
 				return seed
 			},
 			async fetchChanges(since) {
+				if (shouldFail) {
+					const err = new Error('Sync upstream timeout (503)') as Error & { status?: number }
+					err.status = 503
+					throw err
+				}
 				return {
 					changes: [],
 					nextCursor: since,
@@ -136,19 +192,26 @@ describe('SyncStatusBanner & ConflictResolverDialog', () => {
 			workspaceId: seed.projects[0]?.workspaceId ?? generateUuidV7(),
 			currentUserId: seed.projects[0]?.createdBy ?? generateUuidV7(),
 			storage: new MemoryReplicaStorage(),
-			transport
+			transport,
+			syncRetryBaseMs: 60_000
 		})
 		await engine.bootstrap()
-		expect(snapshotCalls).toBe(1)
+		shouldFail = true
+		await engine.syncNow()
 
 		try {
-			render(
+			const { container } = render(
 				<SyncProvider engine={engine}>
 					<SyncStatusBanner />
 				</SyncProvider>
 			)
-			fireEvent.click(screen.getByRole('button', { name: 'Sync now' }))
-			await waitFor(() => expect(snapshotCalls).toBe(2))
+			expect(screen.getByText(/Sync upstream timeout/)).toBeInTheDocument()
+			shouldFail = false
+			fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+			await waitFor(() => {
+				expect(container.firstChild).toBeNull()
+			})
 		} finally {
 			engine.dispose()
 		}

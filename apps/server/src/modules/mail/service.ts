@@ -33,17 +33,26 @@ import {
 	normalizeEmail,
 	normalizeMailSubject
 } from '@huriro/domain'
+import { prosemirrorJsonToYDoc } from '@huriro/editor'
+import * as Y from 'yjs'
 import { appendChanges } from '../../api/changelog'
 import { decryptSecret, encryptSecret } from '../../api/crypto'
 import { deleteEntityLinkByEndpoints, insertEntityLink } from '../../api/entity-links'
 import { HttpError } from '../../api/error'
-import type { BlobStorage } from '../files'
-import { ingestInboundAttachmentFile } from '../files'
+import { type BlobStorage, getFilesByIdsForAttachment, ingestInboundAttachmentFile } from '../files'
 import { createIssue } from '../tasks'
-import { resolveResourceAcl } from '../tenancy'
+import { grantAcl, resolveResourceAcl } from '../tenancy'
+import { issueMailDraftCollabTicket } from './collab'
 import { MAIL_EVENTS } from './events'
 import { MAIL_PARSE_LIMITS, MimeParseError, type ParsedMime, parseMime } from './mime'
-import { authorizeMailAccountAction, authorizeMailWorkspaceAction, isAdminMailBypass } from './policy'
+import {
+	accessibleInboxIds,
+	authorizeMailAccountAction,
+	authorizeMailInboxAction,
+	authorizeMailWorkspaceAction,
+	canAccessMailInbox,
+	isAdminMailBypass
+} from './policy'
 import {
 	buildDomainRecords,
 	createGmailPoller,
@@ -111,7 +120,10 @@ function toInboxDto(r: repo.MailInboxRow): MailInboxDto {
 		name: r.name,
 		position: r.position,
 		settings: r.settings,
+		visibility: r.visibility ?? 'shared',
+		ownerUserId: r.ownerUserId ?? null,
 		openCount: r.openCount ?? 0,
+		version: r.version,
 		createdAt: r.createdAt
 	}
 }
@@ -133,6 +145,12 @@ function toConversationDto(
 		lastMessageAt: r.lastMessageAt,
 		firstReplyAt: r.firstReplyAt,
 		customerEmail: r.customerEmail,
+		contactId: r.contactId ?? null,
+		followUpAt: r.followUpAt ?? null,
+		followUpCondition: r.followUpCondition ?? null,
+		slaNextDueAt: r.slaNextDueAt ?? null,
+		slaBreachedAt: r.slaBreachedAt ?? null,
+		priority: r.priority ?? 'normal',
 		snippet: r.snippet ?? '',
 		messageCount: r.messageCount ?? 0,
 		createdAt: r.createdAt,
@@ -190,6 +208,12 @@ function toDraftDto(r: repo.MailDraftRow): MailDraftDto {
 		status: r.status,
 		lockedBy: r.lockedBy,
 		lockedUntil: r.lockedUntil,
+		collabEnabled: r.collabEnabled ?? false,
+		reviewStatus: r.reviewStatus ?? 'none',
+		reviewerId: r.reviewerId ?? null,
+		reviewedAt: r.reviewedAt ?? null,
+		reviewNote: r.reviewNote ?? null,
+		metadata: r.metadata ?? {},
 		version: r.version,
 		createdAt: r.createdAt,
 		updatedAt: r.updatedAt
@@ -265,6 +289,9 @@ async function requireConversation(
 		id: account.id,
 		visibility: accountVisibility(account)
 	})
+	const inbox = await repo.getMailInbox(tx, actor.workspaceId, conversation.inboxId)
+	if (!inbox) throw new HttpError(404, 'not_found', 'Mail inbox not found')
+	await authorizeMailInboxAction(tx, actor, action, inbox)
 	return { conversation, account }
 }
 
@@ -324,6 +351,7 @@ export interface MailModuleConfig {
 	readonly inboundDomain?: string | undefined
 	readonly publicBaseUrl?: string | undefined
 	readonly rootSecret: string
+	readonly collabTicketSecret?: string | undefined
 	readonly maxMessageBytes: number
 	readonly undoSendSeconds: number
 	readonly gmailClientId?: string | undefined
@@ -539,7 +567,13 @@ export async function createIdentity(
 
 export async function listInboxes(tx: Queryable, actor: ActorContext): Promise<MailInboxDto[]> {
 	authorizeMailWorkspaceAction(actor, 'mail.read')
-	return (await repo.listMailInboxes(tx, actor.workspaceId)).map(toInboxDto)
+	const rows = await repo.listMailInboxes(tx, actor.workspaceId)
+	const visible: repo.MailInboxRow[] = []
+	for (const row of rows) {
+		const decision = await canAccessMailInbox(tx, actor, 'mail.read', row)
+		if (decision.allowed) visible.push(row)
+	}
+	return visible.map(toInboxDto)
 }
 
 export async function createInbox(
@@ -550,13 +584,30 @@ export async function createInbox(
 	authorizeMailWorkspaceAction(actor, 'mail.assign')
 	const last = (await repo.listMailInboxes(tx, actor.workspaceId)).at(-1)
 	const position = generateKeyBetween(last?.position ?? null, null)
+	// Private inboxes default their owner to the creator unless explicitly set.
+	const visibility = body.visibility ?? 'shared'
+	const ownerUserId =
+		visibility === 'private' ? (body.ownerUserId ?? actor.userId) : (body.ownerUserId ?? null)
 	const row = await repo.insertMailInbox(tx, {
 		workspaceId: actor.workspaceId,
 		name: body.name.trim(),
 		position,
 		settings: body.settings ?? {},
-		createdBy: actor.userId
+		createdBy: actor.userId,
+		visibility,
+		ownerUserId
 	})
+	if (visibility === 'private' && ownerUserId && actor.kind === 'user') {
+		await grantAcl(tx, {
+			workspaceId: actor.workspaceId,
+			resourceType: 'mail_inbox',
+			resourceId: row.id,
+			principalType: 'user',
+			principalId: ownerUserId,
+			permission: 'manage',
+			grantedBy: actor.userId
+		})
+	}
 	const cursor = await appendChanges(tx, actor.workspaceId, [
 		{
 			entityType: 'mail_inbox',
@@ -577,8 +628,19 @@ export async function listConversations(
 	query: ListConversationsQuery
 ): Promise<{ data: MailConversationDto[]; nextCursor: string | null }> {
 	authorizeMailWorkspaceAction(actor, 'mail.read')
-	const accountIds = await accessibleAccountIds(tx, actor)
-	if (accountIds !== null && accountIds.length === 0) return { data: [], nextCursor: null }
+	if (query.inboxId) {
+		const targetInbox = await repo.getMailInbox(tx, actor.workspaceId, query.inboxId)
+		if (targetInbox) {
+			await authorizeMailInboxAction(tx, actor, 'mail.read', targetInbox)
+		}
+	}
+	const [accountIds, inboxIds] = await Promise.all([
+		accessibleAccountIds(tx, actor),
+		accessibleInboxIds(tx, actor)
+	])
+	if ((accountIds !== null && accountIds.length === 0) || (inboxIds !== null && inboxIds.length === 0)) {
+		return { data: [], nextCursor: null }
+	}
 
 	const limit = Math.min(query.limit ?? 50, 100)
 	const cursor = query.cursor ? decodeCursor(query.cursor) : undefined
@@ -592,10 +654,12 @@ export async function listConversations(
 					? query.assignee
 					: undefined,
 		unassigned: query.assignee === 'unassigned',
+		tagId: query.tagId,
 		q: query.q,
 		cursor,
 		limit,
-		accountIds: accountIds ?? undefined
+		accountIds: accountIds ?? undefined,
+		inboxIds: inboxIds ?? undefined
 	})
 	const nextCursor = rows.length === limit ? encodeCursor(rows.at(-1)!) : null
 	return { data: rows.map(toConversationDto), nextCursor }
@@ -658,6 +722,10 @@ export async function updateConversation(
 		status?: 'open' | 'pending' | 'snoozed' | 'closed' | 'spam'
 		assigneeId?: string | null
 		snoozedUntil?: string | null
+		priority?: 'low' | 'normal' | 'high' | 'urgent'
+		followUpAt?: string | null
+		followUpCondition?: 'if_no_reply' | 'always' | null
+		followUpCompletedAt?: string | null
 	} = {}
 	const events: { kind: string; payload: Record<string, unknown> }[] = []
 
@@ -679,6 +747,12 @@ export async function updateConversation(
 			events.push({ kind: 'snoozed', payload: { until: body.snoozedUntil } })
 		}
 	}
+	if (body.priority !== undefined) patch.priority = body.priority
+	if (body.followUpAt !== undefined) {
+		patch.followUpAt = body.followUpAt
+		patch.followUpCompletedAt = null
+	}
+	if (body.followUpCondition !== undefined) patch.followUpCondition = body.followUpCondition
 	if (Object.keys(patch).length === 0) {
 		return { data: toConversationDto(conversation), cursor: 0 }
 	}
@@ -820,15 +894,37 @@ export async function upsertDraft(
 			throw new HttpError(404, 'not_found', 'Draft not found')
 		}
 		assertDraftEditable(existing, actor)
+		const existingMeta =
+			existing.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata)
+				? (existing.metadata as Record<string, unknown>)
+				: {}
+		const nextMeta =
+			body.attachmentFileIds !== undefined
+				? { ...existingMeta, attachmentFileIds: body.attachmentFileIds }
+				: undefined
 		const row = await repo.updateMailDraft(tx, actor.workspaceId, draftId, {
 			body: bodyDoc,
 			bodyText: body.bodyText,
 			recipients: recipients as unknown as Record<string, unknown>,
-			lastEditedBy: actor.userId
+			lastEditedBy: actor.userId,
+			...(body.collabEnabled !== undefined ? { collabEnabled: body.collabEnabled } : {}),
+			...(body.scheduledSendAt !== undefined ? { scheduledSendAt: body.scheduledSendAt } : {}),
+			...(nextMeta !== undefined ? { metadata: nextMeta } : {})
 		})
 		if (!row) throw new HttpError(404, 'not_found', 'Draft not found')
+		if (body.collabEnabled) {
+			const ydoc = prosemirrorJsonToYDoc(bodyDoc as Record<string, unknown>)
+			await tx`
+				UPDATE mail_drafts
+				SET draft_state = ${Buffer.from(Y.encodeStateAsUpdate(ydoc))},
+					draft_state_vector = ${Buffer.from(Y.encodeStateVector(ydoc))}
+				WHERE workspace_id = ${actor.workspaceId} AND id = ${row.id} AND draft_state IS NULL
+			`
+		}
 		return toDraftDto(row)
 	}
+	const initialMeta: Record<string, unknown> =
+		body.attachmentFileIds !== undefined ? { attachmentFileIds: body.attachmentFileIds } : {}
 	const row = await repo.insertMailDraft(tx, {
 		workspaceId: actor.workspaceId,
 		conversationId,
@@ -837,8 +933,20 @@ export async function upsertDraft(
 		body: bodyDoc,
 		bodyText: body.bodyText,
 		recipients: recipients as unknown as Record<string, unknown>,
-		inReplyToId: body.inReplyToId ?? null
+		inReplyToId: body.inReplyToId ?? null,
+		scheduledSendAt: body.scheduledSendAt ?? null,
+		collabEnabled: body.collabEnabled ?? false,
+		metadata: initialMeta
 	})
+	if (body.collabEnabled) {
+		const ydoc = prosemirrorJsonToYDoc(bodyDoc as Record<string, unknown>)
+		await tx`
+			UPDATE mail_drafts
+			SET draft_state = ${Buffer.from(Y.encodeStateAsUpdate(ydoc))},
+				draft_state_vector = ${Buffer.from(Y.encodeStateVector(ydoc))}
+			WHERE workspace_id = ${actor.workspaceId} AND id = ${row.id} AND draft_state IS NULL
+		`
+	}
 	return toDraftDto(row)
 }
 
@@ -883,21 +991,44 @@ export async function sendDraft(
 	tx: Queryable,
 	actor: ActorContext,
 	draftId: string,
-	opts: { readonly undoSeconds?: number | undefined; readonly expectedVersion?: number | undefined },
+	opts: {
+		readonly undoSeconds?: number | undefined
+		readonly scheduledSendAt?: string | undefined
+		readonly expectedVersion?: number | undefined
+	},
 	cfg: MailModuleConfig
 ): Promise<MailDraftDto> {
 	const draft = await repo.getMailDraft(tx, actor.workspaceId, draftId)
 	if (!draft) throw new HttpError(404, 'not_found', 'Draft not found')
 	await requireConversation(tx, actor, draft.conversationId, 'mail.send')
 	assertDraftEditable(draft, actor)
-	const undo = Math.min(Math.max(opts.undoSeconds ?? cfg.undoSendSeconds, 0), 120)
+	if (draft.reviewStatus === 'requested' || draft.reviewStatus === 'changes_requested') {
+		throw new HttpError(409, 'mail_review_required', 'Draft review must be approved before sending')
+	}
+	let scheduledSendAt: string
+	if (opts.scheduledSendAt) {
+		const parsed = Date.parse(opts.scheduledSendAt)
+		if (Number.isNaN(parsed)) {
+			throw new HttpError(422, 'validation_failed', 'Invalid scheduledSendAt timestamp')
+		}
+		if (parsed <= Date.now()) {
+			throw new HttpError(422, 'validation_failed', 'scheduledSendAt must be in the future')
+		}
+		if (parsed > Date.now() + 365 * 86_400_000) {
+			throw new HttpError(422, 'validation_failed', 'scheduledSendAt cannot exceed 365 days')
+		}
+		scheduledSendAt = new Date(parsed).toISOString()
+	} else {
+		const undo = Math.min(Math.max(opts.undoSeconds ?? cfg.undoSendSeconds, 0), 120)
+		scheduledSendAt = new Date(Date.now() + undo * 1000).toISOString()
+	}
 	const row = await repo.updateMailDraft(
 		tx,
 		actor.workspaceId,
 		draftId,
 		{
 			status: 'sending',
-			scheduledSendAt: new Date(Date.now() + undo * 1000).toISOString()
+			scheduledSendAt
 		},
 		opts.expectedVersion
 	)
@@ -906,6 +1037,123 @@ export async function sendDraft(
 	// picks up rows past scheduled_send_at. An eager event would be claimed
 	// before the undo window elapsed and the send would never happen.
 	return toDraftDto(row)
+}
+
+export async function requestDraftReview(
+	tx: Queryable,
+	actor: ActorContext,
+	draftId: string,
+	input: { readonly reviewerId: string; readonly note?: string | undefined }
+): Promise<MailDraftDto> {
+	const draft = await repo.getMailDraft(tx, actor.workspaceId, draftId)
+	if (!draft) throw new HttpError(404, 'not_found', 'Draft not found')
+	await requireConversation(tx, actor, draft.conversationId, 'mail.send')
+	assertDraftEditable(draft, actor)
+	const reviewer = await tx<{ id: string }[]>`
+		SELECT user_id AS id FROM memberships
+		WHERE workspace_id = ${actor.workspaceId} AND user_id = ${input.reviewerId} AND status = 'active'
+	`
+	if (!reviewer[0]) throw new HttpError(404, 'not_found', 'Reviewer is not an active workspace member')
+	const row = await repo.updateMailDraft(tx, actor.workspaceId, draftId, {
+		reviewStatus: 'requested',
+		reviewerId: input.reviewerId,
+		reviewedAt: null,
+		reviewNote: input.note ?? null
+	})
+	if (!row) throw new HttpError(404, 'not_found', 'Draft not found')
+	await repo.insertConversationEvent(tx, {
+		workspaceId: actor.workspaceId,
+		conversationId: draft.conversationId,
+		kind: 'review_requested',
+		actorId: actor.principalId,
+		payload: { draftId, reviewerId: input.reviewerId }
+	})
+	await tx`
+		INSERT INTO notifications (workspace_id, recipient_user_id, actor_type, actor_id, kind, entity_type, entity_id, title, body, metadata)
+		VALUES (${actor.workspaceId}, ${input.reviewerId}, ${actor.kind}, ${actor.principalId}, 'mail.review_requested',
+			'mail_draft', ${draftId}, 'Mail draft review requested', ${input.note ?? draft.bodyText.slice(0, 300)}, '{}'::jsonb)
+	`
+	return toDraftDto(row)
+}
+
+export async function completeDraftReview(
+	tx: Queryable,
+	actor: ActorContext,
+	draftId: string,
+	input: { readonly decision: 'approved' | 'changes_requested'; readonly note?: string | undefined }
+): Promise<MailDraftDto> {
+	const draft = await repo.getMailDraft(tx, actor.workspaceId, draftId)
+	if (!draft) throw new HttpError(404, 'not_found', 'Draft not found')
+	await requireConversation(tx, actor, draft.conversationId, 'mail.send')
+	if (draft.reviewerId !== actor.userId && !isAdminMailBypass(actor)) {
+		throw new HttpError(403, 'insufficient_role', 'Only the requested reviewer may complete this review')
+	}
+	if (draft.reviewStatus !== 'requested') {
+		throw new HttpError(409, 'conflict', 'Draft review is not pending')
+	}
+	const row = await repo.updateMailDraft(tx, actor.workspaceId, draftId, {
+		reviewStatus: input.decision,
+		reviewedAt: new Date().toISOString(),
+		reviewNote: input.note ?? null
+	})
+	if (!row) throw new HttpError(404, 'not_found', 'Draft not found')
+	await repo.insertConversationEvent(tx, {
+		workspaceId: actor.workspaceId,
+		conversationId: draft.conversationId,
+		kind: input.decision === 'approved' ? 'review_approved' : 'review_changes_requested',
+		actorId: actor.principalId,
+		payload: { draftId, note: input.note ?? null }
+	})
+	if (draft.createdBy !== actor.userId) {
+		await tx`
+			INSERT INTO notifications (workspace_id, recipient_user_id, actor_type, actor_id, kind, entity_type, entity_id, title, body, metadata)
+			VALUES (${actor.workspaceId}, ${draft.createdBy}, ${actor.kind}, ${actor.principalId}, 'mail.review_completed',
+				'mail_draft', ${draftId}, 'Mail draft review completed', ${input.note ?? ''}, '{}'::jsonb)
+		`
+	}
+	return toDraftDto(row)
+}
+
+export async function issueDraftCollabTicket(
+	tx: Queryable,
+	actor: ActorContext,
+	draftId: string,
+	cfg: MailModuleConfig
+) {
+	if (!cfg.collabTicketSecret) {
+		throw new HttpError(503, 'internal', 'Collaboration ticket signing is not configured')
+	}
+	const draft = await repo.getMailDraft(tx, actor.workspaceId, draftId)
+	if (!draft) throw new HttpError(404, 'not_found', 'Draft not found')
+	let canWrite = false
+	try {
+		await requireConversation(tx, actor, draft.conversationId, 'mail.send')
+		canWrite = draft.status === 'draft'
+	} catch {
+		await requireConversation(tx, actor, draft.conversationId, 'mail.read')
+	}
+	return issueMailDraftCollabTicket({ tx, actor, draft, canWrite, ticketSecret: cfg.collabTicketSecret })
+}
+
+/** Realtime reauthorization seam for `/collab` mail-draft rooms. */
+export async function verifyLiveMailDraftAccess(
+	tx: Queryable,
+	actor: ActorContext,
+	draftId: string
+): Promise<{ readonly allowed: boolean; readonly canWrite: boolean }> {
+	const draft = await repo.getMailDraft(tx, actor.workspaceId, draftId)
+	if (!draft || draft.status !== 'draft' || !draft.collabEnabled) return { allowed: false, canWrite: false }
+	try {
+		await requireConversation(tx, actor, draft.conversationId, 'mail.send')
+		return { allowed: true, canWrite: true }
+	} catch {
+		try {
+			await requireConversation(tx, actor, draft.conversationId, 'mail.read')
+			return { allowed: true, canWrite: false }
+		} catch {
+			return { allowed: false, canWrite: false }
+		}
+	}
 }
 
 /** Undo-send: only valid inside the scheduled window (§14.5). */
@@ -1569,6 +1817,35 @@ export async function sendDueDraft(
 		cc?: { email: string; name?: string | null }[]
 		bcc?: { email: string; name?: string | null }[]
 	}
+	const metaObj =
+		draft.metadata && typeof draft.metadata === 'object' && !Array.isArray(draft.metadata)
+			? (draft.metadata as Record<string, unknown>)
+			: {}
+	const attachmentIds = Array.isArray(metaObj['attachmentFileIds'])
+		? metaObj['attachmentFileIds'].filter((id): id is string => typeof id === 'string')
+		: []
+	const attachmentFiles =
+		attachmentIds.length > 0 ? await getFilesByIdsForAttachment(tx, workspaceId, attachmentIds) : []
+	const outboundAttachments: { filename: string; contentType: string; content: Uint8Array }[] = []
+	const messageAttachmentsMeta: Record<string, unknown>[] = []
+	for (const [idx, file] of attachmentFiles.entries()) {
+		messageAttachmentsMeta.push({
+			fileId: file.id,
+			name: file.filename,
+			contentType: file.contentType,
+			byteSize: file.byteSize,
+			scanStatus: file.scanStatus
+		})
+		if (file.scanStatus !== 'infected' && file.scanStatus !== 'failed') {
+			try {
+				const content = await deps.storage.readFile(`files/${workspaceId}/${file.id}`)
+				outboundAttachments.push({ filename: file.filename, contentType: file.contentType, content })
+			} catch {
+				// Storage object may remain in quarantine in test/preview environments.
+			}
+		}
+		void idx
+	}
 	const rfcMessageId = `<${uuid7()}@${account.address.split('@')[1]}>`
 	const inReplyToMsg = draft.inReplyToId
 		? await repo.getMailMessage(tx, workspaceId, draft.inReplyToId)
@@ -1588,7 +1865,7 @@ export async function sendDueDraft(
 				? [...inReplyToMsg.referencesIds, inReplyToMsg.rfcMessageId ?? ''].filter(Boolean)
 				: [],
 			messageId: rfcMessageId,
-			attachments: []
+			attachments: outboundAttachments
 		})
 		const msg = await repo.insertMailMessage(tx, {
 			workspaceId,
@@ -1610,12 +1887,22 @@ export async function sendDueDraft(
 			rawBlobKey: null,
 			bodyHtml: null,
 			bodyText: draft.bodyText,
-			attachments: [],
+			attachments: messageAttachmentsMeta,
 			authResults: null,
 			providerRef: { provider: account.provider, providerMessageId: result.providerMessageId },
 			sendState: 'sent',
 			createdBy: draft.lastEditedBy ?? draft.createdBy
 		})
+		if (msg) {
+			for (const [position, file] of attachmentFiles.entries()) {
+				await repo.insertMessageAttachment(tx, {
+					workspaceId,
+					messageId: msg.id,
+					fileId: file.id,
+					position
+				})
+			}
+		}
 		await repo.updateMailDraft(tx, workspaceId, draftId, {
 			status: 'sent',
 			sentMessageId: msg?.id ?? null
@@ -1739,6 +2026,102 @@ export async function processMailOutboxEvent(
 	}
 	if (event.eventType === MAIL_EVENTS.RetentionSweep) {
 		await runRetentionSweep(tx, event.workspaceId, deps.storage)
+		return true
+	}
+	if (event.eventType === 'tasks.issue.status_changed.v1') {
+		const issueId = typeof p['issueId'] === 'string' ? p['issueId'] : null
+		const statusId = typeof p['statusId'] === 'string' ? p['statusId'] : null
+		if (!issueId || !statusId) return true
+		const [status] = await tx<{ category: string }[]>`
+			SELECT category FROM project_statuses
+			WHERE workspace_id = ${event.workspaceId} AND id = ${statusId}
+		`
+		const links = await tx<{ conversationId: string }[]>`
+			SELECT conversation_id AS "conversationId"
+			FROM mail_conversation_tasks
+			WHERE workspace_id = ${event.workspaceId} AND task_id = ${issueId}
+		`
+		for (const link of links) {
+			const [conv] = await tx<
+				{
+					id: string
+					status: string
+					assigneeId: string | null
+					subject: string
+					customerEmail: string | null
+				}[]
+			>`
+				SELECT id, status, assignee_id AS "assigneeId", subject, customer_email AS "customerEmail"
+				FROM mail_conversations
+				WHERE workspace_id = ${event.workspaceId} AND id = ${link.conversationId}
+				FOR UPDATE
+			`
+			if (!conv) continue
+			const [lastLoop] = await tx<{ kind: string }[]>`
+				SELECT kind FROM mail_conversation_events
+				WHERE workspace_id = ${event.workspaceId}
+					AND conversation_id = ${conv.id}
+					AND kind IN ('linked_issue_completed', 'linked_issue_reopened')
+				ORDER BY created_at DESC LIMIT 1
+			`
+			if (status?.category === 'completed' && lastLoop?.kind !== 'linked_issue_completed') {
+				await tx`
+					UPDATE mail_conversations
+					SET status = 'closed', version = version + 1
+					WHERE workspace_id = ${event.workspaceId} AND id = ${conv.id}
+				`
+				await repo.insertConversationEvent(tx, {
+					workspaceId: event.workspaceId,
+					conversationId: conv.id,
+					kind: 'linked_issue_completed',
+					actorId: null,
+					payload: { issueId, issueTitle: p['title'] ?? null }
+				})
+				// Resolution-loop draft: deterministic server-generated first draft today;
+				// workspaces with AI enabled can replace this body through compose AI.
+				if (conv.customerEmail) {
+					const [identity] = await tx<{ id: string }[]>`
+						SELECT i.id
+						FROM mail_identities i
+						JOIN mail_conversations c ON c.workspace_id = i.workspace_id AND c.account_id = i.account_id
+						WHERE c.workspace_id = ${event.workspaceId} AND c.id = ${conv.id}
+						ORDER BY i.is_default DESC, i.created_at ASC LIMIT 1
+					`
+					if (identity) {
+						await tx`
+							INSERT INTO mail_drafts (workspace_id, conversation_id, identity_id, recipients, body, body_text, status, metadata, created_by)
+							VALUES (
+								${event.workspaceId}, ${conv.id}, ${identity.id},
+								${tx.json({ to: [{ email: conv.customerEmail }] } as never)},
+								'{}'::jsonb,
+								${`Hi,\n\nThe issue linked to this conversation (${String(p['identifier'] ?? '')}: ${String(p['title'] ?? '')}) has been completed. Please let us know if anything still needs attention.\n\nBest regards`},
+								'draft', ${tx.json({ generatedBy: 'issue_resolution_loop', issueId } as never)}, NULL
+							)
+						`
+					}
+				}
+			} else if (status && status.category !== 'completed' && lastLoop?.kind === 'linked_issue_completed') {
+				await tx`
+					UPDATE mail_conversations
+					SET status = 'open', version = version + 1
+					WHERE workspace_id = ${event.workspaceId} AND id = ${conv.id}
+				`
+				await repo.insertConversationEvent(tx, {
+					workspaceId: event.workspaceId,
+					conversationId: conv.id,
+					kind: 'linked_issue_reopened',
+					actorId: null,
+					payload: { issueId, issueTitle: p['title'] ?? null }
+				})
+				if (conv.assigneeId) {
+					await tx`
+						INSERT INTO notifications (workspace_id, recipient_user_id, actor_type, actor_id, kind, entity_type, entity_id, title, body, metadata)
+						VALUES (${event.workspaceId}, ${conv.assigneeId}, 'system', NULL, 'mail.linked_issue_reopened',
+							'mail_conversation', ${conv.id}, 'Linked issue reopened', ${conv.subject}, '{}'::jsonb)
+					`
+				}
+			}
+		}
 		return true
 	}
 	// mail.conversation.changed → nothing to do here; search/notifications

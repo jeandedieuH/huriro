@@ -684,14 +684,24 @@ export async function sendMessage(
 
 	// Lock order (§15.1): ALWAYS update/lock `chat_channels` BEFORE parent `chat_messages`.
 	const isTopLevel = !input.threadParentId
+	const broadcastToChannel = input.broadcastToChannel === true && !isTopLevel
+	if (input.broadcastToChannel === true && isTopLevel) {
+		throw new HttpError(422, 'validation_failed', 'Only thread replies can be broadcast to the channel')
+	}
+	if (input.replyToMessageId) {
+		const quoted = await getRawMessageById(tx, actor.workspaceId, input.replyToMessageId)
+		if (!quoted || quoted.channelId !== channel.id || quoted.deletedAt) {
+			throw new HttpError(404, 'not_found', 'Quoted message not found in this channel')
+		}
+	}
 	const { lastMsgSeq, lastRev } = await allocateChannelSeqAndRev(
 		tx,
 		actor.workspaceId,
 		channel.id,
-		isTopLevel
+		isTopLevel || broadcastToChannel
 	)
 
-	let channelSeq: number | null = isTopLevel ? lastMsgSeq : null
+	let channelSeq: number | null = isTopLevel || broadcastToChannel ? lastMsgSeq : null
 	let threadSeq: number | null = null
 	let threadParentAuthorId: string | null = null
 	if (input.threadParentId) {
@@ -705,7 +715,7 @@ export async function sendMessage(
 		}
 		threadSeq = allocated.threadSeq
 		threadParentAuthorId = allocated.authorId
-		channelSeq = null
+		if (!broadcastToChannel) channelSeq = null
 	}
 
 	const inserted = await insertMessageRow(tx, {
@@ -718,6 +728,10 @@ export async function sendMessage(
 		authorType: actor.kind,
 		authorId: actor.principalId,
 		threadParentId: input.threadParentId ?? null,
+		broadcastToChannel,
+		replyToMessageId: input.replyToMessageId ?? null,
+		messageKind: 'text',
+		metadata: input.replyToMessageId ? { quoteOf: input.replyToMessageId } : {},
 		clientId: input.clientId ?? null,
 		body: buildDefaultBody(input.body, bodyText),
 		bodyText
@@ -783,6 +797,28 @@ export async function sendMessage(
 			actorId: actor.principalId
 		}
 	})
+
+	// Keyword alerts (M11): notify channel members whose alert_keywords match the
+	// message body. Word-substring match via position() — never LIKE interpolation.
+	if (!input.threadParentId) {
+		await tx`
+			INSERT INTO notifications (workspace_id, recipient_user_id, actor_type, actor_id, kind, entity_type, entity_id, title, body, metadata)
+			SELECT DISTINCT cm.workspace_id, cm.principal_id, 'user', ${actor.principalId}::uuid, 'chat.keyword_match', 'chat_message', ${inserted.id}::uuid,
+				${`#${channel.name ?? 'channel'}`}, ${bodyText.slice(0, 300)}, '{}'::jsonb
+			FROM chat_channel_members cm
+			JOIN notification_preferences np ON np.workspace_id = cm.workspace_id AND np.user_id = cm.principal_id
+			WHERE cm.workspace_id = ${actor.workspaceId}
+				AND cm.channel_id = ${channel.id}
+				AND cm.principal_type = 'user'
+				AND cm.principal_id <> ${actor.principalId}
+				AND np.chat_level <> 'none'
+				AND cardinality(np.alert_keywords) > 0
+				AND EXISTS (
+					SELECT 1 FROM unnest(np.alert_keywords) kw
+					WHERE position(lower(kw) in lower(${bodyText})) > 0
+				)
+		`
+	}
 
 	chatMessagesTotal.inc({ kind: channel.kind })
 	chatFeedLatencyMs.observe(performance.now() - startedAt)
@@ -1032,10 +1068,24 @@ export async function updateChannelMute(
 	actor: ActorContext,
 	channelId: string,
 	input: UpdateChannelMuteBody
-): Promise<{ readonly channelId: string; readonly muted: boolean }> {
+): Promise<{
+	readonly channelId: string
+	readonly muted: boolean
+	readonly notifyLevel: 'default' | 'all' | 'mentions' | 'none'
+	readonly mutedUntil: string | null
+}> {
 	const channel = await loadAndAuthorizeChannel(tx, actor, channelId, 'channel.read')
-	const res = await setChannelMutedState(tx, actor.workspaceId, channel.id, actor.principalId, input.muted)
-	return { channelId: channel.id, muted: res.muted }
+	const res = await setChannelMutedState(tx, actor.workspaceId, channel.id, actor.principalId, {
+		muted: input.muted,
+		notifyLevel: input.notifyLevel,
+		mutedUntil: input.mutedUntil
+	})
+	return {
+		channelId: channel.id,
+		muted: res.muted,
+		notifyLevel: res.notifyLevel,
+		mutedUntil: res.mutedUntil
+	}
 }
 
 export async function listSubscribedThreads(

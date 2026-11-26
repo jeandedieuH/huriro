@@ -1,6 +1,7 @@
 import { Extension } from '@tiptap/core'
 import { TableCell, TableHeader } from '@tiptap/extension-table'
 import type { Node as PmNode } from '@tiptap/pm/model'
+import type { EditorState } from '@tiptap/pm/state'
 
 export const TABLE_CELL_TONES = ['default', 'muted', 'info', 'success', 'warning', 'danger'] as const
 export type TableCellTone = (typeof TABLE_CELL_TONES)[number]
@@ -46,6 +47,8 @@ declare module '@tiptap/core' {
 		tableUpgrades: {
 			setCellBackgroundTone: (tone: TableCellTone) => ReturnType
 			sortTableByColumn: (columnIndex: number, direction?: 'asc' | 'desc') => ReturnType
+			moveCurrentTableRow: (direction: -1 | 1) => ReturnType
+			moveCurrentTableColumn: (direction: -1 | 1) => ReturnType
 		}
 	}
 }
@@ -53,6 +56,24 @@ declare module '@tiptap/core' {
 function cellText(row: PmNode, colIndex: number): string {
 	if (colIndex < 0 || colIndex >= row.childCount) return ''
 	return row.child(colIndex).textContent.trim()
+}
+
+function findTableParts(state: EditorState) {
+	const { $from } = state.selection
+	let tableDepth = -1
+	let rowDepth = -1
+	let cellDepth = -1
+	for (let d = $from.depth; d > 0; d--) {
+		const name = $from.node(d).type.name
+		if ((name === 'tableCell' || name === 'tableHeader') && cellDepth === -1) cellDepth = d
+		if (name === 'tableRow' && rowDepth === -1) rowDepth = d
+		if (name === 'table') {
+			tableDepth = d
+			break
+		}
+	}
+	if (tableDepth < 0 || rowDepth < 0 || cellDepth < 0) return null
+	return { $from, tableDepth, rowDepth, cellDepth }
 }
 
 export const TableUpgradesExtension = Extension.create({
@@ -90,7 +111,7 @@ export const TableUpgradesExtension = Extension.create({
 						if (tableNode.childCount <= 1) return false
 
 						const rows: PmNode[] = []
-						tableNode.forEach((row) => {
+						tableNode.forEach((row: PmNode) => {
 							rows.push(row)
 						})
 
@@ -123,6 +144,68 @@ export const TableUpgradesExtension = Extension.create({
 						return true
 					}
 					return false
+				},
+			moveCurrentTableRow:
+				(direction) =>
+				({ state, dispatch }) => {
+					const parts = findTableParts(state)
+					if (!parts) return false
+					const { $from, tableDepth, rowDepth } = parts
+					const tableNode = $from.node(tableDepth)
+					const rowNode = $from.node(rowDepth)
+					const rowIndex = $from.index(tableDepth)
+					const nextIndex = rowIndex + direction
+					if (nextIndex < 0 || nextIndex >= tableNode.childCount) return false
+					if (dispatch) {
+						const rowPos = $from.before(rowDepth)
+						const tr = state.tr
+						tr.delete(rowPos, rowPos + rowNode.nodeSize)
+						const neighbor = tableNode.child(nextIndex)
+						const insertPos = direction === -1 ? rowPos - neighbor.nodeSize : rowPos + neighbor.nodeSize
+						tr.insert(insertPos, rowNode)
+						dispatch(tr.scrollIntoView())
+					}
+					return true
+				},
+			moveCurrentTableColumn:
+				(direction) =>
+				({ state, dispatch }) => {
+					const parts = findTableParts(state)
+					if (!parts) return false
+					const { $from, tableDepth, rowDepth } = parts
+					const tableNode = $from.node(tableDepth)
+					const colIndex = $from.index(rowDepth)
+					const nextIndex = colIndex + direction
+					if (nextIndex < 0) return false
+					const rows: PmNode[] = []
+					let supported = true
+					tableNode.forEach((row: PmNode) => {
+						if (nextIndex >= row.childCount) supported = false
+						row.forEach((cell: PmNode) => {
+							if (Number(cell.attrs['colspan'] ?? 1) !== 1 || Number(cell.attrs['rowspan'] ?? 1) !== 1) {
+								supported = false
+							}
+						})
+						rows.push(row)
+					})
+					if (!supported) return false
+					if (dispatch) {
+						const movedRows = rows.map((row) => {
+							const cells: PmNode[] = []
+							row.forEach((cell: PmNode) => {
+								cells.push(cell)
+							})
+							const temp = cells[colIndex]
+							cells[colIndex] = cells[nextIndex] as PmNode
+							cells[nextIndex] = temp as PmNode
+							return row.type.create(row.attrs, cells)
+						})
+						const tablePos = $from.before(tableDepth)
+						const nextTable = tableNode.type.create(tableNode.attrs, movedRows)
+						const tr = state.tr.replaceWith(tablePos, tablePos + tableNode.nodeSize, nextTable)
+						dispatch(tr.scrollIntoView())
+					}
+					return true
 				}
 		}
 	}

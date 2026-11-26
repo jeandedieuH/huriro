@@ -10,6 +10,8 @@ import { workspaceDerive } from '../tenancy'
 import { processEmbeddingOutboxEvent } from './embeddings'
 import type { GatewayDeps } from './gateway'
 import {
+	AiDocBlockAssistRequest,
+	AiMailAssistRequest,
 	AiProviderIdParam,
 	AiProviderUpsert,
 	AiSemanticSearchQuery,
@@ -17,6 +19,8 @@ import {
 	AiSummarizeRequest
 } from './schema'
 import {
+	assistDocBlock,
+	assistMail,
 	deleteAiProvider,
 	getAiSettings,
 	patchAiSettings,
@@ -46,6 +50,12 @@ export function aiModule(sql: Sql, auth: Auth | null, deps: GatewayDeps) {
 			// AI use — ai.use (members+).
 			.post('/ai/summarize', { body: AiSummarizeRequest }, ({ inWorkspace, body }) =>
 				inWorkspace((_tx, actor) => summarize(sql, actor, deps, body))
+			)
+			.post('/ai/docs/block-assist', { body: AiDocBlockAssistRequest }, ({ inWorkspace, body }) =>
+				inWorkspace((_tx, actor) => assistDocBlock(sql, actor, deps, body))
+			)
+			.post('/ai/mail/assist', { body: AiMailAssistRequest }, ({ inWorkspace, body }) =>
+				inWorkspace((_tx, actor) => assistMail(sql, actor, deps, body))
 			)
 			.get('/ai/search', { query: AiSemanticSearchQuery }, ({ inWorkspace, query }) =>
 				inWorkspace((_tx, actor) => semanticSearch(sql, actor, deps, query.q, query.limit ?? 20))

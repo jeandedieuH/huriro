@@ -134,6 +134,7 @@ import {
 	unfurlBookmarkUrl
 } from './service-wiki'
 
+export { deriveCollabTicketKey, hashCollabTicket, signCollabTicket, TICKET_TTL_MS } from './collab-ticket'
 export { DOCS_EVENTS } from './events'
 export type { CollabDirectBridge, CollabTicketClaims } from './service'
 export {

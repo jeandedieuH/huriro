@@ -60,7 +60,9 @@ export const AclListQuery = Type.Object({
 		Type.Literal('doc_page'),
 		Type.Literal('teamspace'),
 		Type.Literal('channel'),
-		Type.Literal('mail_account')
+		Type.Literal('mail_account'),
+		Type.Literal('mail_inbox'),
+		Type.Literal('doc_database')
 	]),
 	resourceId: Type.String({ format: 'uuid' })
 })
@@ -75,7 +77,9 @@ export const GrantAclBody = Type.Object({
 		Type.Literal('doc_page'),
 		Type.Literal('teamspace'),
 		Type.Literal('channel'),
-		Type.Literal('mail_account')
+		Type.Literal('mail_account'),
+		Type.Literal('mail_inbox'),
+		Type.Literal('doc_database')
 	]),
 	resourceId: Type.String({ format: 'uuid' }),
 	principalType: Type.Union([Type.Literal('user'), Type.Literal('role'), Type.Literal('workspace')]),

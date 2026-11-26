@@ -7,6 +7,7 @@ import {
 	Code2,
 	Columns2,
 	Columns3,
+	Database,
 	Heading1,
 	Heading2,
 	Heading3,
@@ -16,6 +17,7 @@ import {
 	ListTree,
 	Megaphone,
 	Minus,
+	Paperclip,
 	Play,
 	Quote,
 	RefreshCw,
@@ -258,6 +260,21 @@ export function getSlashItems(): SlashItem[] {
 				applyBlock(editor, range, (chain) => chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))
 		},
 		{
+			id: 'media-embed',
+			label: t('docs.slash.embed'),
+			description: t('docs.slash.desc.embed'),
+			category: 'layout',
+			keywords: ['embed', 'media', 'video', 'audio', 'pdf', 'file', 'image'],
+			icon: Paperclip,
+			apply: (editor, range) =>
+				applyBlock(editor, range, (chain) =>
+					chain.insertContent({
+						type: 'embed',
+						attrs: { url: '', kind: 'file', title: '', fileId: null }
+					})
+				)
+		},
+		{
 			id: 'bookmark',
 			label: t('docs.slash.bookmark'),
 			description: t('docs.slash.desc.bookmark'),
@@ -313,6 +330,21 @@ export function getSlashItems(): SlashItem[] {
 			keywords: ['button', 'action', 'automation', 'template'],
 			icon: Play,
 			apply: (editor, range) => applyBlock(editor, range, (chain) => chain.insertButtonBlock())
+		},
+		{
+			id: 'linked-database-view',
+			label: t('databases.slash.linked-view'),
+			description: t('databases.slash.linked-view-desc'),
+			category: 'advanced',
+			keywords: ['database', 'table', 'view', 'linked'],
+			icon: Database,
+			apply: (editor, range) =>
+				applyBlock(editor, range, (chain) =>
+					chain.insertContent({
+						type: 'linkedViewBlock',
+						attrs: { sourceType: 'database', sourceId: '', viewId: '', config: {} }
+					})
+				)
 		},
 		{
 			id: 'synced-block',

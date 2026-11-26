@@ -18,7 +18,8 @@ import {
 	MemoryReplicaStorage,
 	type SqliteDatabaseLike,
 	SqliteReplicaStorage,
-	type SyncTransport
+	type SyncTransport,
+	WsSignalClient
 } from './index'
 
 const WS_ID = '0190a0b1-9a9a-7000-8000-000000000001'
@@ -1977,5 +1978,744 @@ describe('HuriroSyncEngine', () => {
 		expect(engine2.getConflicts()).toHaveLength(1)
 		expect(engine2.getConflicts()[0]?.localValues).toEqual({ coverPositionY: 85 })
 		engine2.dispose()
+	})
+
+	test('createProject and updateProject preserve M7/M8 policy across restart and resolve conflicts', async () => {
+		const storage = new MemoryReplicaStorage()
+		const sentBatches: Parameters<SyncTransport['sendBatch']>[0][] = []
+		let serverCursor = 1
+		let serverProj = {
+			...baseProject(),
+			name: 'Existing Project',
+			triageEnabled: false,
+			cycleEnabled: false,
+			version: 1
+		}
+		let simulateConflict = false
+
+		const makeTransport = (): SyncTransport => ({
+			async fetchSnapshot() {
+				return {
+					cursor: serverCursor,
+					serverTime: new Date().toISOString(),
+					projects: [serverProj],
+					projectStatuses: [baseStatus()],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: []
+				}
+			},
+			async fetchChanges(since) {
+				return {
+					changes: [],
+					nextCursor: Math.max(since, serverCursor),
+					hasMore: false,
+					serverTime: new Date().toISOString()
+				}
+			},
+			async sendBatch(mutations) {
+				sentBatches.push([...mutations])
+				const results: MutationsBatchResponse['results'] = []
+				for (const m of mutations) {
+					if (m.entity === 'project' && m.op === 'create') {
+						serverCursor += 1
+						const createdRow = {
+							...baseProject(),
+							id: m.entityId,
+							key: String(m.patch['key']),
+							name: String(m.patch['name']),
+							visibility: (m.patch['visibility'] as 'workspace' | 'private' | undefined) ?? 'workspace',
+							triageEnabled: Boolean(m.patch['triageEnabled']),
+							cycleEnabled: Boolean(m.patch['cycleEnabled']),
+							cycleDurationDays: Number(m.patch['cycleDurationDays'] ?? 14),
+							cycleCooldownDays: Number(m.patch['cycleCooldownDays'] ?? 0),
+							cycleAutoRolloverMode:
+								(m.patch['cycleAutoRolloverMode'] as 'next_cycle' | 'backlog' | 'none' | undefined) ??
+								'next_cycle',
+							cycleStartWeekday: Number(m.patch['cycleStartWeekday'] ?? 1),
+							version: 1
+						}
+						results.push({
+							mutationId: m.mutationId,
+							status: 200,
+							outcome: 'applied',
+							data: createdRow as unknown as Record<string, unknown>
+						})
+					} else if (m.entity === 'project' && m.op === 'update') {
+						if (simulateConflict) {
+							simulateConflict = false
+							serverProj = { ...serverProj, name: 'Remote Project Name', version: serverProj.version + 1 }
+							results.push({
+								mutationId: m.mutationId,
+								status: 409,
+								outcome: 'stale_version',
+								currentVersion: serverProj.version,
+								currentEntity: serverProj as unknown as Record<string, unknown>,
+								changedFields: ['name']
+							})
+						} else {
+							serverCursor += 1
+							serverProj = {
+								...serverProj,
+								...(m.patch as Partial<typeof serverProj>),
+								version: serverProj.version + 1
+							}
+							results.push({
+								mutationId: m.mutationId,
+								status: 200,
+								outcome: 'applied',
+								data: serverProj as unknown as Record<string, unknown>
+							})
+						}
+					}
+				}
+				return { cursor: serverCursor, results }
+			}
+		})
+
+		const tab1 = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport: makeTransport()
+		})
+		await tab1.bootstrap()
+		tab1.setOnline(false)
+
+		const createdProj = await tab1.createProject({
+			key: 'OPS',
+			name: 'Operations',
+			visibility: 'private',
+			triageEnabled: true,
+			cycleEnabled: true,
+			cycleDurationDays: 21,
+			cycleCooldownDays: 7,
+			cycleAutoRolloverMode: 'backlog',
+			cycleStartWeekday: 3
+		})
+		await tab1.updateProject(PROJ_ID, {
+			triageEnabled: true,
+			cycleEnabled: true,
+			cycleDurationDays: 7,
+			cycleStartWeekday: 5
+		})
+
+		expect(tab1.collections.projects.get(createdProj.id)).toMatchObject({
+			key: 'OPS',
+			visibility: 'private',
+			triageEnabled: true,
+			cycleEnabled: true,
+			cycleDurationDays: 21,
+			cycleCooldownDays: 7,
+			cycleAutoRolloverMode: 'backlog',
+			cycleStartWeekday: 3
+		})
+		expect(tab1.collections.projects.get(PROJ_ID)).toMatchObject({
+			triageEnabled: true,
+			cycleEnabled: true,
+			cycleDurationDays: 7,
+			cycleStartWeekday: 5
+		})
+		tab1.dispose()
+
+		const tab2 = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport: makeTransport()
+		})
+		tab2.setOnline(false)
+		await tab2.bootstrap()
+		expect(tab2.collections.projects.get(createdProj.id)?.cycleDurationDays).toBe(21)
+		expect(tab2.collections.projects.get(PROJ_ID)?.triageEnabled).toBe(true)
+
+		tab2.setOnline(true)
+		await tab2.flushOutbox()
+
+		const sent = sentBatches.flat()
+		expect(sent.find((m) => m.entity === 'project' && m.op === 'create')?.patch).toMatchObject({
+			key: 'OPS',
+			triageEnabled: true,
+			cycleEnabled: true,
+			cycleDurationDays: 21,
+			cycleCooldownDays: 7,
+			cycleAutoRolloverMode: 'backlog',
+			cycleStartWeekday: 3
+		})
+		expect(sent.find((m) => m.entity === 'project' && m.op === 'update')?.patch).toMatchObject({
+			triageEnabled: true,
+			cycleEnabled: true,
+			cycleDurationDays: 7,
+			cycleStartWeekday: 5
+		})
+
+		// Trigger and resolve a `project` conflict.
+		tab2.setOnline(false)
+		await tab2.updateProject(PROJ_ID, { name: 'Local Project Name' })
+		simulateConflict = true
+		tab2.setOnline(true)
+		await tab2.flushOutbox()
+
+		const conflicts = tab2.getConflicts()
+		expect(conflicts).toHaveLength(1)
+		expect(conflicts[0]?.entity).toBe('project')
+		const conflict = conflicts[0]
+		if (!conflict) throw new Error('expected project conflict')
+		await tab2.resolveConflict(conflict.id, 'keep_local')
+		expect(tab2.getConflicts()).toHaveLength(0)
+		expect(tab2.collections.projects.get(PROJ_ID)?.name).toBe('Local Project Name')
+		tab2.dispose()
+	})
+
+	test('createIssue preserves M7/M8 fields, triageStatus, assigneeType clearing, and offline restart', async () => {
+		const storage = new MemoryReplicaStorage()
+		const sentBatches: Parameters<SyncTransport['sendBatch']>[0][] = []
+		const cycleId = generateUuidV7()
+		const milestoneId = generateUuidV7()
+		let serverCursor = 1
+		let serverIssue: ReturnType<typeof makeIssue> | null = null
+
+		const makeTransport = (): SyncTransport => ({
+			async fetchSnapshot() {
+				return {
+					cursor: serverCursor,
+					serverTime: new Date().toISOString(),
+					projects: [{ ...baseProject(), triageEnabled: true, cycleEnabled: true }],
+					projectStatuses: [baseStatus()],
+					labels: [],
+					cycles: [
+						{
+							id: cycleId,
+							workspaceId: WS_ID,
+							projectId: PROJ_ID,
+							name: 'Sprint 1',
+							description: '',
+							status: 'active',
+							startsAt: '2026-12-01',
+							endsAt: '2026-12-14',
+							createdAt: new Date().toISOString(),
+							updatedAt: new Date().toISOString(),
+							version: 1
+						}
+					],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: []
+				}
+			},
+			async fetchChanges(since) {
+				return {
+					changes: [],
+					nextCursor: Math.max(since, serverCursor),
+					hasMore: false,
+					serverTime: new Date().toISOString()
+				}
+			},
+			async sendBatch(mutations) {
+				sentBatches.push([...mutations])
+				const results: MutationsBatchResponse['results'] = []
+				for (const m of mutations) {
+					serverCursor += 1
+					if (m.op === 'create') {
+						serverIssue = makeIssue(m.entityId, {
+							title: String(m.patch['title']),
+							cycleId: (m.patch['cycleId'] as string | null | undefined) ?? null,
+							milestoneId: (m.patch['milestoneId'] as string | null | undefined) ?? null,
+							startDate: (m.patch['startDate'] as string | null | undefined) ?? null,
+							dueDate: (m.patch['dueDate'] as string | null | undefined) ?? null,
+							estimate: (m.patch['estimate'] as number | null | undefined) ?? null,
+							sourceKind: (m.patch['sourceKind'] as 'chat' | 'manual' | undefined) ?? 'manual',
+							triageStatus: m.patch['triage'] ? 'pending' : 'none',
+							assigneeId: (m.patch['assigneeId'] as string | null | undefined) ?? null,
+							assigneeType: (m.patch['assigneeType'] as 'user' | 'agent' | null | undefined) ?? null,
+							number: 1,
+							identifier: 'ENG-1',
+							version: 1
+						})
+					} else if (serverIssue) {
+						serverIssue = {
+							...serverIssue,
+							...(m.patch as Partial<typeof serverIssue>),
+							version: serverIssue.version + 1
+						}
+					}
+					results.push({
+						mutationId: m.mutationId,
+						status: 200,
+						outcome: 'applied',
+						data: serverIssue as unknown as Record<string, unknown>
+					})
+				}
+				return { cursor: serverCursor, results }
+			}
+		})
+
+		const tab1 = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport: makeTransport()
+		})
+		await tab1.bootstrap()
+		tab1.setOnline(false)
+
+		const created = await tab1.createIssue({
+			projectId: PROJ_ID,
+			title: 'Full M7/M8 issue',
+			statusId: STATUS_TODO,
+			priority: 1,
+			assigneeId: USER_ID,
+			assigneeType: 'user',
+			cycleId,
+			milestoneId,
+			startDate: '2026-12-01',
+			dueDate: '2026-12-10',
+			estimate: 5,
+			sourceKind: 'chat',
+			triage: true
+		})
+
+		expect(tab1.collections.issues.get(created.id)).toMatchObject({
+			cycleId,
+			milestoneId,
+			startDate: '2026-12-01',
+			dueDate: '2026-12-10',
+			estimate: 5,
+			sourceKind: 'chat',
+			triageStatus: 'pending',
+			assigneeId: USER_ID,
+			assigneeType: 'user'
+		})
+
+		await tab1.updateIssue(created.id, { assigneeId: null })
+		expect(tab1.collections.issues.get(created.id)?.assigneeId).toBeNull()
+		expect(tab1.collections.issues.get(created.id)?.assigneeType).toBeNull()
+		tab1.dispose()
+
+		const tab2 = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport: makeTransport()
+		})
+		tab2.setOnline(false)
+		await tab2.bootstrap()
+
+		expect(tab2.collections.issues.get(created.id)).toMatchObject({
+			cycleId,
+			milestoneId,
+			startDate: '2026-12-01',
+			dueDate: '2026-12-10',
+			estimate: 5,
+			sourceKind: 'chat',
+			triageStatus: 'pending',
+			assigneeId: null,
+			assigneeType: null
+		})
+
+		tab2.setOnline(true)
+		await tab2.flushOutbox()
+
+		const sent = sentBatches.flat()
+		const createMut = sent.find((m) => m.entity === 'issue' && m.op === 'create')
+		expect(createMut?.patch).toMatchObject({
+			cycleId,
+			milestoneId,
+			startDate: '2026-12-01',
+			dueDate: '2026-12-10',
+			estimate: 5,
+			sourceKind: 'chat',
+			triage: true
+		})
+		const updateMut = sent.find((m) => m.entity === 'issue' && m.op === 'update')
+		if (updateMut) {
+			expect(updateMut.patch).toMatchObject({ assigneeId: null, assigneeType: null })
+		} else {
+			expect(createMut?.patch).toMatchObject({ assigneeId: null, assigneeType: null })
+		}
+		expect(tab2.collections.issues.get(created.id)?.assigneeType).toBeNull()
+		expect(tab2.collections.issues.get(created.id)?.triageStatus).toBe('pending')
+		tab2.dispose()
+	})
+})
+
+class MockWebSocket {
+	static readonly OPEN = 1
+	readyState = 0
+	onopen: ((ev: Event) => void) | null = null
+	onmessage: ((ev: MessageEvent) => void) | null = null
+	onclose: ((ev: CloseEvent) => void) | null = null
+	onerror: ((ev: Event) => void) | null = null
+	readonly sent: string[] = []
+	closedCode: number | null = null
+	closedReason: string | null = null
+	readonly url: string
+
+	constructor(url: string) {
+		this.url = url
+	}
+
+	send(data: string): void {
+		this.sent.push(data)
+	}
+
+	close(code = 1000, reason = ''): void {
+		this.closedCode = code
+		this.closedReason = reason
+		this.readyState = 3
+	}
+
+	simulateOpen(): void {
+		this.readyState = 1
+		this.onopen?.({} as Event)
+	}
+
+	simulateMessage(payload: unknown): void {
+		this.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent)
+	}
+
+	simulateClose(code = 1006, reason = ''): void {
+		this.closedCode = code
+		this.closedReason = reason
+		this.readyState = 3
+		this.onclose?.({} as CloseEvent)
+	}
+}
+
+describe('Self-healing sync & WsSignalClient resilience', () => {
+	test('WsSignalClient detects silent zombie sockets via heartbeat watchdog and emits onReconnect', async () => {
+		const sockets: MockWebSocket[] = []
+		const connStates: boolean[] = []
+		let reconnectCount = 0
+		const cursorSignals: number[] = []
+
+		const client = new WsSignalClient({
+			workspaceId: WS_ID,
+			wsUrl: 'wss://huriro.example/ws',
+			getCursor: () => 1,
+			heartbeatTimeoutMs: 80,
+			pollIntervalMs: 60_000,
+			webSocketFactory: (url) => {
+				const ws = new MockWebSocket(url)
+				sockets.push(ws)
+				return ws as unknown as WebSocket
+			},
+			onCursorSignal: (cursor) => {
+				cursorSignals.push(cursor)
+			},
+			onRevokeSignal: () => {},
+			onPollFallback: () => {},
+			onConnectionChange: (connected) => {
+				connStates.push(connected)
+			},
+			onReconnect: () => {
+				reconnectCount += 1
+			}
+		})
+
+		try {
+			client.start()
+			expect(sockets).toHaveLength(1)
+			const ws1 = sockets[0]
+			if (!ws1) throw new Error('expected first socket')
+			ws1.simulateOpen()
+			ws1.simulateMessage({ t: 'ready', serverCursor: 1, heartbeatMs: 40 })
+			expect(connStates.at(-1)).toBe(true)
+			expect(reconnectCount).toBe(0)
+
+			// A ping at 45ms refreshes lastActivityAt and answers with pong without reconnecting.
+			await new Promise((r) => setTimeout(r, 45))
+			ws1.simulateMessage({ t: 'ping' })
+			expect(ws1.sent.some((raw) => JSON.parse(raw).t === 'pong')).toBe(true)
+			await new Promise((r) => setTimeout(r, 45))
+			expect(sockets).toHaveLength(1)
+			expect(ws1.readyState).toBe(1)
+
+			// Stopping pings lets heartbeat watchdog expire and force-reconnect.
+			const deadline = Date.now() + 400
+			while (sockets.length < 2 && Date.now() < deadline) {
+				await new Promise((r) => setTimeout(r, 15))
+			}
+			expect(sockets).toHaveLength(2)
+			expect(ws1.closedCode).toBe(4000)
+			expect(ws1.closedReason).toBe('heartbeat_timeout')
+
+			const ws2 = sockets[1]
+			if (!ws2) throw new Error('expected second socket')
+			ws2.simulateOpen()
+			ws2.simulateMessage({ t: 'ready', serverCursor: 3, heartbeatMs: 40 })
+			expect(connStates.at(-1)).toBe(true)
+			expect(reconnectCount).toBe(1)
+			expect(cursorSignals).toContain(3)
+
+			// Late onclose from the stale first socket must not clobber the healthy second socket.
+			ws1.onclose?.({} as CloseEvent)
+			expect(sockets).toHaveLength(2)
+			expect(ws2.readyState).toBe(1)
+			expect(connStates.at(-1)).toBe(true)
+		} finally {
+			client.stop()
+		}
+	})
+
+	test('HuriroSyncEngine retries failed delta pulls automatically with backoff and clears lastError', async () => {
+		const storage = new MemoryReplicaStorage()
+		const nowIso = '2026-11-26T10:00:00Z'
+		let failChanges = false
+		let changeCalls = 0
+		const recoveredIssue = makeIssue('0190a0b1-9a9a-7000-8000-000000000777', {
+			title: 'Recovered via delta retry',
+			version: 1
+		})
+
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				return {
+					cursor: 1,
+					serverTime: nowIso,
+					projects: [baseProject()],
+					projectStatuses: [baseStatus()],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: []
+				}
+			},
+			async fetchChanges(since) {
+				changeCalls += 1
+				if (failChanges) {
+					const err = new Error('delta temporarily unavailable (503)') as Error & { status?: number }
+					err.status = 503
+					throw err
+				}
+				if (since < 2) {
+					return {
+						changes: [
+							{
+								cursor: 2,
+								entity: 'issue',
+								id: recoveredIssue.id,
+								action: 'upsert',
+								scope: [`project:${PROJ_ID}`],
+								data: recoveredIssue as unknown as Record<string, unknown>,
+								changedAt: nowIso
+							}
+						],
+						nextCursor: 2,
+						hasMore: false,
+						serverTime: nowIso
+					}
+				}
+				return { changes: [], nextCursor: since, hasMore: false, serverTime: nowIso }
+			},
+			async sendBatch() {
+				return { cursor: 2, results: [] }
+			}
+		}
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport,
+			syncRetryBaseMs: 30
+		})
+		try {
+			await engine.bootstrap()
+			failChanges = true
+			await engine.syncNow()
+			expect(engine.getStatus().lastError).toContain('503')
+
+			failChanges = false
+			const deadline = Date.now() + 500
+			while (engine.getStatus().lastError !== null && Date.now() < deadline) {
+				await new Promise((r) => setTimeout(r, 15))
+			}
+			expect(changeCalls).toBeGreaterThanOrEqual(2)
+			expect(engine.getStatus().lastError).toBeNull()
+			expect(engine.getStatus().cursor).toBe(2)
+			expect(engine.collections.issues.get(recoveredIssue.id)?.title).toBe('Recovered via delta retry')
+		} finally {
+			engine.dispose()
+		}
+	})
+
+	test('HuriroSyncEngine resume() verifies socket liveness, flushes, pulls deltas, throttles, and listens to visibility/focus', async () => {
+		const storage = new MemoryReplicaStorage()
+		const nowIso = '2026-11-26T10:00:00Z'
+		const sockets: MockWebSocket[] = []
+		let resumeCallbacks = 0
+		let changeCalls = 0
+		let serverCursor = 1
+
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				return {
+					cursor: 1,
+					serverTime: nowIso,
+					projects: [baseProject()],
+					projectStatuses: [baseStatus()],
+					labels: [],
+					cycles: [],
+					issues: [],
+					savedViews: [],
+					notifications: [],
+					docPages: []
+				}
+			},
+			async fetchChanges(since) {
+				changeCalls += 1
+				return { changes: [], nextCursor: Math.max(since, serverCursor), hasMore: false, serverTime: nowIso }
+			},
+			async sendBatch() {
+				return { cursor: serverCursor, results: [] }
+			}
+		}
+
+		const winListeners = new Map<string, Set<() => void>>()
+		const docListeners = new Map<string, Set<() => void>>()
+		const prevWin = (globalThis as Record<string, unknown>)['window']
+		const prevDoc = (globalThis as Record<string, unknown>)['document']
+		const mockDoc = {
+			visibilityState: 'hidden' as DocumentVisibilityState,
+			addEventListener: (ev: string, fn: () => void) => {
+				const set = docListeners.get(ev) ?? new Set()
+				set.add(fn)
+				docListeners.set(ev, set)
+			},
+			removeEventListener: (ev: string, fn: () => void) => {
+				docListeners.get(ev)?.delete(fn)
+			}
+		}
+		const mockWin = {
+			addEventListener: (ev: string, fn: () => void) => {
+				const set = winListeners.get(ev) ?? new Set()
+				set.add(fn)
+				winListeners.set(ev, set)
+			},
+			removeEventListener: (ev: string, fn: () => void) => {
+				winListeners.get(ev)?.delete(fn)
+			}
+		}
+		;(globalThis as Record<string, unknown>)['window'] = mockWin
+		;(globalThis as Record<string, unknown>)['document'] = mockDoc
+
+		const engine = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage,
+			transport,
+			wsUrl: 'wss://huriro.example/ws',
+			pollIntervalMs: 60_000,
+			wsHeartbeatTimeoutMs: 60,
+			webSocketFactory: (url) => {
+				const ws = new MockWebSocket(url)
+				sockets.push(ws)
+				return ws as unknown as WebSocket
+			},
+			onResume: () => {
+				resumeCallbacks += 1
+			}
+		})
+
+		try {
+			await engine.bootstrap()
+			expect(sockets).toHaveLength(1)
+			const s0 = sockets[0]
+			if (!s0) throw new Error('expected initial socket')
+			s0.simulateOpen()
+			s0.simulateMessage({ t: 'ready', serverCursor: 1, heartbeatMs: 30 })
+
+			// Simulate socket closed during laptop sleep.
+			s0.readyState = 3
+			serverCursor = 4
+			const callsBeforeResume = changeCalls
+
+			// Hidden visibilitychange must not trigger resume.
+			for (const fn of docListeners.get('visibilitychange') ?? []) fn()
+			expect(resumeCallbacks).toBe(0)
+
+			// Becoming visible triggers resume(), revives socket, fires onResume, and pulls deltas.
+			mockDoc.visibilityState = 'visible'
+			for (const fn of docListeners.get('visibilitychange') ?? []) fn()
+			await new Promise((r) => setTimeout(r, 20))
+			expect(resumeCallbacks).toBe(1)
+			expect(sockets).toHaveLength(2)
+			expect(changeCalls).toBeGreaterThan(callsBeforeResume)
+			expect(engine.getStatus().cursor).toBe(4)
+
+			// Focus immediately afterward is throttled within 1 s.
+			for (const fn of winListeners.get('focus') ?? []) fn()
+			await new Promise((r) => setTimeout(r, 10))
+			expect(resumeCallbacks).toBe(1)
+
+			// Force resume bypasses the 1 s throttle.
+			await engine.resume({ force: true })
+			expect(resumeCallbacks).toBe(2)
+
+			// Reconnecting socket triggers onReconnect -> onResume + delta pull.
+			const s1 = sockets[1]
+			if (!s1) throw new Error('expected reconnected socket')
+			s1.simulateOpen()
+			s1.simulateMessage({ t: 'ready', serverCursor: 4, heartbeatMs: 30 })
+			await new Promise((r) => setTimeout(r, 20))
+			expect(resumeCallbacks).toBe(3)
+		} finally {
+			engine.dispose()
+			if (prevWin === undefined) delete (globalThis as Record<string, unknown>)['window']
+			else (globalThis as Record<string, unknown>)['window'] = prevWin
+			if (prevDoc === undefined) delete (globalThis as Record<string, unknown>)['document']
+			else (globalThis as Record<string, unknown>)['document'] = prevDoc
+		}
+	})
+
+	test('storageDegraded is false for explicit MemoryReplicaStorage and true only when auto-probe falls back to memory', async () => {
+		const explicitEngine = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			storage: new MemoryReplicaStorage()
+		})
+		await explicitEngine.bootstrap({ skipNetwork: true })
+		expect(explicitEngine.getStatus().storageDegraded).toBe(false)
+		explicitEngine.dispose()
+
+		const nowIso = '2026-11-26T10:00:00Z'
+		const probedEngine = new HuriroSyncEngine({
+			workspaceId: WS_ID,
+			currentUserId: USER_ID,
+			transport: {
+				async fetchSnapshot() {
+					return {
+						cursor: 1,
+						serverTime: nowIso,
+						projects: [],
+						projectStatuses: [],
+						labels: [],
+						cycles: [],
+						issues: [],
+						savedViews: [],
+						notifications: [],
+						docPages: []
+					}
+				},
+				async fetchChanges(since) {
+					return { changes: [], nextCursor: since, hasMore: false, serverTime: nowIso }
+				},
+				async sendBatch() {
+					return { cursor: 1, results: [] }
+				}
+			}
+		})
+		await probedEngine.bootstrap()
+		// Bun test environment has no OPFS/IndexedDB, so auto-probe falls back to memory.
+		expect(probedEngine.getStatus().storageMode).toBe('memory')
+		expect(probedEngine.getStatus().storageDegraded).toBe(true)
+		probedEngine.dispose()
 	})
 })

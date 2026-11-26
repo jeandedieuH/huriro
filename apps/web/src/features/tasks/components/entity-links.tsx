@@ -4,6 +4,7 @@ import { Link2, Plus, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { cn } from '@/lib/utils'
 import { useWorkspace } from '@/lib/workspace'
 import { useUiStore } from '@/stores/ui-store'
 
@@ -13,14 +14,17 @@ import { useUiStore } from '@/stores/ui-store'
  * `GET /graph/links` render here; deletes hit `DELETE /graph/links/:id`.
  */
 
-/** Hover-peek wrapper — lazy-fetches `GET /graph/peek` on first open, caches per entity. */
+/** Hover/focus-peek wrapper — lazy-fetches `GET /graph/peek` on first open, caches per entity. */
 export function EntityPeek({
 	type,
 	id,
+	triggerClassName,
 	children
 }: {
 	readonly type: EntityType
 	readonly id: string
+	/** Extra classes on the trigger span (e.g. `flex w-full` for block-level references). */
+	readonly triggerClassName?: string | undefined
 	readonly children: React.ReactNode
 }) {
 	const { api } = useWorkspace()
@@ -52,17 +56,25 @@ export function EntityPeek({
 
 	return (
 		<Popover open={open} onOpenChange={(o) => scheduleOpen(o)}>
+			{/* Focus parity with hover (WCAG 2.1.1): React focus/blur bubble, so a
+			    keyboard user tabbing onto the wrapped reference gets the same peek.
+			    The content mirrors the handlers because Radix moves focus into the
+			    popover on open — blur-without-content-focus would instantly close it. */}
 			<PopoverTrigger
 				asChild
 				onMouseEnter={() => scheduleOpen(true)}
 				onMouseLeave={() => scheduleOpen(false)}
+				onFocus={() => scheduleOpen(true)}
+				onBlur={() => scheduleOpen(false)}
 			>
-				<span className="inline-flex min-w-0">{children}</span>
+				<span className={cn('inline-flex min-w-0', triggerClassName)}>{children}</span>
 			</PopoverTrigger>
 			<PopoverContent
 				className="w-72 p-3"
 				onMouseEnter={() => scheduleOpen(true)}
 				onMouseLeave={() => scheduleOpen(false)}
+				onFocus={() => scheduleOpen(true)}
+				onBlur={() => scheduleOpen(false)}
 			>
 				{card === undefined ? (
 					<p className="text-sm text-muted-foreground">{t('peek.loading')}</p>

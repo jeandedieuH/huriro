@@ -43,6 +43,8 @@ export interface MailInboxRow {
 	readonly name: string
 	readonly position: string
 	readonly settings: Record<string, unknown>
+	readonly visibility?: 'shared' | 'private' | undefined
+	readonly ownerUserId?: string | null | undefined
 	readonly createdBy: string | null
 	readonly createdAt: string
 	readonly updatedAt: string
@@ -64,6 +66,12 @@ export interface MailConversationRow {
 	readonly lastMessageAt: string
 	readonly firstReplyAt: string | null
 	readonly customerEmail: string | null
+	readonly contactId?: string | null | undefined
+	readonly followUpAt?: string | null | undefined
+	readonly followUpCondition?: 'if_no_reply' | 'always' | null | undefined
+	readonly slaNextDueAt?: string | null | undefined
+	readonly slaBreachedAt?: string | null | undefined
+	readonly priority?: 'low' | 'normal' | 'high' | 'urgent' | undefined
 	readonly snippet?: string | undefined
 	readonly messageCount?: number | undefined
 	readonly createdAt: string
@@ -141,6 +149,17 @@ export interface MailDraftRow {
 	readonly sentMessageId: string | null
 	readonly lockedBy: string | null
 	readonly lockedUntil: string | null
+	readonly collabEnabled?: boolean | undefined
+	readonly draftState?: Uint8Array | null | undefined
+	readonly draftStateVector?: Uint8Array | null | undefined
+	readonly leaseNodeId?: string | null | undefined
+	readonly leaseEpoch?: number | undefined
+	readonly leaseExpiresAt?: string | null | undefined
+	readonly reviewStatus?: 'none' | 'requested' | 'approved' | 'changes_requested' | undefined
+	readonly reviewerId?: string | null | undefined
+	readonly reviewedAt?: string | null | undefined
+	readonly reviewNote?: string | null | undefined
+	readonly metadata?: unknown | undefined
 	readonly version: number
 	readonly createdAt: string
 	readonly updatedAt: string
@@ -345,6 +364,7 @@ export async function insertMailIdentity(
 export async function listMailInboxes(tx: Queryable, workspaceId: string): Promise<MailInboxRow[]> {
 	return tx<MailInboxRow[]>`
 		SELECT i.id, i.workspace_id AS "workspaceId", i.name, i.position, i.settings,
+			i.visibility, i.owner_user_id AS "ownerUserId",
 			i.created_by AS "createdBy", i.created_at AS "createdAt", i.updated_at AS "updatedAt", i.version,
 			(SELECT COUNT(*) FROM mail_conversations c
 			 WHERE c.workspace_id = i.workspace_id AND c.inbox_id = i.id AND c.status = 'open') AS "openCount"
@@ -361,6 +381,7 @@ export async function getMailInbox(
 ): Promise<MailInboxRow | null> {
 	const [row] = await tx<MailInboxRow[]>`
 		SELECT i.id, i.workspace_id AS "workspaceId", i.name, i.position, i.settings,
+			i.visibility, i.owner_user_id AS "ownerUserId",
 			i.created_by AS "createdBy", i.created_at AS "createdAt", i.updated_at AS "updatedAt", i.version,
 			(SELECT COUNT(*) FROM mail_conversations c
 			 WHERE c.workspace_id = i.workspace_id AND c.inbox_id = i.id AND c.status = 'open') AS "openCount"
@@ -378,12 +399,16 @@ export async function insertMailInbox(
 		readonly position: string
 		readonly settings: Record<string, unknown>
 		readonly createdBy: string | null
+		readonly visibility?: 'shared' | 'private' | undefined
+		readonly ownerUserId?: string | null | undefined
 	}
 ): Promise<MailInboxRow> {
 	const [row] = await tx<MailInboxRow[]>`
-		INSERT INTO mail_inboxes (workspace_id, name, position, settings, created_by)
-		VALUES (${args.workspaceId}, ${args.name}, ${args.position}, ${tx.json(args.settings as never)}, ${args.createdBy})
+		INSERT INTO mail_inboxes (workspace_id, name, position, settings, created_by, visibility, owner_user_id)
+		VALUES (${args.workspaceId}, ${args.name}, ${args.position}, ${tx.json(args.settings as never)}, ${args.createdBy},
+			${args.visibility ?? 'shared'}, ${args.ownerUserId ?? null})
 		RETURNING id, workspace_id AS "workspaceId", name, position, settings,
+			visibility, owner_user_id AS "ownerUserId",
 			created_by AS "createdBy", created_at AS "createdAt", updated_at AS "updatedAt", version,
 			0 AS "openCount"
 	`
@@ -399,12 +424,15 @@ export async function listMailConversations(
 		readonly status?: string | undefined
 		readonly assigneeId?: string | null | undefined
 		readonly unassigned?: boolean | undefined
+		readonly tagId?: string | undefined
 		readonly q?: string | undefined
 		readonly cursor?: { readonly lastMessageAt: string; readonly id: string } | undefined
 		readonly limit: number
 		readonly accountIds?: readonly string[] | undefined
+		readonly inboxIds?: readonly string[] | undefined
 	}
 ): Promise<MailConversationRow[]> {
+	if (filter.inboxIds !== undefined && filter.inboxIds.length === 0) return []
 	const accessible = filter.accountIds
 	const lim = filter.limit + 1
 	const rows = await tx<MailConversationRow[]>`
@@ -412,7 +440,9 @@ export async function listMailConversations(
 			c.subject, c.normalized_subject AS "normalizedSubject", c.status,
 			c.assignee_id AS "assigneeId", c.snoozed_until AS "snoozedUntil",
 			c.merged_into_id AS "mergedIntoId", c.last_message_at AS "lastMessageAt",
-			c.first_reply_at AS "firstReplyAt", c.customer_email AS "customerEmail",
+			c.first_reply_at AS "firstReplyAt", c.customer_email AS "customerEmail", c.contact_id AS "contactId",
+			c.follow_up_at AS "followUpAt", c.follow_up_condition AS "followUpCondition",
+			c.sla_next_due_at AS "slaNextDueAt", c.sla_breached_at AS "slaBreachedAt", c.priority,
 			c.created_at AS "createdAt", c.updated_at AS "updatedAt", c.version,
 			(SELECT m.snippet FROM mail_messages m
 			 WHERE m.workspace_id = c.workspace_id AND m.conversation_id = c.id
@@ -429,8 +459,10 @@ export async function listMailConversations(
 			${filter.status ? tx`AND c.status = ${filter.status}` : tx`AND c.status != 'snoozed'`}
 			${filter.assigneeId !== undefined && filter.assigneeId !== null ? tx`AND c.assignee_id = ${filter.assigneeId}` : tx``}
 			${filter.unassigned ? tx`AND c.assignee_id IS NULL` : tx``}
+			${filter.tagId ? tx`AND EXISTS (SELECT 1 FROM mail_conversation_tags ct WHERE ct.workspace_id = c.workspace_id AND ct.conversation_id = c.id AND ct.tag_id = ${filter.tagId})` : tx``}
 			${filter.q ? tx`AND (c.subject ILIKE ${`%${filter.q}%`} OR c.customer_email ILIKE ${`%${filter.q}%`})` : tx``}
 			${accessible && accessible.length > 0 ? tx`AND c.account_id = ANY(${[...accessible]}::uuid[])` : tx``}
+			${filter.inboxIds && filter.inboxIds.length > 0 ? tx`AND c.inbox_id = ANY(${[...filter.inboxIds]}::uuid[])` : tx``}
 			${filter.cursor ? tx`AND (c.last_message_at, c.id) < (${filter.cursor.lastMessageAt}, ${filter.cursor.id})` : tx``}
 		ORDER BY c.last_message_at DESC, c.id DESC
 		LIMIT ${lim}
@@ -448,7 +480,9 @@ export async function getMailConversation(
 			c.subject, c.normalized_subject AS "normalizedSubject", c.status,
 			c.assignee_id AS "assigneeId", c.snoozed_until AS "snoozedUntil",
 			c.merged_into_id AS "mergedIntoId", c.last_message_at AS "lastMessageAt",
-			c.first_reply_at AS "firstReplyAt", c.customer_email AS "customerEmail",
+			c.first_reply_at AS "firstReplyAt", c.customer_email AS "customerEmail", c.contact_id AS "contactId",
+			c.follow_up_at AS "followUpAt", c.follow_up_condition AS "followUpCondition",
+			c.sla_next_due_at AS "slaNextDueAt", c.sla_breached_at AS "slaBreachedAt", c.priority,
 			c.created_at AS "createdAt", c.updated_at AS "updatedAt", c.version,
 			(SELECT m.snippet FROM mail_messages m
 			 WHERE m.workspace_id = c.workspace_id AND m.conversation_id = c.id
@@ -477,7 +511,9 @@ export async function findConversationByThreadKey(
 			subject, normalized_subject AS "normalizedSubject", status,
 			assignee_id AS "assigneeId", snoozed_until AS "snoozedUntil",
 			merged_into_id AS "mergedIntoId", last_message_at AS "lastMessageAt",
-			first_reply_at AS "firstReplyAt", customer_email AS "customerEmail",
+			first_reply_at AS "firstReplyAt", customer_email AS "customerEmail", contact_id AS "contactId",
+			follow_up_at AS "followUpAt", follow_up_condition AS "followUpCondition",
+			sla_next_due_at AS "slaNextDueAt", sla_breached_at AS "slaBreachedAt", priority,
 			created_at AS "createdAt", updated_at AS "updatedAt", version
 		FROM mail_conversations
 		WHERE workspace_id = ${workspaceId}
@@ -551,7 +587,9 @@ export async function insertMailConversation(
 			subject, normalized_subject AS "normalizedSubject", status,
 			assignee_id AS "assigneeId", snoozed_until AS "snoozedUntil",
 			merged_into_id AS "mergedIntoId", last_message_at AS "lastMessageAt",
-			first_reply_at AS "firstReplyAt", customer_email AS "customerEmail",
+			first_reply_at AS "firstReplyAt", customer_email AS "customerEmail", contact_id AS "contactId",
+			follow_up_at AS "followUpAt", follow_up_condition AS "followUpCondition",
+			sla_next_due_at AS "slaNextDueAt", sla_breached_at AS "slaBreachedAt", priority,
 			created_at AS "createdAt", updated_at AS "updatedAt", version
 	`
 	return row!
@@ -652,6 +690,10 @@ export async function updateMailConversation(
 		readonly status?: MailConversationRow['status'] | undefined
 		readonly assigneeId?: string | null | undefined
 		readonly snoozedUntil?: string | null | undefined
+		readonly priority?: MailConversationRow['priority'] | undefined
+		readonly followUpAt?: string | null | undefined
+		readonly followUpCondition?: 'if_no_reply' | 'always' | null | undefined
+		readonly followUpCompletedAt?: string | null | undefined
 	},
 	expectedVersion?: number
 ): Promise<MailConversationRow | null> {
@@ -661,6 +703,10 @@ export async function updateMailConversation(
 			-- undefined → keep, null → unassign, uuid → assign (CASE distinguishes them).
 			assignee_id   = CASE WHEN ${patch.assigneeId !== undefined} THEN ${patch.assigneeId ?? null}::uuid ELSE assignee_id END,
 			snoozed_until = CASE WHEN ${patch.snoozedUntil !== undefined} THEN ${patch.snoozedUntil ?? null}::timestamptz ELSE snoozed_until END,
+			priority      = COALESCE(${patch.priority ?? null}, priority),
+			follow_up_at  = CASE WHEN ${patch.followUpAt !== undefined} THEN ${patch.followUpAt ?? null}::timestamptz ELSE follow_up_at END,
+			follow_up_condition = CASE WHEN ${patch.followUpCondition !== undefined} THEN ${patch.followUpCondition ?? null}::text ELSE follow_up_condition END,
+			follow_up_completed_at = CASE WHEN ${patch.followUpCompletedAt !== undefined} THEN ${patch.followUpCompletedAt ?? null}::timestamptz ELSE follow_up_completed_at END,
 			version       = version + 1
 		WHERE workspace_id = ${workspaceId}
 			AND id = ${conversationId}
@@ -669,7 +715,9 @@ export async function updateMailConversation(
 			subject, normalized_subject AS "normalizedSubject", status,
 			assignee_id AS "assigneeId", snoozed_until AS "snoozedUntil",
 			merged_into_id AS "mergedIntoId", last_message_at AS "lastMessageAt",
-			first_reply_at AS "firstReplyAt", customer_email AS "customerEmail",
+			first_reply_at AS "firstReplyAt", customer_email AS "customerEmail", contact_id AS "contactId",
+			follow_up_at AS "followUpAt", follow_up_condition AS "followUpCondition",
+			sla_next_due_at AS "slaNextDueAt", sla_breached_at AS "slaBreachedAt", priority,
 			created_at AS "createdAt", updated_at AS "updatedAt", version
 	`
 	return row ?? null
@@ -821,7 +869,10 @@ export async function listConversationDrafts(
 			d.recipients, d.in_reply_to_id AS "inReplyToId",
 			d.scheduled_send_at AS "scheduledSendAt", d.status,
 			d.sent_message_id AS "sentMessageId", d.locked_by AS "lockedBy",
-			d.locked_until AS "lockedUntil", d.version,
+			d.locked_until AS "lockedUntil",
+			d.collab_enabled AS "collabEnabled", d.review_status AS "reviewStatus",
+			d.reviewer_id AS "reviewerId", d.reviewed_at AS "reviewedAt",
+			d.review_note AS "reviewNote", d.metadata, d.version,
 			d.created_at AS "createdAt", d.updated_at AS "updatedAt",
 			i.address AS "identityAddress", i.display_name AS "identityName"
 		FROM mail_drafts d
@@ -843,7 +894,10 @@ export async function getMailDraft(
 			d.recipients, d.in_reply_to_id AS "inReplyToId",
 			d.scheduled_send_at AS "scheduledSendAt", d.status,
 			d.sent_message_id AS "sentMessageId", d.locked_by AS "lockedBy",
-			d.locked_until AS "lockedUntil", d.version,
+			d.locked_until AS "lockedUntil",
+			d.collab_enabled AS "collabEnabled", d.review_status AS "reviewStatus",
+			d.reviewer_id AS "reviewerId", d.reviewed_at AS "reviewedAt",
+			d.review_note AS "reviewNote", d.metadata, d.version,
 			d.created_at AS "createdAt", d.updated_at AS "updatedAt",
 			i.address AS "identityAddress", i.display_name AS "identityName"
 		FROM mail_drafts d
@@ -864,17 +918,20 @@ export async function insertMailDraft(
 		readonly bodyText: string
 		readonly recipients: Record<string, unknown>
 		readonly inReplyToId: string | null
+		readonly scheduledSendAt?: string | null | undefined
+		readonly collabEnabled?: boolean | undefined
+		readonly metadata?: Record<string, unknown> | undefined
 	}
 ): Promise<MailDraftRow> {
 	const [row] = await tx<MailDraftRow[]>`
 		INSERT INTO mail_drafts (
 			workspace_id, conversation_id, identity_id, created_by, body,
-			body_text, recipients, in_reply_to_id
+			body_text, recipients, in_reply_to_id, scheduled_send_at, collab_enabled, metadata
 		)
 		VALUES (
 			${args.workspaceId}, ${args.conversationId}, ${args.identityId}, ${args.createdBy},
 			${tx.json(args.body as never)}, ${args.bodyText}, ${tx.json(args.recipients as never)},
-			${args.inReplyToId}
+			${args.inReplyToId}, ${args.scheduledSendAt ?? null}, ${args.collabEnabled ?? false}, ${tx.json((args.metadata ?? {}) as never)}
 		)
 		RETURNING id, workspace_id AS "workspaceId", conversation_id AS "conversationId",
 			identity_id AS "identityId", created_by AS "createdBy",
@@ -882,7 +939,9 @@ export async function insertMailDraft(
 			recipients, in_reply_to_id AS "inReplyToId",
 			scheduled_send_at AS "scheduledSendAt", status,
 			sent_message_id AS "sentMessageId", locked_by AS "lockedBy",
-			locked_until AS "lockedUntil", version,
+			locked_until AS "lockedUntil", collab_enabled AS "collabEnabled",
+			review_status AS "reviewStatus", reviewer_id AS "reviewerId",
+			reviewed_at AS "reviewedAt", review_note AS "reviewNote", metadata, version,
 			created_at AS "createdAt", updated_at AS "updatedAt"
 	`
 	return row!
@@ -902,6 +961,12 @@ export async function updateMailDraft(
 		readonly lockedUntil?: string | null | undefined
 		readonly lastEditedBy?: string | null | undefined
 		readonly sentMessageId?: string | null | undefined
+		readonly collabEnabled?: boolean | undefined
+		readonly reviewStatus?: MailDraftRow['reviewStatus'] | undefined
+		readonly reviewerId?: string | null | undefined
+		readonly reviewedAt?: string | null | undefined
+		readonly reviewNote?: string | null | undefined
+		readonly metadata?: Record<string, unknown> | undefined
 	},
 	expectedVersion?: number
 ): Promise<MailDraftRow | null> {
@@ -911,11 +976,18 @@ export async function updateMailDraft(
 			body_text      = COALESCE(${patch.bodyText ?? null}, body_text),
 			recipients     = COALESCE(${patch.recipients ? tx.json(patch.recipients as never) : null}, recipients),
 			status         = COALESCE(${patch.status ?? null}, status),
-			scheduled_send_at = COALESCE(${patch.scheduledSendAt ?? null}, scheduled_send_at),
+			-- undefined → keep, null → clear scheduled send / lock, iso → set value.
+			scheduled_send_at = CASE WHEN ${patch.scheduledSendAt !== undefined} THEN ${patch.scheduledSendAt ?? null}::timestamptz ELSE scheduled_send_at END,
 			locked_by      = CASE WHEN ${patch.lockedBy !== undefined} THEN ${patch.lockedBy ?? null}::uuid ELSE locked_by END,
-			locked_until   = COALESCE(${patch.lockedUntil ?? null}, locked_until),
+			locked_until   = CASE WHEN ${patch.lockedUntil !== undefined} THEN ${patch.lockedUntil ?? null}::timestamptz ELSE locked_until END,
 			last_edited_by = COALESCE(${patch.lastEditedBy ?? null}, last_edited_by),
 			sent_message_id = COALESCE(${patch.sentMessageId ?? null}, sent_message_id),
+			collab_enabled = COALESCE(${patch.collabEnabled ?? null}, collab_enabled),
+			review_status  = COALESCE(${patch.reviewStatus ?? null}, review_status),
+			reviewer_id    = CASE WHEN ${patch.reviewerId !== undefined} THEN ${patch.reviewerId ?? null}::uuid ELSE reviewer_id END,
+			reviewed_at    = CASE WHEN ${patch.reviewedAt !== undefined} THEN ${patch.reviewedAt ?? null}::timestamptz ELSE reviewed_at END,
+			review_note    = CASE WHEN ${patch.reviewNote !== undefined} THEN ${patch.reviewNote ?? null}::text ELSE review_note END,
+			metadata       = COALESCE(${patch.metadata ? tx.json(patch.metadata as never) : null}, metadata),
 			version        = version + 1
 		WHERE workspace_id = ${workspaceId}
 			AND id = ${draftId}
@@ -926,7 +998,9 @@ export async function updateMailDraft(
 			recipients, in_reply_to_id AS "inReplyToId",
 			scheduled_send_at AS "scheduledSendAt", status,
 			sent_message_id AS "sentMessageId", locked_by AS "lockedBy",
-			locked_until AS "lockedUntil", version,
+			locked_until AS "lockedUntil", collab_enabled AS "collabEnabled",
+			review_status AS "reviewStatus", reviewer_id AS "reviewerId",
+			reviewed_at AS "reviewedAt", review_note AS "reviewNote", metadata, version,
 			created_at AS "createdAt", updated_at AS "updatedAt"
 	`
 	return row ?? null

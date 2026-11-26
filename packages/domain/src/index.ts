@@ -1,5 +1,40 @@
 // @huriro/domain public surface — pure, no I/O (§7.2).
 
+export type { AvailabilityWarning } from './availability'
+export {
+	AVAILABILITY_WARNING_KEYS,
+	AVAILABILITY_WINDOW_KINDS,
+	buildAvailabilityWarning,
+	defaultWorkingHours,
+	EFFECTIVE_AVAILABILITY_STATES,
+	evaluateNotificationSuppression,
+	isAvailabilityRoutable,
+	isValidHHMM,
+	isValidIanaTimezone,
+	localTimeLabel,
+	MANUAL_AVAILABILITY_STATES,
+	MAX_INTERVALS_PER_DAY,
+	normalizeWorkingHours,
+	NEXT_AVAILABLE_HORIZON_DAYS,
+	resolveEffectiveAvailability,
+	validateWorkingHours,
+	WEEKDAYS
+} from './availability'
+export type {
+	AvailabilityProfileLike,
+	AvailabilityWarningKey,
+	AvailabilityWindowKind,
+	AvailabilityWindowLike,
+	EffectiveAvailabilityState,
+	LivePresenceState,
+	ManualAvailabilityState,
+	NotificationSuppressionReason,
+	ResolvedAvailability,
+	WeekdayKey,
+	WorkingHoursInterval,
+	WorkingHoursSchedule,
+	WorkingHoursValidation
+} from './availability'
 export type { AgentScope, RiskTier } from './agent-scopes'
 export {
 	AGENT_SCOPES,
@@ -29,6 +64,36 @@ export {
 	nextCycleWindow,
 	windowsToPreCreate
 } from './cycle-schedule'
+export type {
+	DatabaseCellValueLike,
+	DatabaseFilterExpr,
+	DatabaseFilterOp,
+	DatabaseFilterValidation,
+	DatabasePropertyMeta,
+	DatabaseRowLike,
+	DatabaseSortSpec
+} from './database-filter'
+export {
+	compareDatabaseRows,
+	DATABASE_FILTER_LIMITS,
+	databaseCellValue,
+	evaluateDatabaseFilter,
+	validateDatabaseFilter
+} from './database-filter'
+export type {
+	PortableCellInput,
+	PortableDatabaseProperty,
+	PortableDatabaseRowInput
+} from './database-portability'
+export {
+	databaseRowsFromCsv,
+	databaseRowsFromJson,
+	databaseRowsToCsv,
+	databaseRowsToJson,
+	parseCsv,
+	portableCellDisplay,
+	serializeCsv
+} from './database-portability'
 export type {
 	FilterableIssue,
 	FilterContext,
@@ -69,6 +134,30 @@ export {
 	toggleFilterNot,
 	updateFilterNode
 } from './filter-builder'
+export type {
+	FormulaDateValue,
+	FormulaErrorCode,
+	FormulaEvalContext,
+	FormulaExpr,
+	FormulaLambdaValue,
+	FormulaPrimitive,
+	FormulaRuntimeValue,
+	FormulaValidationResult,
+	FormulaValue
+} from './formula'
+export {
+	countFormulaAstNodes,
+	detectFormulaDependencyCycle,
+	evaluateFormula,
+	evaluateFormulaAst,
+	extractFormulaPropDependencies,
+	FORMULA_LIMITS,
+	FormulaError,
+	isFormulaDate,
+	isFormulaLambda,
+	parseFormula,
+	validateFormulaSource
+} from './formula'
 export {
 	comparePositions,
 	DEFAULT_REBALANCE_MAX_LENGTH,

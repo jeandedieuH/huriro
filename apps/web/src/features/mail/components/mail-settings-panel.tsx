@@ -17,8 +17,9 @@ import {
 	SettingsSkeleton
 } from '@/features/settings/components/settings-primitives'
 import { useWorkspace } from '@/lib/workspace'
+import { MailV2SettingsSection } from './mail-v2-settings-section'
 
-const PROVIDERS = ['inbound_parse', 'imap', 'gmail', 'graph'] as const
+const PROVIDERS = ['inbound_parse', 'imap', 'jmap', 'gmail', 'graph'] as const
 
 function statusTone(status: MailAccountDto['status']): 'success' | 'warning' | 'danger' | 'secondary' {
 	if (status === 'active') return 'success'
@@ -39,6 +40,7 @@ export function MailSettingsPanel() {
 		displayName: ''
 	})
 	const [inboxName, setInboxName] = useState('')
+	const [inboxVisibility, setInboxVisibility] = useState<'shared' | 'private'>('shared')
 	const [notice, setNotice] = useState<string | null>(null)
 	const [error, setError] = useState<string | null>(null)
 
@@ -90,9 +92,13 @@ export function MailSettingsPanel() {
 		setBusy('create-inbox')
 		setError(null)
 		try {
-			const inbox = await api.createMailInbox({ name: inboxName.trim() })
+			const inbox = await api.createMailInbox({
+				name: inboxName.trim(),
+				visibility: inboxVisibility
+			})
 			setInboxes((prev) => [...prev, inbox])
 			setInboxName('')
+			setInboxVisibility('shared')
 			setNotice(t('mail.settings.inbox-created'))
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Failed to create shared inbox')
@@ -333,16 +339,32 @@ export function MailSettingsPanel() {
 							</ul>
 						)}
 
-						<div className="space-y-1.5 pt-1">
-							<label htmlFor="mail-inbox-name" className="text-xs font-medium text-foreground">
-								{t('settings.mail.inbox-name-label')}
-							</label>
-							<Input
-								id="mail-inbox-name"
-								placeholder={t('mail.settings.inboxes')}
-								value={inboxName}
-								onChange={(e) => setInboxName(e.target.value)}
-							/>
+						<div className="grid gap-3 pt-1 sm:grid-cols-2">
+							<div className="space-y-1.5">
+								<label htmlFor="mail-inbox-name" className="text-xs font-medium text-foreground">
+									{t('settings.mail.inbox-name-label')}
+								</label>
+								<Input
+									id="mail-inbox-name"
+									placeholder={t('mail.settings.inboxes')}
+									value={inboxName}
+									onChange={(e) => setInboxName(e.target.value)}
+								/>
+							</div>
+							<div className="space-y-1.5">
+								<label htmlFor="mail-inbox-visibility" className="text-xs font-medium text-foreground">
+									{t('mail.inbox.visibility')}
+								</label>
+								<select
+									id="mail-inbox-visibility"
+									value={inboxVisibility}
+									onChange={(e) => setInboxVisibility(e.target.value as 'shared' | 'private')}
+									className="h-9 w-full rounded-md border border-border bg-background px-2.5 text-sm"
+								>
+									<option value="shared">{t('mail.inbox.visibility.shared')}</option>
+									<option value="private">{t('mail.inbox.visibility.private')}</option>
+								</select>
+							</div>
 						</div>
 					</SettingsCardBody>
 					<SettingsCardFooter className="justify-end">
@@ -358,6 +380,8 @@ export function MailSettingsPanel() {
 					</SettingsCardFooter>
 				</form>
 			</SettingsCard>
+
+			<MailV2SettingsSection inboxes={inboxes} onNotice={setNotice} onError={setError} />
 		</div>
 	)
 }

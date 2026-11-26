@@ -1,13 +1,16 @@
 import type {
+	CycleDto,
 	IssueCommentDto,
 	IssueDto,
 	IssueGithubLinkDto,
 	IssueRelationDto,
 	LabelDto,
+	ProjectMilestoneDto,
 	ProjectStatusDto,
-	RelationKind
+	RelationKind,
+	UpdateIssueBody
 } from '@huriro/contracts'
-import { t } from '@huriro/i18n'
+import { type MessageId, t } from '@huriro/i18n'
 import {
 	AlertTriangle,
 	ExternalLink,
@@ -20,35 +23,56 @@ import {
 	X
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Badge } from '@/components/ui/badge'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { DatePicker } from '@/components/ui/date-picker'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 import type { TaskApiBridge, WorkspaceMemberSummary } from '@/lib/sync-bootstrap'
 import { useUiStore } from '@/stores/ui-store'
-import { EntityLinksSection } from './entity-links'
+import { EntityLinksSection, EntityPeek } from './entity-links'
+
+const TRIAGE_STATUS_KEYS: Record<IssueDto['triageStatus'], MessageId> = {
+	none: 'tasks.triagestatus.none',
+	pending: 'tasks.triagestatus.pending',
+	accepted: 'tasks.triagestatus.accepted',
+	snoozed: 'tasks.triagestatus.snoozed',
+	declined: 'tasks.triagestatus.declined',
+	merged: 'tasks.triagestatus.merged'
+}
+
+const TRIAGE_STATUS_TONES: Record<IssueDto['triageStatus'], NonNullable<BadgeProps['tone']>> = {
+	none: 'outline',
+	pending: 'warning',
+	accepted: 'success',
+	snoozed: 'info',
+	declined: 'danger',
+	merged: 'secondary'
+}
+
+const SOURCE_KIND_KEYS: Record<IssueDto['sourceKind'], MessageId> = {
+	manual: 'tasks.source.manual',
+	mail: 'tasks.source.mail',
+	chat: 'tasks.source.chat',
+	form: 'tasks.source.form',
+	github: 'tasks.source.github',
+	gitlab: 'tasks.source.gitlab',
+	api: 'tasks.source.api',
+	agent: 'tasks.source.agent'
+}
 
 export interface IssueDetailPanelProps {
 	readonly issue: IssueDto
 	readonly allIssues: readonly IssueDto[]
 	readonly statuses: readonly ProjectStatusDto[]
 	readonly labels: readonly LabelDto[]
+	readonly cycles?: readonly CycleDto[]
+	readonly milestones?: readonly ProjectMilestoneDto[]
 	readonly members: readonly WorkspaceMemberSummary[]
 	readonly api: TaskApiBridge
-	readonly onUpdateIssue: (
-		issueId: string,
-		patch: {
-			title?: string
-			descriptionText?: string
-			statusId?: string
-			priority?: number
-			assigneeId?: string | null
-			assigneeType?: 'user' | 'agent' | null
-			labelIds?: string[]
-		}
-	) => Promise<void>
+	readonly onUpdateIssue: (issueId: string, patch: Omit<UpdateIssueBody, 'version'>) => Promise<void>
 	readonly onCreateSubIssue: (parentId: string, title: string) => Promise<void>
 	readonly onDeleteIssue: (issueId: string) => Promise<void>
 }
@@ -58,6 +82,8 @@ export function IssueDetailPanel({
 	allIssues,
 	statuses,
 	labels,
+	cycles = [],
+	milestones = [],
 	members,
 	api,
 	onUpdateIssue,
@@ -69,6 +95,9 @@ export function IssueDetailPanel({
 
 	const [titleDraft, setTitleDraft] = useState(issue.title)
 	const [descDraft, setDescDraft] = useState(issue.descriptionText)
+	const [estimateDraft, setEstimateDraft] = useState(
+		issue.estimate !== null && issue.estimate !== undefined ? String(issue.estimate) : ''
+	)
 	const [subTitle, setSubTitle] = useState('')
 	const [commentBody, setCommentBody] = useState('')
 	const [comments, setComments] = useState<IssueCommentDto[]>([])
@@ -82,6 +111,10 @@ export function IssueDetailPanel({
 		setTitleDraft(issue.title)
 		setDescDraft(issue.descriptionText)
 	}, [issue.title, issue.descriptionText])
+
+	useEffect(() => {
+		setEstimateDraft(issue.estimate !== null && issue.estimate !== undefined ? String(issue.estimate) : '')
+	}, [issue.estimate])
 
 	useEffect(() => {
 		let cancelled = false
@@ -115,6 +148,8 @@ export function IssueDetailPanel({
 	}
 
 	const projectStatuses = statuses.filter((s) => s.projectId === issue.projectId)
+	const projectCycles = cycles.filter((c) => c.projectId === issue.projectId)
+	const projectMilestones = milestones.filter((m) => m.projectId === issue.projectId)
 	const subIssues = allIssues.filter((i) => i.parentId === issue.id)
 	const relateCandidates = allIssues.filter((i) => i.id !== issue.id)
 
@@ -123,8 +158,20 @@ export function IssueDetailPanel({
 			aria-label={t('tasks.detail.title')}
 			className="flex h-full w-96 shrink-0 flex-col border-l border-border bg-card text-card-foreground"
 		>
-			<header className="flex items-center justify-between border-b border-border px-4 py-2.5">
-				<span className="font-mono text-xs font-semibold text-muted-foreground tnum">{issue.identifier}</span>
+			<header className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+				<div className="flex flex-wrap items-center gap-1.5">
+					<span className="font-mono text-xs font-semibold text-muted-foreground tnum">
+						{issue.identifier}
+					</span>
+					{issue.triageStatus !== 'none' ? (
+						<Badge tone={TRIAGE_STATUS_TONES[issue.triageStatus]}>
+							{t(TRIAGE_STATUS_KEYS[issue.triageStatus])}
+						</Badge>
+					) : null}
+					{issue.sourceKind !== 'manual' ? (
+						<Badge tone="outline">{t(SOURCE_KIND_KEYS[issue.sourceKind])}</Badge>
+					) : null}
+				</div>
 				<div className="flex items-center gap-1">
 					<Button
 						size="icon"
@@ -231,6 +278,106 @@ export function IssueDetailPanel({
 							</SelectContent>
 						</Select>
 					</div>
+
+					{projectCycles.length > 0 || issue.cycleId !== null ? (
+						<div className="space-y-1">
+							<span className="font-medium text-muted-foreground">{t('tasks.create.cycle-label')}</span>
+							<Select
+								value={issue.cycleId ?? 'none'}
+								onValueChange={(value) =>
+									void onUpdateIssue(issue.id, { cycleId: value === 'none' ? null : value })
+								}
+							>
+								<SelectTrigger aria-label={t('tasks.create.cycle-label')} className="h-8 text-xs">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="none">{t('tasks.bulk.no-cycle')}</SelectItem>
+									{projectCycles.map((c) => (
+										<SelectItem key={c.id} value={c.id}>
+											{c.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+					) : null}
+
+					{projectMilestones.length > 0 || issue.milestoneId !== null ? (
+						<div className="space-y-1">
+							<span className="font-medium text-muted-foreground">{t('tasks.create.milestone-label')}</span>
+							<Select
+								value={issue.milestoneId ?? 'none'}
+								onValueChange={(value) =>
+									void onUpdateIssue(issue.id, { milestoneId: value === 'none' ? null : value })
+								}
+							>
+								<SelectTrigger aria-label={t('tasks.create.milestone-label')} className="h-8 text-xs">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="none">{t('tasks.create.no-milestone')}</SelectItem>
+									{projectMilestones.map((m) => (
+										<SelectItem key={m.id} value={m.id}>
+											{m.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+					) : null}
+
+					<div className="space-y-1">
+						<label htmlFor="detail-issue-start-date" className="font-medium text-muted-foreground">
+							{t('tasks.create.start-date')}
+						</label>
+						<DatePicker
+							id="detail-issue-start-date"
+							value={issue.startDate ?? ''}
+							clearable
+							onChange={(val) => void onUpdateIssue(issue.id, { startDate: val || null })}
+						/>
+					</div>
+
+					<div className="space-y-1">
+						<label htmlFor="detail-issue-due-date" className="font-medium text-muted-foreground">
+							{t('tasks.create.due-date')}
+						</label>
+						<DatePicker
+							id="detail-issue-due-date"
+							value={issue.dueDate ?? ''}
+							clearable
+							onChange={(val) => void onUpdateIssue(issue.id, { dueDate: val || null })}
+						/>
+					</div>
+
+					<div className="col-span-2 space-y-1">
+						<label htmlFor="detail-issue-estimate" className="font-medium text-muted-foreground">
+							{t('tasks.create.estimate')}
+						</label>
+						<Input
+							id="detail-issue-estimate"
+							type="number"
+							min={0}
+							step="any"
+							value={estimateDraft}
+							onChange={(ev) => setEstimateDraft(ev.target.value)}
+							onBlur={() => {
+								const trimmed = estimateDraft.trim()
+								if (trimmed === '') {
+									if (issue.estimate !== null) void onUpdateIssue(issue.id, { estimate: null })
+									return
+								}
+								const parsed = Number(trimmed)
+								const currentEstimate = issue.estimate === null ? null : Number(issue.estimate)
+								if (Number.isFinite(parsed) && parsed >= 0 && parsed !== currentEstimate) {
+									void onUpdateIssue(issue.id, { estimate: parsed })
+								}
+							}}
+							placeholder={t('tasks.create.estimate-placeholder')}
+							className="h-8 text-xs"
+						/>
+					</div>
 				</div>
 
 				{/* Labels */}
@@ -285,15 +432,16 @@ export function IssueDetailPanel({
 						{t('tasks.detail.sub-issues')} ({subIssues.length})
 					</h3>
 					{subIssues.map((sub) => (
-						<button
-							key={sub.id}
-							type="button"
-							onClick={() => selectIssue(sub.id, true)}
-							className="flex w-full items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-left text-xs hover:bg-accent"
-						>
-							<span className="font-mono text-muted-foreground tnum">{sub.identifier}</span>
-							<span className="truncate font-medium">{sub.title}</span>
-						</button>
+						<EntityPeek key={sub.id} type="issue" id={sub.id} triggerClassName="flex w-full">
+							<button
+								type="button"
+								onClick={() => selectIssue(sub.id, true)}
+								className="flex w-full items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-left text-xs hover:bg-accent"
+							>
+								<span className="font-mono text-muted-foreground tnum">{sub.identifier}</span>
+								<span className="truncate font-medium">{sub.title}</span>
+							</button>
+						</EntityPeek>
 					))}
 					<form
 						onSubmit={(ev) => {
@@ -339,13 +487,15 @@ export function IssueDetailPanel({
 								className="flex items-center justify-between rounded-md border border-border px-2.5 py-1.5 text-xs"
 							>
 								<span className="text-muted-foreground">{rel.kind}</span>
-								<button
-									type="button"
-									onClick={() => other && selectIssue(other.id, true)}
-									className="font-mono font-medium hover:underline tnum"
-								>
-									{other?.identifier ?? otherId.slice(0, 8)}
-								</button>
+								<EntityPeek type="issue" id={otherId}>
+									<button
+										type="button"
+										onClick={() => other && selectIssue(other.id, true)}
+										className="font-mono font-medium hover:underline tnum"
+									>
+										{other?.identifier ?? otherId.slice(0, 8)}
+									</button>
+								</EntityPeek>
 							</div>
 						)
 					})}

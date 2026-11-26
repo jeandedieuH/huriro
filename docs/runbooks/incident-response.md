@@ -1,6 +1,7 @@
 # Runbook: Production Incident Response
 
 ## Severity Classification
+
 - **SEV-1**: Total service outage (`/healthz` or `/readyz` failing), cross-tenant data exposure, or credential compromise.
 - **SEV-2**: Sustained SLO breach (`p99 > 500ms` or `5xx > 0.5%`), Valkey pub/sub partition, or worker backlog > 5,000 pending outbox rows.
 - **SEV-3**: Single non-critical webhook/FX upstream degradation with active fallback.
@@ -8,6 +9,7 @@
 ## Immediate Triage Checklist
 
 1. **Check liveness, readiness, and metrics**:
+
    ```bash
    curl -i https://workspace.example.com/healthz
    curl -i https://workspace.example.com/readyz

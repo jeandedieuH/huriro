@@ -9,6 +9,7 @@ import {
 	List,
 	Plus,
 	Search,
+	Settings2,
 	UserCheck
 } from 'lucide-react'
 import { useState } from 'react'
@@ -27,10 +28,18 @@ export interface FilterBarProps {
 	readonly members: readonly WorkspaceMemberSummary[]
 	readonly projectLabel?: string | undefined
 	readonly viewLabel?: string | undefined
+	readonly onOpenProjectSettings?: (() => void) | undefined
 	readonly onSaveView: (name: string) => Promise<void>
 }
 
-export function FilterBar({ statuses, members, projectLabel, viewLabel, onSaveView }: FilterBarProps) {
+export function FilterBar({
+	statuses,
+	members,
+	projectLabel,
+	viewLabel,
+	onOpenProjectSettings,
+	onSaveView
+}: FilterBarProps) {
 	const filters = useUiStore((s) => s.filters)
 	const setFilterPatch = useUiStore((s) => s.setFilterPatch)
 	const resetFilters = useUiStore((s) => s.resetFilters)
@@ -60,6 +69,18 @@ export function FilterBar({ statuses, members, projectLabel, viewLabel, onSaveVi
 			{projectLabel || viewLabel ? (
 				<div className="flex items-center gap-1.5 pr-2 text-xs">
 					{projectLabel ? <span className="text-muted-foreground">{projectLabel}</span> : null}
+					{onOpenProjectSettings ? (
+						<Button
+							type="button"
+							size="icon"
+							tone="ghost"
+							className="size-6"
+							aria-label={t('tasks.project.settings')}
+							onClick={onOpenProjectSettings}
+						>
+							<Settings2 className="size-3.5" aria-hidden />
+						</Button>
+					) : null}
 					{projectLabel && viewLabel ? (
 						<ChevronRight className="size-3 text-muted-foreground/70" aria-hidden />
 					) : null}

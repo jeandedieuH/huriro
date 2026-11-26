@@ -1,6 +1,7 @@
 import { activateI18n } from '@huriro/i18n'
 import { SyncProvider } from '@huriro/sync-client'
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react'
+import { AppState } from 'react-native'
 import { useMobileUiStore } from '../stores/mobile-ui-store'
 import { type MobileAuthSession, MobileAuthStore } from './auth-store'
 import { bootstrapMobileRuntime, type MobileRuntime } from './workspace-bootstrap'
@@ -54,6 +55,18 @@ export function MobileRuntimeProvider({ children }: { readonly children: ReactNo
 			cancelled = true
 		}
 	}, [boot])
+
+	useEffect(() => {
+		if (!runtime) return
+		const sub = AppState.addEventListener('change', (nextState) => {
+			if (nextState === 'active') {
+				void runtime.engine.resume()
+			}
+		})
+		return () => {
+			sub.remove()
+		}
+	}, [runtime])
 
 	const signInWithSession = useCallback(
 		async (session: MobileAuthSession) => {

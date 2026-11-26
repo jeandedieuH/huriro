@@ -27,6 +27,7 @@ export {
 	EntityMentionExtension,
 	HuriroTableCell,
 	HuriroTableHeader,
+	LinkedViewBlockExtension,
 	MAX_COLUMNS,
 	MathBlockExtension,
 	MathInlineExtension,

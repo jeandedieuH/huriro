@@ -29,7 +29,9 @@ const MANAGE_ACTION_FOR_RESOURCE: Record<AclResourceType, Action> = {
 	doc_page: 'doc.share',
 	teamspace: 'teamspace.manage',
 	channel: 'channel.manage',
-	mail_account: 'mail.assign'
+	mail_account: 'mail.assign',
+	mail_inbox: 'mail.assign',
+	doc_database: 'database.manage'
 }
 
 export function canManageResourceAcl(

@@ -43,10 +43,47 @@ export const AiProviderUpsert = Type.Object({
 export type AiProviderUpsert = Static<typeof AiProviderUpsert>
 
 export const AiSummarizeRequest = Type.Object({
-	entityType: Type.Union([Type.Literal('issue'), Type.Literal('doc_page')]),
+	entityType: Type.Union([
+		Type.Literal('issue'),
+		Type.Literal('doc_page'),
+		Type.Literal('mail_conversation')
+	]),
 	entityId: Type.String({ format: 'uuid' })
 })
 export type AiSummarizeRequest = Static<typeof AiSummarizeRequest>
+
+export const AiMailAssistMode = Type.Union([
+	Type.Literal('summarize'),
+	Type.Literal('suggest_reply'),
+	Type.Literal('suggest_tags')
+])
+export type AiMailAssistMode = Static<typeof AiMailAssistMode>
+
+export const AiMailAssistRequest = Type.Object({
+	conversationId: Type.String({ format: 'uuid' }),
+	mode: AiMailAssistMode,
+	instruction: Type.Optional(Type.String({ maxLength: 1000 }))
+})
+export type AiMailAssistRequest = Static<typeof AiMailAssistRequest>
+
+export const AiMailAssistCitationDto = Type.Object({
+	entityType: Type.Union([Type.Literal('doc_page'), Type.Literal('issue')]),
+	entityId: Type.String({ format: 'uuid' }),
+	label: Type.String(),
+	slug: Type.Optional(Type.Union([Type.String(), Type.Null()]))
+})
+export type AiMailAssistCitationDto = Static<typeof AiMailAssistCitationDto>
+
+export const AiMailAssistResponse = Type.Object({
+	conversationId: Type.String({ format: 'uuid' }),
+	mode: AiMailAssistMode,
+	text: Type.String(),
+	suggestedTags: Type.Array(Type.String()),
+	citations: Type.Array(AiMailAssistCitationDto),
+	model: Type.String(),
+	cached: Type.Boolean()
+})
+export type AiMailAssistResponse = Static<typeof AiMailAssistResponse>
 
 export const AiSummaryDto = Type.Object({
 	entityType: Type.String(),
@@ -57,6 +94,22 @@ export const AiSummaryDto = Type.Object({
 	cached: Type.Boolean()
 })
 export type AiSummaryDto = Static<typeof AiSummaryDto>
+
+export const AiDocBlockAssistRequest = Type.Object({
+	pageId: Type.String({ format: 'uuid' }),
+	blockId: Type.String({ minLength: 1, maxLength: 120 }),
+	instruction: Type.String({ minLength: 1, maxLength: 1000 })
+})
+export type AiDocBlockAssistRequest = Static<typeof AiDocBlockAssistRequest>
+
+export const AiDocBlockAssistResponse = Type.Object({
+	pageId: Type.String({ format: 'uuid' }),
+	blockId: Type.String(),
+	text: Type.String(),
+	model: Type.String(),
+	cached: Type.Boolean()
+})
+export type AiDocBlockAssistResponse = Static<typeof AiDocBlockAssistResponse>
 
 export const AiSemanticSearchQuery = Type.Object({
 	q: Type.String({ minLength: 1, maxLength: 500 }),

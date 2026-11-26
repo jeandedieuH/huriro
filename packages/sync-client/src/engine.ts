@@ -2,6 +2,10 @@
  * HuriroSyncEngine — client replication & mutation coordinator (§9.5, §9.6).
  */
 import type {
+	CreateDocDatabaseBody,
+	CreateDocDatabasePropertyBody,
+	CreateDocDatabaseRowBody,
+	CreateDocDatabaseViewBody,
 	CreateDocPageBody,
 	CreateInitiativeBody,
 	CreateIssueBody,
@@ -9,6 +13,11 @@ import type {
 	CreateProjectMilestoneBody,
 	CreateProjectUpdateBody,
 	CreateSavedViewBody,
+	DocDatabaseDetailDto,
+	DocDatabaseDto,
+	DocDatabasePropertyDto,
+	DocDatabaseRowDto,
+	DocDatabaseViewDto,
 	DocPageDto,
 	InitiativeDto,
 	IssueDto,
@@ -26,9 +35,14 @@ import type {
 	SyncChangesResponse,
 	SyncScopeSnapshotResponse,
 	SyncSnapshotResponse,
+	UpdateDocDatabaseBody,
+	UpdateDocDatabasePropertyBody,
+	UpdateDocDatabaseRowBody,
+	UpdateDocDatabaseViewBody,
 	UpdateDocPageBody,
 	UpdateInitiativeBody,
 	UpdateIssueBody,
+	UpdateProjectBody,
 	UpdateProjectMilestoneBody
 } from '@huriro/contracts'
 import { generateKeyBetween } from '@huriro/domain'
@@ -62,6 +76,29 @@ const SCOPES_KEY = 'huriro:scopes:v1'
 
 /** Default tier-2 scope byte budget — ADR-0031 web quota; mobile passes 30 MB. */
 export const DEFAULT_SCOPE_QUOTA_BYTES = 50 * 1024 * 1024
+
+function emptyDatabaseCell(): DocDatabaseRowDto['cells'][string] {
+	return { text: null, number: null, boolean: null, dateStart: null, dateEnd: null, json: null }
+}
+
+function normalizeDatabaseCells(input: DocDatabaseRowDto['cells'] | undefined): DocDatabaseRowDto['cells'] {
+	const out: DocDatabaseRowDto['cells'] = {}
+	for (const [propertyId, value] of Object.entries(input ?? {})) {
+		out[propertyId] = { ...emptyDatabaseCell(), ...(value ?? {}) }
+	}
+	return out
+}
+
+function mergeDatabaseCells(
+	current: DocDatabaseRowDto['cells'],
+	patch: DocDatabaseRowDto['cells'] | undefined
+): DocDatabaseRowDto['cells'] {
+	const out: DocDatabaseRowDto['cells'] = { ...current }
+	for (const [propertyId, value] of Object.entries(patch ?? {})) {
+		out[propertyId] = { ...emptyDatabaseCell(), ...(value ?? {}) }
+	}
+	return out
+}
 
 export interface SyncTransport extends MutationTransport {
 	/**
@@ -224,6 +261,7 @@ export interface SyncEngineStatus {
 	readonly pendingCount: number
 	readonly conflictCount: number
 	readonly storageMode: ReplicaStorageMode
+	readonly storageDegraded: boolean
 	readonly lastError: string | null
 	readonly revokedReason: string | null
 }
@@ -238,6 +276,10 @@ export interface HuriroSyncEngineOptions {
 	readonly useRealtimeTicket?: boolean | undefined
 	readonly onMutationRejected?: ((error: string) => void) | undefined
 	readonly onSessionInvalid?: (() => void) | undefined
+	readonly onResume?: (() => void) | undefined
+	readonly syncRetryBaseMs?: number | undefined
+	readonly wsHeartbeatTimeoutMs?: number | undefined
+	readonly webSocketFactory?: ((url: string) => WebSocket) | undefined
 	readonly onChatSignal?: ((ev: { channelId: string; rev: number; lastMsgSeq: number }) => void) | undefined
 	readonly onPresence?:
 		| ((users: readonly { userId: string; status: 'online' | 'away'; lastSeenAt: number }[]) => void)
@@ -262,6 +304,10 @@ export class HuriroSyncEngine {
 	private readonly useRealtimeTicket: boolean
 	private readonly onMutationRejected: ((error: string) => void) | undefined
 	private readonly onSessionInvalid: (() => void) | undefined
+	private readonly onResume: (() => void) | undefined
+	private readonly syncRetryBaseMs: number
+	private readonly wsHeartbeatTimeoutMs: number | undefined
+	private readonly webSocketFactory: ((url: string) => WebSocket) | undefined
 	private readonly onChatSignal:
 		| ((ev: { channelId: string; rev: number; lastMsgSeq: number }) => void)
 		| undefined
@@ -279,6 +325,7 @@ export class HuriroSyncEngine {
 		typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' ? navigator.onLine : true
 	private wsConnected = false
 	private syncing = false
+	private storageDegraded = false
 	private lastError: string | null = null
 	private lastFlushError: string | null = null
 	private lastSyncError: string | null = null
@@ -287,10 +334,15 @@ export class HuriroSyncEngine {
 	private syncPromise: Promise<void> | null = null
 	private snapshotResyncPromise: Promise<boolean> | null = null
 	private retryTimer: ReturnType<typeof setTimeout> | null = null
+	private syncRetryTimer: ReturnType<typeof setTimeout> | null = null
+	private syncRetryAttempt = 0
 	private listeners = new Set<() => void>()
 	private cachedStatus: SyncEngineStatus | null = null
 	private onlineHandler: (() => void) | null = null
 	private offlineHandler: (() => void) | null = null
+	private visibilityHandler: (() => void) | null = null
+	private focusHandler: (() => void) | null = null
+	private lastResumeAt = 0
 	private pendingScopeRegistryWrite: Promise<void> | null = null
 	private replicaPersistChain: Promise<void> = Promise.resolve()
 
@@ -306,6 +358,10 @@ export class HuriroSyncEngine {
 		this.useRealtimeTicket = opts.useRealtimeTicket ?? false
 		this.onMutationRejected = opts.onMutationRejected
 		this.onSessionInvalid = opts.onSessionInvalid
+		this.onResume = opts.onResume
+		this.syncRetryBaseMs = opts.syncRetryBaseMs ?? 1_000
+		this.wsHeartbeatTimeoutMs = opts.wsHeartbeatTimeoutMs
+		this.webSocketFactory = opts.webSocketFactory
 		this.onChatSignal = opts.onChatSignal
 		this.onPresence = opts.onPresence
 		this.onTyping = opts.onTyping
@@ -326,17 +382,22 @@ export class HuriroSyncEngine {
 				return { rows: page.rows, nextAfter: page.nextAfter, hasMore: page.hasMore }
 			},
 			applyRows: (scope, rows) => {
-				if (!scope.startsWith('issue_hist:')) {
-					// Only issue_hist hydrates into collections in M7 — other scope
-					// kinds are forward-compat no-ops (server returns empty rows).
+				if (scope.startsWith('db:')) {
+					this.collections.applyDatabaseScopeRows(rows)
+					this.reapplyPendingOptimisticState()
 					return
 				}
+				if (!scope.startsWith('issue_hist:')) return
 				this.collections.issuesManaged.upsertMany(rows as unknown as IssueDto[])
 				// Re-overlay pending optimistic edits so hydration pages never hide
 				// a local offline change that is still queued in the outbox.
 				this.reapplyPendingOptimisticState()
 			},
 			purgeRows: (scope, _rowIds) => {
+				if (scope.startsWith('db:')) {
+					this.collections.purgeDatabaseScope(scope.slice('db:'.length))
+					return
+				}
 				if (!scope.startsWith('issue_hist:')) return
 				const projectId = scope.slice('issue_hist:'.length)
 				const nowMs = Date.now()
@@ -384,6 +445,7 @@ export class HuriroSyncEngine {
 			this.cachedStatus.pendingCount === pendingCount &&
 			this.cachedStatus.conflictCount === conflictCount &&
 			this.cachedStatus.storageMode === this.storage.mode &&
+			this.cachedStatus.storageDegraded === this.storageDegraded &&
 			this.cachedStatus.lastError === this.lastError &&
 			this.cachedStatus.revokedReason === this.revokedReason
 		) {
@@ -397,6 +459,7 @@ export class HuriroSyncEngine {
 			pendingCount,
 			conflictCount,
 			storageMode: this.storage.mode,
+			storageDegraded: this.storageDegraded,
 			lastError: this.lastError,
 			revokedReason: this.revokedReason
 		}
@@ -418,6 +481,9 @@ export class HuriroSyncEngine {
 			if (best.mode !== 'memory') {
 				this.storage = best
 				this.outbox = new HuriroMutationOutbox(best)
+				this.storageDegraded = false
+			} else {
+				this.storageDegraded = true
 			}
 		}
 
@@ -488,8 +554,20 @@ export class HuriroSyncEngine {
 			this.offlineHandler = () => {
 				this.setOnline(false)
 			}
+			this.focusHandler = () => {
+				void this.resume()
+			}
 			window.addEventListener('online', this.onlineHandler)
 			window.addEventListener('offline', this.offlineHandler)
+			window.addEventListener('focus', this.focusHandler)
+		}
+		if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+			this.visibilityHandler = () => {
+				if (document.visibilityState === 'visible') {
+					void this.resume()
+				}
+			}
+			document.addEventListener('visibilitychange', this.visibilityHandler)
 		}
 
 		if (opts?.skipNetwork || !this.transport) return
@@ -507,6 +585,15 @@ export class HuriroSyncEngine {
 			getTicket,
 			onCursorSignal: (remoteCursor) => {
 				if (remoteCursor > this.cursor) {
+					void this.syncNow()
+				}
+			},
+			onReconnect: () => {
+				if (this.disposed || !this.online) return
+				this.onResume?.()
+				if (this.outbox.getPendingCount() > 0) {
+					void this.flushOutbox({ force: true }).then(() => this.syncNow())
+				} else {
 					void this.syncNow()
 				}
 			},
@@ -534,7 +621,9 @@ export class HuriroSyncEngine {
 				this.wsConnected = connected
 				this.emit()
 			},
-			...(this.pollIntervalMs !== undefined ? { pollIntervalMs: this.pollIntervalMs } : {})
+			...(this.pollIntervalMs !== undefined ? { pollIntervalMs: this.pollIntervalMs } : {}),
+			...(this.wsHeartbeatTimeoutMs !== undefined ? { heartbeatTimeoutMs: this.wsHeartbeatTimeoutMs } : {}),
+			...(this.webSocketFactory !== undefined ? { webSocketFactory: this.webSocketFactory } : {})
 		})
 		this.wsClient.start()
 
@@ -549,6 +638,28 @@ export class HuriroSyncEngine {
 			clearTimeout(this.retryTimer)
 			this.retryTimer = null
 		}
+	}
+
+	private clearSyncRetryTimer(): void {
+		if (this.syncRetryTimer !== null) {
+			clearTimeout(this.syncRetryTimer)
+			this.syncRetryTimer = null
+		}
+	}
+
+	private scheduleSyncRetry(): void {
+		this.clearSyncRetryTimer()
+		if (this.disposed || !this.online || !this.transport) return
+		const base = this.syncRetryBaseMs
+		const delay = Math.min(30_000, base * 2 ** this.syncRetryAttempt)
+		const jitter = Math.floor(Math.random() * Math.min(250, Math.max(10, Math.floor(delay / 4))))
+		this.syncRetryAttempt += 1
+		this.syncRetryTimer = setTimeout(() => {
+			this.syncRetryTimer = null
+			if (!this.disposed && this.online && this.transport) {
+				void this.syncNow()
+			}
+		}, delay + jitter)
 	}
 
 	private scheduleOutboxRetry(): void {
@@ -587,12 +698,14 @@ export class HuriroSyncEngine {
 						visibility: (envelope.patch['visibility'] as 'workspace' | 'private') ?? 'workspace',
 						position: String(envelope.patch['position'] ?? 'V'),
 						archivedAt: null,
-						triageEnabled: false,
-						cycleEnabled: false,
-						cycleDurationDays: 14,
-						cycleCooldownDays: 0,
-						cycleAutoRolloverMode: 'next_cycle',
-						cycleStartWeekday: 1,
+						triageEnabled: Boolean(envelope.patch['triageEnabled'] ?? false),
+						cycleEnabled: Boolean(envelope.patch['cycleEnabled'] ?? false),
+						cycleDurationDays: Number(envelope.patch['cycleDurationDays'] ?? 14),
+						cycleCooldownDays: Number(envelope.patch['cycleCooldownDays'] ?? 0),
+						cycleAutoRolloverMode:
+							(envelope.patch['cycleAutoRolloverMode'] as ProjectDto['cycleAutoRolloverMode']) ??
+							'next_cycle',
+						cycleStartWeekday: Number(envelope.patch['cycleStartWeekday'] ?? 1),
 						createdBy: this.currentUserId,
 						createdAt: nowIso,
 						updatedAt: nowIso,
@@ -602,8 +715,17 @@ export class HuriroSyncEngine {
 				} else if (envelope.op === 'update') {
 					const existing = this.collections.projects.get(envelope.entityId)
 					if (existing) {
+						const nowIso = envelope.queuedAt ?? new Date().toISOString()
+						const { archived, ...restPatch } = envelope.patch as Omit<UpdateProjectBody, 'version'>
 						this.collections.projectsManaged.upsertMany([
-							{ ...existing, ...envelope.patch, updatedAt: new Date().toISOString() }
+							{
+								...existing,
+								...restPatch,
+								...(archived !== undefined
+									? { archivedAt: archived ? (existing.archivedAt ?? nowIso) : null }
+									: {}),
+								updatedAt: new Date().toISOString()
+							}
 						])
 					}
 				}
@@ -694,10 +816,10 @@ export class HuriroSyncEngine {
 						projectId: (envelope.patch['projectId'] as string | null) ?? null,
 						ownerUserId: this.currentUserId,
 						name: String(envelope.patch['name'] ?? 'Saved view'),
-						layout: (envelope.patch['layout'] as 'list' | 'board') ?? 'list',
+						layout: (envelope.patch['layout'] as SavedViewDto['layout']) ?? 'list',
 						filters: (envelope.patch['filters'] as SavedViewDto['filters']) ?? {},
-						filterExpr: null,
-						displayOptions: {},
+						filterExpr: (envelope.patch['filterExpr'] as SavedViewDto['filterExpr']) ?? null,
+						displayOptions: (envelope.patch['displayOptions'] as SavedViewDto['displayOptions']) ?? {},
 						sort: (envelope.patch['sort'] as Record<string, unknown>) ?? {},
 						isShared: Boolean(envelope.patch['isShared'] ?? false),
 						position: String(envelope.patch['position'] ?? 'V'),
@@ -727,6 +849,15 @@ export class HuriroSyncEngine {
 				} else if (envelope.op === 'create') {
 					const proj = this.collections.projects.get(String(envelope.patch['projectId'] ?? ''))
 					const nowIso = envelope.queuedAt ?? new Date().toISOString()
+					const statusId = String(envelope.patch['statusId'] ?? '')
+					const status = statusId ? this.collections.projectStatuses.get(statusId) : undefined
+					const closedAt =
+						status && (status.category === 'completed' || status.category === 'cancelled') ? nowIso : null
+					const sourceKind = (envelope.patch['sourceKind'] as IssueDto['sourceKind']) ?? 'manual'
+					const triageStatus: IssueDto['triageStatus'] =
+						proj?.triageEnabled && (sourceKind !== 'manual' || envelope.patch['triage'] === true)
+							? 'pending'
+							: 'none'
 					const synthetic: IssueDto = {
 						id: envelope.entityId,
 						workspaceId: this.workspaceId,
@@ -736,23 +867,24 @@ export class HuriroSyncEngine {
 						identifier: `${proj?.key ?? 'TMP'}-…`,
 						parentId: (envelope.patch['parentId'] as string | null) ?? null,
 						cycleId: (envelope.patch['cycleId'] as string | null) ?? null,
+						milestoneId: (envelope.patch['milestoneId'] as string | null) ?? null,
 						title: String(envelope.patch['title'] ?? ''),
 						description: envelope.patch['description'] ?? null,
 						descriptionText: String(envelope.patch['descriptionText'] ?? ''),
-						statusId: String(envelope.patch['statusId'] ?? ''),
+						statusId,
 						priority: Number(envelope.patch['priority'] ?? 0),
 						assigneeType: (envelope.patch['assigneeType'] as 'user' | 'agent' | null) ?? null,
 						assigneeId: (envelope.patch['assigneeId'] as string | null) ?? null,
 						creatorId: this.currentUserId,
 						position: String(envelope.patch['position'] ?? 'V'),
-						startDate: null,
-						dueDate: null,
-						estimate: null,
-						closedAt: null,
-						triageStatus: 'none',
+						startDate: (envelope.patch['startDate'] as string | null) ?? null,
+						dueDate: (envelope.patch['dueDate'] as string | null) ?? null,
+						estimate: typeof envelope.patch['estimate'] === 'number' ? envelope.patch['estimate'] : null,
+						closedAt,
+						triageStatus,
 						triageSnoozedUntil: null,
 						triageDeclinedReason: null,
-						sourceKind: 'manual',
+						sourceKind,
 						labelIds: (envelope.patch['labelIds'] as string[]) ?? [],
 						createdAt: nowIso,
 						updatedAt: nowIso,
@@ -765,6 +897,128 @@ export class HuriroSyncEngine {
 					if (existing) {
 						this.collections.issuesManaged.upsertMany([
 							{ ...existing, ...envelope.patch, updatedAt: new Date().toISOString() }
+						])
+					}
+				}
+			} else if (envelope.entity === 'doc_database') {
+				if (envelope.op === 'create') {
+					const nowIso = envelope.queuedAt ?? new Date().toISOString()
+					this.collections.docDatabasesManaged.upsertMany([
+						{
+							id: envelope.entityId,
+							workspaceId: this.workspaceId,
+							teamspaceId: (envelope.patch['teamspaceId'] as string | null) ?? null,
+							parentPageId: (envelope.patch['parentPageId'] as string | null) ?? null,
+							title: String(envelope.patch['title'] ?? 'Untitled database'),
+							icon: (envelope.patch['icon'] as string | null) ?? null,
+							isInline: Boolean(envelope.patch['isInline'] ?? false),
+							createdBy: this.currentUserId,
+							createdAt: nowIso,
+							updatedAt: nowIso,
+							version: 1
+						}
+					])
+				} else {
+					const existing = this.collections.docDatabases.get(envelope.entityId)
+					if (existing)
+						this.collections.docDatabasesManaged.upsertMany([
+							{ ...existing, ...envelope.patch, updatedAt: new Date().toISOString() }
+						])
+				}
+			} else if (envelope.entity === 'doc_database_property') {
+				const databaseId = String(envelope.patch['databaseId'] ?? '')
+				if (envelope.op === 'create') {
+					const nowIso = envelope.queuedAt ?? new Date().toISOString()
+					this.collections.docDatabasePropertiesManaged.upsertMany([
+						{
+							id: envelope.entityId,
+							workspaceId: this.workspaceId,
+							databaseId,
+							name: String(envelope.patch['name'] ?? 'Property'),
+							propType: (envelope.patch['propType'] as DocDatabasePropertyDto['propType']) ?? 'text',
+							config: (envelope.patch['config'] as Record<string, unknown>) ?? {},
+							position: String(envelope.patch['position'] ?? 'V'),
+							createdAt: nowIso,
+							updatedAt: nowIso,
+							version: 1
+						}
+					])
+				} else {
+					const existing = this.collections.docDatabaseProperties.get(envelope.entityId)
+					if (existing) {
+						const { databaseId: _databaseId, ...rest } = envelope.patch
+						this.collections.docDatabasePropertiesManaged.upsertMany([
+							{ ...existing, ...rest, updatedAt: new Date().toISOString() }
+						])
+					}
+				}
+			} else if (envelope.entity === 'doc_database_view') {
+				const databaseId = String(envelope.patch['databaseId'] ?? '')
+				if (envelope.op === 'create') {
+					const nowIso = envelope.queuedAt ?? new Date().toISOString()
+					this.collections.docDatabaseViewsManaged.upsertMany([
+						{
+							id: envelope.entityId,
+							workspaceId: this.workspaceId,
+							databaseId,
+							name: String(envelope.patch['name'] ?? 'View'),
+							viewType: (envelope.patch['viewType'] as DocDatabaseViewDto['viewType']) ?? 'table',
+							config: (envelope.patch['config'] as Record<string, unknown>) ?? {},
+							position: String(envelope.patch['position'] ?? 'V'),
+							createdAt: nowIso,
+							updatedAt: nowIso,
+							version: 1
+						}
+					])
+				} else {
+					const existing = this.collections.docDatabaseViews.get(envelope.entityId)
+					if (existing) {
+						const { databaseId: _databaseId, ...rest } = envelope.patch
+						this.collections.docDatabaseViewsManaged.upsertMany([
+							{ ...existing, ...rest, updatedAt: new Date().toISOString() }
+						])
+					}
+				}
+			} else if (envelope.entity === 'doc_database_row') {
+				const databaseId = String(envelope.patch['databaseId'] ?? '')
+				const nowIso = envelope.queuedAt ?? new Date().toISOString()
+				if (envelope.op === 'delete') {
+					const existing = this.collections.docDatabaseRows.get(envelope.entityId)
+					if (existing)
+						this.collections.docDatabaseRowsManaged.upsertMany([
+							{ ...existing, archivedAt: nowIso, updatedAt: new Date().toISOString() }
+						])
+				} else if (envelope.op === 'create') {
+					this.collections.docDatabaseRowsManaged.upsertMany([
+						{
+							id: envelope.entityId,
+							workspaceId: this.workspaceId,
+							databaseId,
+							pageId: null,
+							title: String(envelope.patch['title'] ?? ''),
+							position: String(envelope.patch['position'] ?? 'V'),
+							createdBy: this.currentUserId,
+							updatedBy: this.currentUserId,
+							archivedAt: null,
+							createdAt: nowIso,
+							updatedAt: nowIso,
+							version: 1,
+							cells: normalizeDatabaseCells(envelope.patch['cells'] as DocDatabaseRowDto['cells'] | undefined)
+						}
+					])
+				} else {
+					const existing = this.collections.docDatabaseRows.get(envelope.entityId)
+					if (existing) {
+						const { databaseId: _databaseId, cells, archived, ...rest } = envelope.patch
+						this.collections.docDatabaseRowsManaged.upsertMany([
+							{
+								...existing,
+								...rest,
+								cells: mergeDatabaseCells(existing.cells, cells as DocDatabaseRowDto['cells'] | undefined),
+								...(archived !== undefined ? { archivedAt: archived ? nowIso : null } : {}),
+								updatedBy: this.currentUserId,
+								updatedAt: new Date().toISOString()
+							}
 						])
 					}
 				}
@@ -856,10 +1110,33 @@ export class HuriroSyncEngine {
 		this.online = online
 		this.emit()
 		if (online && this.transport) {
+			this.syncRetryAttempt = 0
+			this.clearSyncRetryTimer()
+			this.wsClient?.ensureAlive()
+			this.onResume?.()
 			void this.flushOutbox({ force: true }).then(() => this.syncNow())
 		} else if (!online) {
 			this.clearRetryTimer()
+			this.clearSyncRetryTimer()
 		}
+	}
+
+	/**
+	 * Re-verify socket liveness and catch up any missed workspace/chat changes
+	 * after tab visibility restore, window focus, or mobile app foregrounding.
+	 */
+	async resume(opts?: { readonly force?: boolean }): Promise<void> {
+		if (this.disposed || !this.online || !this.transport) return
+		const now = Date.now()
+		if (!opts?.force && now - this.lastResumeAt < 1_000) return
+		this.lastResumeAt = now
+
+		this.wsClient?.ensureAlive()
+		this.onResume?.()
+		if (this.outbox.getPendingCount() > 0) {
+			await this.flushOutbox({ force: true })
+		}
+		await this.syncNow()
 	}
 
 	async syncNow(): Promise<void> {
@@ -920,6 +1197,8 @@ export class HuriroSyncEngine {
 			// Keep pending local creates/edits visible when a full snapshot replaces collections.
 			this.reapplyPendingOptimisticState()
 			await this.persistReplica()
+			this.syncRetryAttempt = 0
+			this.clearSyncRetryTimer()
 			return true
 		} catch (err) {
 			const status = (err as { status?: number }).status
@@ -952,6 +1231,8 @@ export class HuriroSyncEngine {
 				// Keep pending local creates/edits visible when a full snapshot replaces collections.
 				this.reapplyPendingOptimisticState()
 				await this.persistReplica()
+				this.syncRetryAttempt = 0
+				this.clearSyncRetryTimer()
 				return
 			}
 
@@ -982,6 +1263,8 @@ export class HuriroSyncEngine {
 				hasMore = page.hasMore
 			}
 			await this.persistReplica()
+			this.syncRetryAttempt = 0
+			this.clearSyncRetryTimer()
 		} catch (err) {
 			const status = (err as { status?: number }).status
 			if (status === 401) {
@@ -996,10 +1279,13 @@ export class HuriroSyncEngine {
 				this.cursor = snap.cursor
 				this.reapplyPendingOptimisticState()
 				await this.persistReplica()
+				this.syncRetryAttempt = 0
+				this.clearSyncRetryTimer()
 				return
 			}
 			this.lastSyncError = err instanceof Error ? err.message : 'Sync failed'
 			this.lastError = this.lastFlushError ?? this.lastSyncError
+			this.scheduleSyncRetry()
 		} finally {
 			this.syncing = false
 			this.emit()
@@ -1053,6 +1339,14 @@ export class HuriroSyncEngine {
 		if (op === 'delete') {
 			if (entity === 'issue') {
 				this.collections.issuesManaged.deleteMany([entityId])
+			} else if (entity === 'doc_database') {
+				this.collections.purgeDatabaseScope(entityId)
+			} else if (entity === 'doc_database_property') {
+				this.collections.docDatabasePropertiesManaged.deleteMany([entityId])
+			} else if (entity === 'doc_database_view') {
+				this.collections.docDatabaseViewsManaged.deleteMany([entityId])
+			} else if (entity === 'doc_database_row') {
+				this.collections.docDatabaseRowsManaged.deleteMany([entityId])
 			} else if (entity === 'doc_page') {
 				this.collections.purgeDocPageScope(entityId)
 			} else if (entity === 'initiative') {
@@ -1077,6 +1371,16 @@ export class HuriroSyncEngine {
 			this.collections.milestonesManaged.upsertMany([result.data as unknown as ProjectMilestoneDto])
 		} else if (entity === 'project_update') {
 			this.collections.projectUpdatesManaged.upsertMany([result.data as unknown as ProjectUpdateDto])
+		} else if (entity === 'doc_database') {
+			this.collections.docDatabasesManaged.upsertMany([result.data as unknown as DocDatabaseDto])
+		} else if (entity === 'doc_database_property') {
+			this.collections.docDatabasePropertiesManaged.upsertMany([
+				result.data as unknown as DocDatabasePropertyDto
+			])
+		} else if (entity === 'doc_database_view') {
+			this.collections.docDatabaseViewsManaged.upsertMany([result.data as unknown as DocDatabaseViewDto])
+		} else if (entity === 'doc_database_row') {
+			this.collections.docDatabaseRowsManaged.upsertMany([result.data as unknown as DocDatabaseRowDto])
 		}
 	}
 
@@ -1120,6 +1424,24 @@ export class HuriroSyncEngine {
 			}
 		} else if (entity === 'project_update' && op === 'create') {
 			this.collections.projectUpdatesManaged.deleteMany([entityId])
+		} else if (entity === 'doc_database') {
+			if (op === 'create') this.collections.purgeDatabaseScope(entityId)
+			else if (item.base)
+				this.collections.docDatabasesManaged.upsertMany([item.base as unknown as DocDatabaseDto])
+		} else if (entity === 'doc_database_property') {
+			if (op === 'create') this.collections.docDatabasePropertiesManaged.deleteMany([entityId])
+			else if (item.base)
+				this.collections.docDatabasePropertiesManaged.upsertMany([
+					item.base as unknown as DocDatabasePropertyDto
+				])
+		} else if (entity === 'doc_database_view') {
+			if (op === 'create') this.collections.docDatabaseViewsManaged.deleteMany([entityId])
+			else if (item.base)
+				this.collections.docDatabaseViewsManaged.upsertMany([item.base as unknown as DocDatabaseViewDto])
+		} else if (entity === 'doc_database_row') {
+			if (op === 'create') this.collections.docDatabaseRowsManaged.deleteMany([entityId])
+			else if (item.base)
+				this.collections.docDatabaseRowsManaged.upsertMany([item.base as unknown as DocDatabaseRowDto])
 		}
 	}
 
@@ -1163,6 +1485,24 @@ export class HuriroSyncEngine {
 					{ ...(conflict.serverValues as unknown as ProjectMilestoneDto), ...rebasedPatch }
 				])
 			}
+		} else if (conflict.entity === 'project') {
+			if (rebased === null) {
+				this.collections.projectsManaged.upsertMany([conflict.serverValues as unknown as ProjectDto])
+			} else {
+				const serverProject = conflict.serverValues as unknown as ProjectDto
+				const { archived, ...restPatch } = rebased.patch as Omit<UpdateProjectBody, 'version'>
+				const nowIso = rebased.queuedAt ?? new Date().toISOString()
+				this.collections.projectsManaged.upsertMany([
+					{
+						...serverProject,
+						...restPatch,
+						...(archived !== undefined
+							? { archivedAt: archived ? (serverProject.archivedAt ?? nowIso) : null }
+							: {}),
+						updatedAt: nowIso
+					}
+				])
+			}
 		}
 		await this.persistReplica()
 		this.emit()
@@ -1180,11 +1520,21 @@ export class HuriroSyncEngine {
 			.filter((s) => s.projectId === input.projectId)
 			.sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0))
 		const statusId = input.statusId ?? statuses.find((s) => s.isDefault)?.id ?? statuses[0]?.id ?? ''
+		const selectedStatus = statusId ? statuses.find((s) => s.id === statusId) : undefined
 		const colIssues = this.collections.issues.toArray
 			.filter((i) => i.projectId === input.projectId && i.statusId === statusId)
 			.sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0))
 		const position = input.position ?? generateKeyBetween(colIssues.at(-1)?.position ?? null, null)
 		const nowIso = new Date().toISOString()
+		const closedAt =
+			selectedStatus && (selectedStatus.category === 'completed' || selectedStatus.category === 'cancelled')
+				? nowIso
+				: null
+		const sourceKind = input.sourceKind ?? 'manual'
+		const triageStatus: IssueDto['triageStatus'] =
+			proj?.triageEnabled && (sourceKind !== 'manual' || input.triage === true) ? 'pending' : 'none'
+		const assigneeId = input.assigneeId ?? null
+		const assigneeType = assigneeId ? (input.assigneeType ?? 'user') : null
 
 		const optimistic: IssueDto = {
 			id,
@@ -1195,23 +1545,24 @@ export class HuriroSyncEngine {
 			identifier: `${proj?.key ?? 'TMP'}-…`,
 			parentId: input.parentId ?? null,
 			cycleId: input.cycleId ?? null,
+			milestoneId: input.milestoneId ?? null,
 			title: input.title,
 			description: input.description ?? null,
 			descriptionText: input.descriptionText ?? '',
 			statusId,
 			priority: input.priority ?? 0,
-			assigneeType: input.assigneeId ? (input.assigneeType ?? 'user') : null,
-			assigneeId: input.assigneeId ?? null,
+			assigneeType,
+			assigneeId,
 			creatorId: this.currentUserId,
 			position,
 			startDate: input.startDate ?? null,
 			dueDate: input.dueDate ?? null,
 			estimate: input.estimate ?? null,
-			closedAt: null,
-			triageStatus: 'none',
+			closedAt,
+			triageStatus,
 			triageSnoozedUntil: null,
 			triageDeclinedReason: null,
-			sourceKind: 'manual',
+			sourceKind,
 			labelIds: input.labelIds ?? [],
 			createdAt: nowIso,
 			updatedAt: nowIso,
@@ -1229,15 +1580,26 @@ export class HuriroSyncEngine {
 				patch: {
 					projectId: input.projectId,
 					title: input.title,
+					...(input.description !== undefined ? { description: input.description } : {}),
 					descriptionText: input.descriptionText ?? '',
 					...(statusId ? { statusId } : {}),
 					priority: input.priority ?? 0,
 					position,
 					...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
+					...(input.cycleId !== undefined ? { cycleId: input.cycleId } : {}),
+					...(input.milestoneId !== undefined ? { milestoneId: input.milestoneId } : {}),
+					...(input.startDate !== undefined ? { startDate: input.startDate } : {}),
+					...(input.dueDate !== undefined ? { dueDate: input.dueDate } : {}),
+					...(input.estimate !== undefined ? { estimate: input.estimate } : {}),
 					...(input.assigneeId !== undefined
-						? { assigneeId: input.assigneeId, assigneeType: input.assigneeType ?? 'user' }
+						? {
+								assigneeId: input.assigneeId,
+								assigneeType: input.assigneeId === null ? null : (input.assigneeType ?? 'user')
+							}
 						: {}),
-					...(input.labelIds !== undefined ? { labelIds: input.labelIds } : {})
+					...(input.labelIds !== undefined ? { labelIds: input.labelIds } : {}),
+					...(input.sourceKind !== undefined ? { sourceKind: input.sourceKind } : {}),
+					...(input.triage !== undefined ? { triage: input.triage } : {})
 				},
 				queuedAt: nowIso
 			},
@@ -1259,18 +1621,21 @@ export class HuriroSyncEngine {
 		const current = this.collections.issues.get(issueId)
 		if (!current) throw new Error(`Issue "${issueId}" not found in local replica`)
 
+		// Normalize assigneeType whenever assigneeId changes so both optimistic state
+		// and replayed/restarted outbox mutations clear assigneeType consistently.
+		const wirePatch: Omit<UpdateIssueBody, 'version'> = {
+			...patch,
+			...(patch.assigneeId !== undefined
+				? { assigneeType: patch.assigneeId === null ? null : (patch.assigneeType ?? 'user') }
+				: {})
+		}
+
 		const optimistic: IssueDto = {
 			...current,
-			...patch,
-			projectKey: patch.projectId
-				? (this.collections.projects.get(patch.projectId)?.key ?? current.projectKey)
+			...wirePatch,
+			projectKey: wirePatch.projectId
+				? (this.collections.projects.get(wirePatch.projectId)?.key ?? current.projectKey)
 				: current.projectKey,
-			...(patch.assigneeId !== undefined
-				? {
-						assigneeId: patch.assigneeId,
-						assigneeType: patch.assigneeId === null ? null : (patch.assigneeType ?? 'user')
-					}
-				: {}),
 			updatedAt: new Date().toISOString()
 		}
 
@@ -1281,7 +1646,7 @@ export class HuriroSyncEngine {
 				entity: 'issue',
 				entityId: issueId,
 				op: 'update',
-				patch: patch as Record<string, unknown>,
+				patch: wirePatch as Record<string, unknown>,
 				baseVersion: current.version,
 				queuedAt: new Date().toISOString()
 			},
@@ -1651,12 +2016,12 @@ export class HuriroSyncEngine {
 			visibility: input.visibility ?? 'workspace',
 			position,
 			archivedAt: null,
-			triageEnabled: false,
-			cycleEnabled: false,
-			cycleDurationDays: 14,
-			cycleCooldownDays: 0,
-			cycleAutoRolloverMode: 'next_cycle',
-			cycleStartWeekday: 1,
+			triageEnabled: input.triageEnabled ?? false,
+			cycleEnabled: input.cycleEnabled ?? false,
+			cycleDurationDays: input.cycleDurationDays ?? 14,
+			cycleCooldownDays: input.cycleCooldownDays ?? 0,
+			cycleAutoRolloverMode: input.cycleAutoRolloverMode ?? 'next_cycle',
+			cycleStartWeekday: input.cycleStartWeekday ?? 1,
 			createdBy: this.currentUserId,
 			createdAt: nowIso,
 			updatedAt: nowIso,
@@ -1674,7 +2039,15 @@ export class HuriroSyncEngine {
 					name: input.name,
 					description: input.description ?? '',
 					visibility: input.visibility ?? 'workspace',
-					position
+					position,
+					...(input.triageEnabled !== undefined ? { triageEnabled: input.triageEnabled } : {}),
+					...(input.cycleEnabled !== undefined ? { cycleEnabled: input.cycleEnabled } : {}),
+					...(input.cycleDurationDays !== undefined ? { cycleDurationDays: input.cycleDurationDays } : {}),
+					...(input.cycleCooldownDays !== undefined ? { cycleCooldownDays: input.cycleCooldownDays } : {}),
+					...(input.cycleAutoRolloverMode !== undefined
+						? { cycleAutoRolloverMode: input.cycleAutoRolloverMode }
+						: {}),
+					...(input.cycleStartWeekday !== undefined ? { cycleStartWeekday: input.cycleStartWeekday } : {})
 				},
 				queuedAt: nowIso
 			},
@@ -1686,6 +2059,38 @@ export class HuriroSyncEngine {
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()
 		return optimistic
+	}
+
+	async updateProject(projectId: string, patch: Omit<UpdateProjectBody, 'version'>): Promise<void> {
+		const current = this.collections.projects.get(projectId)
+		if (!current) throw new Error(`Project "${projectId}" not found in local replica`)
+		const nowIso = new Date().toISOString()
+		const { archived, ...restPatch } = patch
+		const optimistic: ProjectDto = {
+			...current,
+			...restPatch,
+			...(archived !== undefined ? { archivedAt: archived ? (current.archivedAt ?? nowIso) : null } : {}),
+			updatedAt: nowIso
+		}
+		const persistOutbox = this.outbox.enqueueImmediate({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'project',
+				entityId: projectId,
+				op: 'update',
+				patch: patch as Record<string, unknown>,
+				baseVersion: current.version,
+				queuedAt: nowIso
+			},
+			base: current as unknown as Record<string, unknown>,
+			title: current.name
+		})
+		this.collections.projectsManaged.upsertMany([optimistic])
+		await persistOutbox
+		await this.persistReplica()
+		this.emit()
+		if (this.online && this.transport) void this.flushOutbox()
 	}
 
 	async createSavedView(input: Omit<CreateSavedViewBody, 'id'>): Promise<SavedViewDto> {
@@ -1983,6 +2388,352 @@ export class HuriroSyncEngine {
 		if (this.online && this.transport) void this.flushOutbox()
 	}
 
+	// ---------- M10 structured database optimistic writes (§4.1, ADR-0026) ----------
+
+	private async enqueueDatabaseMutation(args: {
+		readonly envelope: MutationEnvelope
+		readonly base?: Record<string, unknown> | undefined
+		readonly title: string
+		readonly applyOptimistic: () => void
+	}): Promise<void> {
+		const persistOutbox = this.outbox.enqueueImmediate({
+			envelope: args.envelope,
+			...(args.base ? { base: args.base } : {}),
+			title: args.title
+		})
+		args.applyOptimistic()
+		await persistOutbox
+		await this.persistReplica()
+		this.emit()
+		if (this.online && this.transport) void this.flushOutbox()
+	}
+
+	async createDocDatabase(
+		input: Omit<CreateDocDatabaseBody, 'id' | 'titlePropertyId' | 'tableViewId'> & { readonly id?: string }
+	): Promise<DocDatabaseDetailDto> {
+		const id = input.id ?? generateUuidV7()
+		const titlePropertyId = generateUuidV7()
+		const tableViewId = generateUuidV7()
+		const nowIso = new Date().toISOString()
+		const position = generateKeyBetween(null, null)
+		const database: DocDatabaseDto = {
+			id,
+			workspaceId: this.workspaceId,
+			teamspaceId: input.teamspaceId ?? null,
+			parentPageId: input.parentPageId ?? null,
+			title: input.title,
+			icon: input.icon ?? null,
+			isInline: input.isInline ?? false,
+			createdBy: this.currentUserId,
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1
+		}
+		const titleProperty: DocDatabasePropertyDto = {
+			id: titlePropertyId,
+			workspaceId: this.workspaceId,
+			databaseId: id,
+			name: 'Name',
+			propType: 'title',
+			config: {},
+			position,
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1
+		}
+		const tableView: DocDatabaseViewDto = {
+			id: tableViewId,
+			workspaceId: this.workspaceId,
+			databaseId: id,
+			name: 'Table',
+			viewType: 'table',
+			config: {},
+			position,
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1
+		}
+		await this.enqueueDatabaseMutation({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'doc_database',
+				entityId: id,
+				op: 'create',
+				patch: { ...input, titlePropertyId, tableViewId },
+				queuedAt: nowIso
+			},
+			title: input.title,
+			applyOptimistic: () => {
+				this.collections.docDatabasesManaged.upsertMany([database])
+				this.collections.docDatabasePropertiesManaged.upsertMany([titleProperty])
+				this.collections.docDatabaseViewsManaged.upsertMany([tableView])
+			}
+		})
+		return { database, properties: [titleProperty], views: [tableView] }
+	}
+
+	async updateDocDatabase(databaseId: string, patch: Omit<UpdateDocDatabaseBody, 'version'>): Promise<void> {
+		const current = this.collections.docDatabases.get(databaseId)
+		if (!current) throw new Error(`Database "${databaseId}" not found in local replica`)
+		await this.enqueueDatabaseMutation({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'doc_database',
+				entityId: databaseId,
+				op: 'update',
+				patch: patch as Record<string, unknown>,
+				baseVersion: current.version,
+				queuedAt: new Date().toISOString()
+			},
+			base: current as unknown as Record<string, unknown>,
+			title: current.title,
+			applyOptimistic: () => {
+				this.collections.docDatabasesManaged.upsertMany([
+					{ ...current, ...patch, updatedAt: new Date().toISOString() }
+				])
+			}
+		})
+	}
+
+	async createDocDatabaseProperty(
+		databaseId: string,
+		input: Omit<CreateDocDatabasePropertyBody, 'id'>
+	): Promise<DocDatabasePropertyDto> {
+		const id = generateUuidV7()
+		const nowIso = new Date().toISOString()
+		const tail =
+			this.collections.docDatabaseProperties.toArray
+				.filter((p) => p.databaseId === databaseId)
+				.sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0))
+				.at(-1)?.position ?? null
+		const optimistic: DocDatabasePropertyDto = {
+			id,
+			workspaceId: this.workspaceId,
+			databaseId,
+			name: input.name,
+			propType: input.propType,
+			config: input.config ?? {},
+			position: input.position ?? generateKeyBetween(tail, null),
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1
+		}
+		await this.enqueueDatabaseMutation({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'doc_database_property',
+				entityId: id,
+				op: 'create',
+				patch: { ...input, databaseId, position: optimistic.position },
+				queuedAt: nowIso
+			},
+			title: input.name,
+			applyOptimistic: () => this.collections.docDatabasePropertiesManaged.upsertMany([optimistic])
+		})
+		return optimistic
+	}
+
+	async updateDocDatabaseProperty(
+		databaseId: string,
+		propertyId: string,
+		patch: Omit<UpdateDocDatabasePropertyBody, 'version'>
+	): Promise<void> {
+		const current = this.collections.docDatabaseProperties.get(propertyId)
+		if (!current) throw new Error(`Database property "${propertyId}" not found in local replica`)
+		await this.enqueueDatabaseMutation({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'doc_database_property',
+				entityId: propertyId,
+				op: 'update',
+				patch: { ...patch, databaseId } as Record<string, unknown>,
+				baseVersion: current.version,
+				queuedAt: new Date().toISOString()
+			},
+			base: current as unknown as Record<string, unknown>,
+			title: current.name,
+			applyOptimistic: () => {
+				this.collections.docDatabasePropertiesManaged.upsertMany([
+					{ ...current, ...patch, updatedAt: new Date().toISOString() }
+				])
+			}
+		})
+	}
+
+	async createDocDatabaseView(
+		databaseId: string,
+		input: Omit<CreateDocDatabaseViewBody, 'id'>
+	): Promise<DocDatabaseViewDto> {
+		const id = generateUuidV7()
+		const nowIso = new Date().toISOString()
+		const tail =
+			this.collections.docDatabaseViews.toArray
+				.filter((v) => v.databaseId === databaseId)
+				.sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0))
+				.at(-1)?.position ?? null
+		const optimistic: DocDatabaseViewDto = {
+			id,
+			workspaceId: this.workspaceId,
+			databaseId,
+			name: input.name,
+			viewType: input.viewType,
+			config: input.config ?? {},
+			position: input.position ?? generateKeyBetween(tail, null),
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1
+		}
+		await this.enqueueDatabaseMutation({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'doc_database_view',
+				entityId: id,
+				op: 'create',
+				patch: { ...input, databaseId, position: optimistic.position },
+				queuedAt: nowIso
+			},
+			title: input.name,
+			applyOptimistic: () => this.collections.docDatabaseViewsManaged.upsertMany([optimistic])
+		})
+		return optimistic
+	}
+
+	async updateDocDatabaseView(
+		databaseId: string,
+		viewId: string,
+		patch: Omit<UpdateDocDatabaseViewBody, 'version'>
+	): Promise<void> {
+		const current = this.collections.docDatabaseViews.get(viewId)
+		if (!current) throw new Error(`Database view "${viewId}" not found in local replica`)
+		await this.enqueueDatabaseMutation({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'doc_database_view',
+				entityId: viewId,
+				op: 'update',
+				patch: { ...patch, databaseId } as Record<string, unknown>,
+				baseVersion: current.version,
+				queuedAt: new Date().toISOString()
+			},
+			base: current as unknown as Record<string, unknown>,
+			title: current.name,
+			applyOptimistic: () => {
+				this.collections.docDatabaseViewsManaged.upsertMany([
+					{ ...current, ...patch, updatedAt: new Date().toISOString() }
+				])
+			}
+		})
+	}
+
+	async createDocDatabaseRow(
+		databaseId: string,
+		input: Omit<CreateDocDatabaseRowBody, 'id'>
+	): Promise<DocDatabaseRowDto> {
+		const id = generateUuidV7()
+		const nowIso = new Date().toISOString()
+		const tail =
+			this.collections.docDatabaseRows.toArray
+				.filter((r) => r.databaseId === databaseId && r.archivedAt === null)
+				.sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0))
+				.at(-1)?.position ?? null
+		const optimistic: DocDatabaseRowDto = {
+			id,
+			workspaceId: this.workspaceId,
+			databaseId,
+			pageId: null,
+			title: input.title ?? '',
+			position: input.position ?? generateKeyBetween(tail, null),
+			createdBy: this.currentUserId,
+			updatedBy: this.currentUserId,
+			archivedAt: null,
+			createdAt: nowIso,
+			updatedAt: nowIso,
+			version: 1,
+			cells: normalizeDatabaseCells(input.cells)
+		}
+		await this.enqueueDatabaseMutation({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'doc_database_row',
+				entityId: id,
+				op: 'create',
+				patch: { ...input, databaseId, position: optimistic.position },
+				queuedAt: nowIso
+			},
+			title: optimistic.title || 'Untitled row',
+			applyOptimistic: () => this.collections.docDatabaseRowsManaged.upsertMany([optimistic])
+		})
+		return optimistic
+	}
+
+	async updateDocDatabaseRow(
+		databaseId: string,
+		rowId: string,
+		patch: Omit<UpdateDocDatabaseRowBody, 'version'>
+	): Promise<void> {
+		const current = this.collections.docDatabaseRows.get(rowId)
+		if (!current) throw new Error(`Database row "${rowId}" not found in local replica`)
+		const nowIso = new Date().toISOString()
+		await this.enqueueDatabaseMutation({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'doc_database_row',
+				entityId: rowId,
+				op: 'update',
+				patch: { ...patch, databaseId } as Record<string, unknown>,
+				baseVersion: current.version,
+				queuedAt: nowIso
+			},
+			base: current as unknown as Record<string, unknown>,
+			title: current.title || 'Untitled row',
+			applyOptimistic: () => {
+				this.collections.docDatabaseRowsManaged.upsertMany([
+					{
+						...current,
+						...patch,
+						cells: mergeDatabaseCells(current.cells, patch.cells),
+						archivedAt: patch.archived === undefined ? current.archivedAt : patch.archived ? nowIso : null,
+						updatedBy: this.currentUserId,
+						updatedAt: nowIso
+					}
+				])
+			}
+		})
+	}
+
+	async archiveDocDatabaseRow(databaseId: string, rowId: string): Promise<void> {
+		const current = this.collections.docDatabaseRows.get(rowId)
+		if (!current || current.archivedAt !== null) return
+		const nowIso = new Date().toISOString()
+		await this.enqueueDatabaseMutation({
+			envelope: {
+				mutationId: generateUuidV7(),
+				workspaceId: this.workspaceId,
+				entity: 'doc_database_row',
+				entityId: rowId,
+				op: 'delete',
+				patch: { databaseId },
+				baseVersion: current.version,
+				queuedAt: nowIso
+			},
+			base: current as unknown as Record<string, unknown>,
+			title: current.title || 'Untitled row',
+			applyOptimistic: () => {
+				this.collections.docDatabaseRowsManaged.upsertMany([
+					{ ...current, archivedAt: nowIso, updatedAt: nowIso, updatedBy: this.currentUserId }
+				])
+			}
+		})
+	}
+
 	private async handleRevocation(reason: string): Promise<void> {
 		this.clearRetryTimer()
 		this.lastFlushError = null
@@ -2090,11 +2841,16 @@ export class HuriroSyncEngine {
 	dispose(): void {
 		this.disposed = true
 		this.clearRetryTimer()
+		this.clearSyncRetryTimer()
 		this.wsClient?.stop()
 		this.wsClient = null
 		if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
 			if (this.onlineHandler) window.removeEventListener('online', this.onlineHandler)
 			if (this.offlineHandler) window.removeEventListener('offline', this.offlineHandler)
+			if (this.focusHandler) window.removeEventListener('focus', this.focusHandler)
+		}
+		if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+			if (this.visibilityHandler) document.removeEventListener('visibilitychange', this.visibilityHandler)
 		}
 	}
 }

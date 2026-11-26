@@ -1,8 +1,9 @@
 import { activateI18n } from '@huriro/i18n'
-import { SyncProvider } from '@huriro/sync-client'
+import { HuriroSyncEngine, MemoryReplicaStorage, SyncProvider, type SyncTransport } from '@huriro/sync-client'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { createPreviewSeedSnapshot } from '@/lib/preview-workspace'
 import { createPreviewWorkspace } from '@/lib/sync-bootstrap'
 import { expectNoViolations } from '@/lib/test-setup'
 import { WorkspaceProvider } from '@/lib/workspace'
@@ -182,6 +183,7 @@ describe('Settings Workspace redesign', () => {
 				</WorkspaceProvider>
 			)
 			expect(generalRender.getByText('Open tasks')).toBeInTheDocument()
+			expect(generalRender.getByRole('button', { name: 'Force resync' })).toBeInTheDocument()
 			await expectNoViolations(generalRender.container)
 			generalRender.unmount()
 		} finally {
@@ -307,6 +309,52 @@ describe('Settings Workspace redesign', () => {
 			expect(screen.queryByText(/could not be sent via/)).not.toBeInTheDocument()
 		} finally {
 			boot.engine.dispose()
+		}
+	})
+
+	it('GeneralSettingsPanel Force resync triggers an authoritative full snapshot resync', async () => {
+		const previewBoot = await createPreviewWorkspace()
+		const seed = createPreviewSeedSnapshot()
+		let snapshotCalls = 0
+		const transport: SyncTransport = {
+			async fetchSnapshot() {
+				snapshotCalls += 1
+				return seed
+			},
+			async fetchChanges(since) {
+				return {
+					changes: [],
+					nextCursor: since,
+					hasMore: false,
+					serverTime: new Date().toISOString()
+				}
+			},
+			async sendBatch() {
+				return { cursor: seed.cursor, results: [] }
+			}
+		}
+		const engine = new HuriroSyncEngine({
+			workspaceId: previewBoot.engine.workspaceId,
+			currentUserId: previewBoot.currentUserId,
+			storage: new MemoryReplicaStorage(),
+			transport
+		})
+		await engine.bootstrap()
+		previewBoot.engine.dispose()
+		expect(snapshotCalls).toBe(1)
+
+		try {
+			render(
+				<WorkspaceProvider boot={{ ...previewBoot, engine }}>
+					<SyncProvider engine={engine}>
+						<GeneralSettingsPanel />
+					</SyncProvider>
+				</WorkspaceProvider>
+			)
+			fireEvent.click(screen.getByRole('button', { name: 'Force resync' }))
+			await waitFor(() => expect(snapshotCalls).toBe(2))
+		} finally {
+			engine.dispose()
 		}
 	})
 })

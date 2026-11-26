@@ -112,6 +112,7 @@ export interface UiState {
 	shortcutsDialogOpen: boolean
 	createIssueOpen: boolean
 	createProjectOpen: boolean
+	projectSettingsOpen: boolean
 	conflictDialogOpen: boolean
 	importDialogOpen: boolean
 	importDialogSource: ImportSource
@@ -163,6 +164,7 @@ export interface UiState {
 	setShortcutsDialogOpen: (open: boolean) => void
 	setCreateIssueOpen: (open: boolean) => void
 	setCreateProjectOpen: (open: boolean) => void
+	setProjectSettingsOpen: (open: boolean) => void
 	setConflictDialogOpen: (conflictDialogOpen: boolean) => void
 	setImportDialogOpen: (open: boolean) => void
 	openImportDialog: (source?: ImportSource) => void
@@ -221,6 +223,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 	shortcutsDialogOpen: false,
 	createIssueOpen: false,
 	createProjectOpen: false,
+	projectSettingsOpen: false,
 	conflictDialogOpen: false,
 	importDialogOpen: false,
 	importDialogSource: 'linear',
@@ -322,6 +325,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 	setShortcutsDialogOpen: (shortcutsDialogOpen) => set({ shortcutsDialogOpen }),
 	setCreateIssueOpen: (createIssueOpen) => set({ createIssueOpen }),
 	setCreateProjectOpen: (createProjectOpen) => set({ createProjectOpen }),
+	setProjectSettingsOpen: (projectSettingsOpen) => set({ projectSettingsOpen }),
 	setConflictDialogOpen: (conflictDialogOpen) => set({ conflictDialogOpen }),
 	setImportDialogOpen: (importDialogOpen) => set({ importDialogOpen }),
 	openImportDialog: (source) =>

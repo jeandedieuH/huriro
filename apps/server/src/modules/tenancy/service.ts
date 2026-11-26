@@ -4,6 +4,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto'
+import type { SyncEntityType } from '@huriro/contracts'
 import type { Queryable } from '@huriro/db'
 import {
 	type AclLevel,
@@ -303,6 +304,16 @@ export async function listAclEntriesForResource(
 	return listResourceAclEntries(tx, workspaceId, resourceType, resourceId)
 }
 
+const ACL_RESOURCE_TO_SYNC_ENTITY = {
+	project: 'project',
+	doc_page: 'doc_page',
+	teamspace: 'teamspace',
+	doc_database: 'doc_database',
+	mail_inbox: 'mail_inbox',
+	channel: 'project',
+	mail_account: 'project'
+} as const satisfies Record<AclResourceType, SyncEntityType>
+
 export async function grantAcl(
 	tx: Queryable,
 	args: {
@@ -355,7 +366,7 @@ export async function grantAcl(
 	})
 
 	// Map resourceType to SyncEntityType for change_log grant event (§9.3).
-	const syncEntityType = args.resourceType === 'doc_page' ? 'doc_page' : 'project'
+	const syncEntityType = ACL_RESOURCE_TO_SYNC_ENTITY[args.resourceType]
 	const scope = [`${args.resourceType}:${args.resourceId}`]
 	const cursor = await appendChange(tx, args.workspaceId, {
 		entityType: syncEntityType,
@@ -417,7 +428,7 @@ export async function revokeAcl(
 		}
 	})
 
-	const syncEntityType = entry.resourceType === 'doc_page' ? 'doc_page' : 'project'
+	const syncEntityType = ACL_RESOURCE_TO_SYNC_ENTITY[entry.resourceType]
 	const cursor = await appendChange(tx, args.workspaceId, {
 		entityType: syncEntityType,
 		entityId: entry.resourceId,

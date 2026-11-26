@@ -20,7 +20,11 @@ import {
 	runAutomationCronOnce
 } from '../modules/automations'
 import { captureDailyBillingUsageOnce } from '../modules/billing'
-import { processChatLinkPreviewOutboxEvent } from '../modules/chat'
+import {
+	processChatLinkPreviewOutboxEvent,
+	runChatSavedRemindersOnce,
+	runChatScheduledMessagesOnce
+} from '../modules/chat'
 import { runDocMaintenanceOnce, runDocVerificationExpiryCheckOnce } from '../modules/docs'
 import { type BlobStorage, processFileQuarantineOutboxEvent } from '../modules/files'
 import {
@@ -31,6 +35,7 @@ import {
 import {
 	type MailModuleConfig,
 	processMailOutboxEvent,
+	runMailFollowupsOnce,
 	runRetentionSweep,
 	sendDueDraft,
 	syncAccount
@@ -474,6 +479,22 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 		if (expired > 0) log.info({ expired }, 'agent approvals expired')
 	})
 
+	// M11 chat scheduler + saved-item reminders. Discovery helpers are narrow
+	// SECURITY DEFINER projections; tenant writes still run inside withWorkspace.
+	await boss.createQueue('chat-scheduled-due')
+	await boss.schedule('chat-scheduled-due', '*/15 * * * * *', {}, { tz: 'UTC' })
+	await boss.work('chat-scheduled-due', async () => {
+		const sent = await runChatScheduledMessagesOnce(deps.app)
+		if (sent > 0) log.info({ sent }, 'chat scheduled messages sent')
+	})
+
+	await boss.createQueue('chat-saved-reminders')
+	await boss.schedule('chat-saved-reminders', '*/30 * * * * *', {}, { tz: 'UTC' })
+	await boss.work('chat-saved-reminders', async () => {
+		const reminded = await runChatSavedRemindersOnce(deps.app)
+		if (reminded > 0) log.info({ reminded }, 'chat saved reminders delivered')
+	})
+
 	await boss.createQueue('notification-email-digest')
 	await boss.schedule('notification-email-digest', '*/15 * * * *', {}, { tz: 'UTC' })
 	await boss.work('notification-email-digest', async () => {
@@ -555,6 +576,15 @@ export async function startWorker(deps: WorkerDeps): Promise<{ stop(): Promise<v
 					sendDueDraft(tx, d.workspaceId, d.id, md)
 				).catch((err) => log.warn({ err, draftId: d.id }, 'outbound mail send failed'))
 			}
+		})
+
+		// M11 follow-up reminders: wake snoozed/pending threads when customer
+		// silence reaches the sender-chosen follow-up deadline.
+		await boss.createQueue('mail-followups-due')
+		await boss.schedule('mail-followups-due', '*/30 * * * * *', {}, { tz: 'UTC' })
+		await boss.work('mail-followups-due', async () => {
+			const woken = await runMailFollowupsOnce(deps.app)
+			if (woken > 0) log.info({ woken }, 'mail follow-ups woke conversations')
 		})
 
 		// Retention sweep (§14.7): hourly, per workspace with retention configured.

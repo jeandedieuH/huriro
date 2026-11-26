@@ -69,6 +69,7 @@ export const ERROR_CODES = [
 	'mail_draft_locked',
 	'mail_provider_unconfigured',
 	'mail_send_window_expired',
+	'mail_review_required',
 	'mail_message_too_large',
 	// email notification pipeline
 	'email_not_configured',

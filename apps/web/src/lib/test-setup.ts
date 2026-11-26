@@ -16,6 +16,16 @@ if (typeof HTMLElement !== 'undefined' && !HTMLElement.prototype.hasPointerCaptu
 if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
 	Element.prototype.scrollIntoView = () => undefined
 }
+
+// jsdom has no SVG layout engine. Mermaid only needs deterministic box geometry
+// in component tests, so a zero-size box is enough to exercise the upstream renderer.
+if (typeof SVGElement !== 'undefined') {
+	const svgPrototype = SVGElement.prototype as unknown as { getBBox?: () => DOMRect }
+	if (!svgPrototype.getBBox) {
+		svgPrototype.getBBox = () =>
+			({ x: 0, y: 0, width: 0, height: 0, top: 0, right: 0, bottom: 0, left: 0 }) as DOMRect
+	}
+}
 // jsdom implements no geometry on Range, but ProseMirror's scrollToSelection
 // reads getClientRects/getBoundingClientRect when editor commands scroll.
 if (typeof Range !== 'undefined' && !Range.prototype.getClientRects) {

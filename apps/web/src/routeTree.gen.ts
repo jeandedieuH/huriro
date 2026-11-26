@@ -27,6 +27,8 @@ import { Route as VerifyEmailRouteImport } from './routes/verify-email'
 import { Route as DocsIndexRouteImport } from './routes/docs.index'
 import { Route as DocsSlugRouteImport } from './routes/docs.$slug'
 import { Route as OauthConsentRouteImport } from './routes/oauth/consent'
+import { Route as DocsDatabasesIndexRouteImport } from './routes/docs.databases.index'
+import { Route as DocsDatabasesDatabaseIdRouteImport } from './routes/docs.databases.$databaseId'
 import { Route as PWorkspaceSlugPublicSlugRouteImport } from './routes/p.$workspaceSlug.$publicSlug'
 
 const IndexRoute = IndexRouteImport.update({
@@ -119,6 +121,16 @@ const OauthConsentRoute = OauthConsentRouteImport.update({
   path: '/oauth/consent',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DocsDatabasesIndexRoute = DocsDatabasesIndexRouteImport.update({
+  id: '/databases/',
+  path: '/databases/',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsDatabasesDatabaseIdRoute = DocsDatabasesDatabaseIdRouteImport.update({
+  id: '/databases/$databaseId',
+  path: '/databases/$databaseId',
+  getParentRoute: () => DocsRoute,
+} as any)
 const PWorkspaceSlugPublicSlugRoute =
   PWorkspaceSlugPublicSlugRouteImport.update({
     id: '/p/$workspaceSlug/$publicSlug',
@@ -145,7 +157,9 @@ export interface FileRoutesByFullPath {
   '/docs/$slug': typeof DocsSlugRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/docs/': typeof DocsIndexRoute
+  '/docs/databases/$databaseId': typeof DocsDatabasesDatabaseIdRoute
   '/p/$workspaceSlug/$publicSlug': typeof PWorkspaceSlugPublicSlugRoute
+  '/docs/databases/': typeof DocsDatabasesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -165,7 +179,9 @@ export interface FileRoutesByTo {
   '/docs/$slug': typeof DocsSlugRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/docs': typeof DocsIndexRoute
+  '/docs/databases/$databaseId': typeof DocsDatabasesDatabaseIdRoute
   '/p/$workspaceSlug/$publicSlug': typeof PWorkspaceSlugPublicSlugRoute
+  '/docs/databases': typeof DocsDatabasesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -187,7 +203,9 @@ export interface FileRoutesById {
   '/docs/$slug': typeof DocsSlugRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/docs/': typeof DocsIndexRoute
+  '/docs/databases/$databaseId': typeof DocsDatabasesDatabaseIdRoute
   '/p/$workspaceSlug/$publicSlug': typeof PWorkspaceSlugPublicSlugRoute
+  '/docs/databases/': typeof DocsDatabasesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -210,7 +228,9 @@ export interface FileRouteTypes {
     | '/docs/$slug'
     | '/oauth/consent'
     | '/docs/'
+    | '/docs/databases/$databaseId'
     | '/p/$workspaceSlug/$publicSlug'
+    | '/docs/databases/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -230,7 +250,9 @@ export interface FileRouteTypes {
     | '/docs/$slug'
     | '/oauth/consent'
     | '/docs'
+    | '/docs/databases/$databaseId'
     | '/p/$workspaceSlug/$publicSlug'
+    | '/docs/databases'
   id:
     | '__root__'
     | '/'
@@ -251,7 +273,9 @@ export interface FileRouteTypes {
     | '/docs/$slug'
     | '/oauth/consent'
     | '/docs/'
+    | '/docs/databases/$databaseId'
     | '/p/$workspaceSlug/$publicSlug'
+    | '/docs/databases/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -402,6 +426,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OauthConsentRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/docs/databases/': {
+      id: '/docs/databases/'
+      path: '/databases'
+      fullPath: '/docs/databases/'
+      preLoaderRoute: typeof DocsDatabasesIndexRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/databases/$databaseId': {
+      id: '/docs/databases/$databaseId'
+      path: '/databases/$databaseId'
+      fullPath: '/docs/databases/$databaseId'
+      preLoaderRoute: typeof DocsDatabasesDatabaseIdRouteImport
+      parentRoute: typeof DocsRoute
+    }
     '/p/$workspaceSlug/$publicSlug': {
       id: '/p/$workspaceSlug/$publicSlug'
       path: '/p/$workspaceSlug/$publicSlug'
@@ -415,11 +453,15 @@ declare module '@tanstack/react-router' {
 interface DocsRouteChildren {
   DocsSlugRoute: typeof DocsSlugRoute
   DocsIndexRoute: typeof DocsIndexRoute
+  DocsDatabasesDatabaseIdRoute: typeof DocsDatabasesDatabaseIdRoute
+  DocsDatabasesIndexRoute: typeof DocsDatabasesIndexRoute
 }
 
 const DocsRouteChildren: DocsRouteChildren = {
   DocsSlugRoute: DocsSlugRoute,
   DocsIndexRoute: DocsIndexRoute,
+  DocsDatabasesDatabaseIdRoute: DocsDatabasesDatabaseIdRoute,
+  DocsDatabasesIndexRoute: DocsDatabasesIndexRoute,
 }
 
 const DocsRouteWithChildren = DocsRoute._addFileChildren(DocsRouteChildren)

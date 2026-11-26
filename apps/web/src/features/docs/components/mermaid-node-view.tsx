@@ -18,9 +18,10 @@ function MermaidNodeView(props: NodeViewProps) {
 
 	useEffect(() => {
 		let cancelled = false
-		void import('./mermaid-renderer').then((mod) => {
+		async function render() {
+			const mod = await import('./mermaid-renderer')
+			const res = await mod.renderMermaidSvg(code)
 			if (cancelled) return
-			const res = mod.renderMermaidSvg(code)
 			if (res.ok) {
 				setRenderError(null)
 				setSvgHtml(res.svg)
@@ -28,7 +29,8 @@ function MermaidNodeView(props: NodeViewProps) {
 				setRenderError(res.error)
 				setSvgHtml('')
 			}
-		})
+		}
+		void render()
 		return () => {
 			cancelled = true
 		}
@@ -39,6 +41,17 @@ function MermaidNodeView(props: NodeViewProps) {
 		{ id: 'split', label: t('docs.mermaid.split') },
 		{ id: 'code', label: t('docs.mermaid.code') }
 	]
+
+	function exportSvg() {
+		if (!svgHtml) return
+		const blob = new Blob([svgHtml], { type: 'image/svg+xml;charset=utf-8' })
+		const href = URL.createObjectURL(blob)
+		const anchor = document.createElement('a')
+		anchor.href = href
+		anchor.download = `${alt || 'mermaid-diagram'}.svg`
+		anchor.click()
+		URL.revokeObjectURL(href)
+	}
 
 	return (
 		<NodeViewWrapper
@@ -62,6 +75,16 @@ function MermaidNodeView(props: NodeViewProps) {
 						</Button>
 					))}
 				</fieldset>
+				<Button
+					type="button"
+					size="sm"
+					tone="outline"
+					className="h-6 px-2 text-xs"
+					disabled={!svgHtml}
+					onClick={exportSvg}
+				>
+					{t('docs.mermaid.export-svg')}
+				</Button>
 				{props.editor.isEditable ? (
 					<Input
 						aria-label={t('docs.mermaid.alt-placeholder')}

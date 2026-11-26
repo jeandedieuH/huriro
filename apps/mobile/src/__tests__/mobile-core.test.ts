@@ -173,4 +173,124 @@ describe('Huriro mobile core (§18)', () => {
 		expect(seen[0]?.withCredentials).toBe(false)
 		expect(t('settings.billing.web-only-mobile')).toContain('Huriro web app')
 	})
+
+	test('HuriroMobileApiClient supports Chat v2 (data envelope, pins, saved, status/DND) and Mail v2 endpoints', async () => {
+		const calls: { method: string; url: string; body: unknown }[] = []
+		const api = new HuriroMobileApiClient({
+			serverUrl: 'https://api.huriro.example',
+			workspaceId: '0190a0b1-0000-7000-8000-000000000001',
+			platform: 'ios',
+			getToken: () => 'tok-m11',
+			httpAdapter: async (config) => {
+				const url = config.url ?? ''
+				const method = (config.method ?? 'GET').toUpperCase()
+				const body = typeof config.data === 'string' ? JSON.parse(config.data) : config.data
+				calls.push({ method, url, body })
+
+				let payload: unknown = {}
+				if (url.includes('/messages?limit=50') && method === 'GET') {
+					payload = {
+						data: [{ id: 'msg-1', bodyText: 'Hello from {data} envelope' }],
+						nextBeforeSeq: null
+					}
+				} else if (url.endsWith('/messages') && method === 'POST') {
+					payload = { id: 'msg-2', bodyText: 'Thread broadcast reply' }
+				} else if (url.endsWith('/pins')) {
+					payload = { data: [{ messageId: 'msg-1', bodyText: 'Hello from {data} envelope' }] }
+				} else if (url === '/api/v1/chat/saved' && method === 'GET') {
+					payload = { data: [{ id: 'save-1', messageId: 'msg-1', status: 'saved' }] }
+				} else if (url === '/api/v1/chat/me/status') {
+					payload = { statusEmoji: '🚀', statusText: 'Deep focus', dndUntil: '2026-11-26T12:00:00Z' }
+				} else if (url === '/api/v1/mail/inboxes' || url.startsWith('/api/v1/mail/conversations?')) {
+					payload = { data: [{ id: 'conv-1', subject: 'Billing' }], nextCursor: null }
+				} else if (
+					url === '/api/v1/mail/tags' ||
+					url === '/api/v1/mail/conversations/conv-1/tags' ||
+					url === '/api/v1/mail/templates' ||
+					url === '/api/v1/mail/macros'
+				) {
+					payload = [{ id: 'item-1', name: 'VIP' }]
+				} else if (url.endsWith('/render')) {
+					payload = { bodyText: 'Hi customer@acme.example', shortcut: ';vip' }
+				} else if (url.endsWith('/apply')) {
+					payload = { appliedCount: 1 }
+				} else if (url.endsWith('/drafts')) {
+					payload = { id: 'draft-1', reviewStatus: 'none', status: 'draft' }
+				} else if (url.endsWith('/review')) {
+					payload = { id: 'draft-1', reviewStatus: 'requested', status: 'draft' }
+				} else if (url.endsWith('/review/complete')) {
+					payload = { id: 'draft-1', reviewStatus: 'approved', status: 'draft' }
+				} else if (url.endsWith('/send')) {
+					payload = { id: 'draft-1', status: 'sending' }
+				} else if (url.endsWith('/undo')) {
+					payload = { id: 'draft-1', status: 'draft' }
+				} else if (url.endsWith('/route')) {
+					payload = { assignedUserId: '0190a0b1-0000-7000-8000-000000000002' }
+				}
+
+				return {
+					data: payload,
+					status: 200,
+					statusText: 'OK',
+					headers: {},
+					config
+				}
+			}
+		})
+
+		const msgs = await api.listMessages('ch-1')
+		expect(msgs).toHaveLength(1)
+		expect(msgs[0]?.bodyText).toBe('Hello from {data} envelope')
+
+		await api.sendMessage('ch-1', {
+			body: 'Thread broadcast reply',
+			bodyText: 'Thread broadcast reply',
+			threadParentId: 'msg-1',
+			broadcastToChannel: true
+		})
+		const pins = await api.listPinnedMessages('ch-1')
+		expect(pins).toHaveLength(1)
+		await api.pinMessage('msg-1')
+		await api.unpinMessage('msg-1')
+		const saved = await api.listSavedMessages()
+		expect(saved).toHaveLength(1)
+		await api.saveMessage({ messageId: 'msg-1' })
+		await api.unsaveMessage('save-1')
+		await api.getMyStatus()
+		await api.updateMyStatus({ statusText: 'In review', dndUntil: '2026-11-26T12:00:00Z' })
+
+		const inboxes = await api.listMailInboxes()
+		expect(inboxes).toHaveLength(1)
+		const convs = await api.listMailConversations({ status: 'open' })
+		expect(convs.data).toHaveLength(1)
+		expect(await api.listMailTags()).toHaveLength(1)
+		expect(await api.listConversationTags('conv-1')).toHaveLength(1)
+		await api.setConversationTags('conv-1', ['item-1'])
+		expect(await api.listMailTemplates()).toHaveLength(1)
+		expect((await api.renderMailTemplate('item-1', { variables: {} })).bodyText).toContain('acme.example')
+		expect(await api.listMailMacros()).toHaveLength(1)
+		expect((await api.applyMailMacro('item-1', ['conv-1'])).appliedCount).toBe(1)
+
+		const draft = await api.upsertMailDraft('conv-1', {
+			identityId: '0190a0b1-0000-7000-8000-000000000720',
+			recipients: { to: [{ email: 'customer@acme.example' }] },
+			bodyText: 'Hello'
+		})
+		expect((await api.requestMailDraftReview(draft.id, { reviewerId: 'u-2' })).reviewStatus).toBe('requested')
+		expect((await api.completeMailDraftReview(draft.id, { decision: 'approved' })).reviewStatus).toBe(
+			'approved'
+		)
+		expect((await api.sendMailDraft(draft.id, {})).status).toBe('sending')
+		expect((await api.undoMailDraft(draft.id)).status).toBe('draft')
+		expect((await api.routeConversationRoundRobin('conv-1')).assignedUserId).toBe(
+			'0190a0b1-0000-7000-8000-000000000002'
+		)
+
+		expect(calls.find((c) => c.url.endsWith('/messages') && c.method === 'POST')?.body).toEqual({
+			body: 'Thread broadcast reply',
+			bodyText: 'Thread broadcast reply',
+			threadParentId: 'msg-1',
+			broadcastToChannel: true
+		})
+	})
 })

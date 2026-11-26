@@ -3,6 +3,10 @@
  */
 import type {
 	CycleDto,
+	DocDatabaseDto,
+	DocDatabasePropertyDto,
+	DocDatabaseRowDto,
+	DocDatabaseViewDto,
 	DocPageDto,
 	InitiativeDto,
 	IssueDto,
@@ -163,6 +167,10 @@ export interface PersistedReplicaState {
 	readonly notifications: NotificationDto[]
 	readonly docPages?: DocPageDto[] | undefined
 	readonly teamspaces?: TeamspaceDto[] | undefined
+	readonly docDatabases?: DocDatabaseDto[] | undefined
+	readonly docDatabaseProperties?: DocDatabasePropertyDto[] | undefined
+	readonly docDatabaseRows?: DocDatabaseRowDto[] | undefined
+	readonly docDatabaseViews?: DocDatabaseViewDto[] | undefined
 }
 
 export class HuriroSyncCollections {
@@ -186,6 +194,13 @@ export class HuriroSyncCollections {
 	readonly notificationsManaged = makeManagedCollection<NotificationDto>('notifications')
 	readonly docPagesManaged = makeManagedCollection<DocPageDto>('doc_pages')
 	readonly teamspacesManaged = makeManagedCollection<TeamspaceDto>('teamspaces')
+	readonly docDatabasesManaged = makeManagedCollection<DocDatabaseDto>('doc_databases')
+	readonly docDatabasePropertiesManaged =
+		makeManagedCollection<DocDatabasePropertyDto>('doc_database_properties')
+	readonly docDatabaseRowsManaged = makeManagedCollection<DocDatabaseRowDto>('doc_database_rows', {
+		guardWrite: (incoming, existing) => incoming.version >= existing.version
+	})
+	readonly docDatabaseViewsManaged = makeManagedCollection<DocDatabaseViewDto>('doc_database_views')
 
 	get projects(): Collection<ProjectDto, string> {
 		return this.projectsManaged.collection
@@ -226,6 +241,18 @@ export class HuriroSyncCollections {
 	get teamspaces(): Collection<TeamspaceDto, string> {
 		return this.teamspacesManaged.collection
 	}
+	get docDatabases(): Collection<DocDatabaseDto, string> {
+		return this.docDatabasesManaged.collection
+	}
+	get docDatabaseProperties(): Collection<DocDatabasePropertyDto, string> {
+		return this.docDatabasePropertiesManaged.collection
+	}
+	get docDatabaseRows(): Collection<DocDatabaseRowDto, string> {
+		return this.docDatabaseRowsManaged.collection
+	}
+	get docDatabaseViews(): Collection<DocDatabaseViewDto, string> {
+		return this.docDatabaseViewsManaged.collection
+	}
 
 	markAllReady(): void {
 		this.projectsManaged.markReady()
@@ -241,6 +268,10 @@ export class HuriroSyncCollections {
 		this.notificationsManaged.markReady()
 		this.docPagesManaged.markReady()
 		this.teamspacesManaged.markReady()
+		this.docDatabasesManaged.markReady()
+		this.docDatabasePropertiesManaged.markReady()
+		this.docDatabaseRowsManaged.markReady()
+		this.docDatabaseViewsManaged.markReady()
 	}
 
 	applyFullSnapshot(snap: SyncSnapshotResponse | PersistedReplicaState): void {
@@ -285,6 +316,48 @@ export class HuriroSyncCollections {
 		this.viewsManaged.upsertMany(snap.savedViews as unknown as SavedViewDto[])
 		this.docPagesManaged.upsertMany((snap.docPages ?? []) as unknown as DocPageDto[])
 		this.teamspacesManaged.upsertMany((snap.teamspaces ?? []) as unknown as TeamspaceDto[])
+	}
+
+	applyDatabaseScopeRows(rows: readonly unknown[]): void {
+		const databases: DocDatabaseDto[] = []
+		const properties: DocDatabasePropertyDto[] = []
+		const dbRows: DocDatabaseRowDto[] = []
+		const views: DocDatabaseViewDto[] = []
+		for (const row of rows) {
+			const envelope = row as { entity?: unknown; data?: unknown }
+			if (!envelope || typeof envelope !== 'object' || typeof envelope.entity !== 'string') continue
+			if (envelope.entity === 'doc_database') databases.push(envelope.data as DocDatabaseDto)
+			if (envelope.entity === 'doc_database_property')
+				properties.push(envelope.data as DocDatabasePropertyDto)
+			if (envelope.entity === 'doc_database_row') dbRows.push(envelope.data as DocDatabaseRowDto)
+			if (envelope.entity === 'doc_database_view') views.push(envelope.data as DocDatabaseViewDto)
+		}
+		this.docDatabasesManaged.upsertMany(databases)
+		this.docDatabasePropertiesManaged.upsertMany(properties)
+		this.docDatabaseRowsManaged.upsertMany(dbRows)
+		this.docDatabaseViewsManaged.upsertMany(views)
+	}
+
+	purgeDatabaseScope(databaseId: string): void {
+		this.docDatabasesManaged.deleteMany([databaseId])
+		this.docDatabasePropertiesManaged.deleteMany(
+			this.docDatabasePropertiesManaged
+				.values()
+				.filter((p) => p.databaseId === databaseId)
+				.map((p) => p.id)
+		)
+		this.docDatabaseRowsManaged.deleteMany(
+			this.docDatabaseRowsManaged
+				.values()
+				.filter((r) => r.databaseId === databaseId)
+				.map((r) => r.id)
+		)
+		this.docDatabaseViewsManaged.deleteMany(
+			this.docDatabaseViewsManaged
+				.values()
+				.filter((v) => v.databaseId === databaseId)
+				.map((v) => v.id)
+		)
 	}
 
 	purgeDocPageScope(pageId: string): void {
@@ -394,6 +467,14 @@ export class HuriroSyncCollections {
 		const docPageDeletes: string[] = []
 		const teamspaceUpserts: TeamspaceDto[] = []
 		const teamspaceDeletes: string[] = []
+		const dbUpserts: DocDatabaseDto[] = []
+		const dbDeletes: string[] = []
+		const dbPropUpserts: DocDatabasePropertyDto[] = []
+		const dbPropDeletes: string[] = []
+		const dbRowUpserts: DocDatabaseRowDto[] = []
+		const dbRowDeletes: string[] = []
+		const dbViewUpserts: DocDatabaseViewDto[] = []
+		const dbViewDeletes: string[] = []
 
 		for (const c of changes) {
 			if (c.action === 'grant') {
@@ -466,6 +547,22 @@ export class HuriroSyncCollections {
 					if (isDel) teamspaceDeletes.push(c.id)
 					else teamspaceUpserts.push(c.data as unknown as TeamspaceDto)
 					break
+				case 'doc_database':
+					if (isDel) dbDeletes.push(c.id)
+					else dbUpserts.push(c.data as unknown as DocDatabaseDto)
+					break
+				case 'doc_database_property':
+					if (isDel) dbPropDeletes.push(c.id)
+					else dbPropUpserts.push(c.data as unknown as DocDatabasePropertyDto)
+					break
+				case 'doc_database_row':
+					if (isDel) dbRowDeletes.push(c.id)
+					else dbRowUpserts.push(c.data as unknown as DocDatabaseRowDto)
+					break
+				case 'doc_database_view':
+					if (isDel) dbViewDeletes.push(c.id)
+					else dbViewUpserts.push(c.data as unknown as DocDatabaseViewDto)
+					break
 				default:
 					break
 			}
@@ -497,6 +594,14 @@ export class HuriroSyncCollections {
 		this.docPagesManaged.deleteMany(docPageDeletes)
 		this.teamspacesManaged.upsertMany(teamspaceUpserts)
 		this.teamspacesManaged.deleteMany(teamspaceDeletes)
+		this.docDatabasesManaged.upsertMany(dbUpserts)
+		this.docDatabasesManaged.deleteMany(dbDeletes)
+		this.docDatabasePropertiesManaged.upsertMany(dbPropUpserts)
+		this.docDatabasePropertiesManaged.deleteMany(dbPropDeletes)
+		this.docDatabaseRowsManaged.upsertMany(dbRowUpserts)
+		this.docDatabaseRowsManaged.deleteMany(dbRowDeletes)
+		this.docDatabaseViewsManaged.upsertMany(dbViewUpserts)
+		this.docDatabaseViewsManaged.deleteMany(dbViewDeletes)
 
 		for (const pid of revokedProjectIds) {
 			this.purgeProjectScope(pid)
@@ -528,7 +633,11 @@ export class HuriroSyncCollections {
 			savedViews: this.viewsManaged.values(),
 			notifications: this.notificationsManaged.values(),
 			docPages: this.docPagesManaged.values(),
-			teamspaces: this.teamspacesManaged.values()
+			teamspaces: this.teamspacesManaged.values(),
+			docDatabases: this.docDatabasesManaged.values(),
+			docDatabaseProperties: this.docDatabasePropertiesManaged.values(),
+			docDatabaseRows: this.docDatabaseRowsManaged.values(),
+			docDatabaseViews: this.docDatabaseViewsManaged.values()
 		}
 	}
 
@@ -551,5 +660,9 @@ export class HuriroSyncCollections {
 		this.notificationsManaged.replaceAll([])
 		this.docPagesManaged.replaceAll([])
 		this.teamspacesManaged.replaceAll([])
+		this.docDatabasesManaged.replaceAll([])
+		this.docDatabasePropertiesManaged.replaceAll([])
+		this.docDatabaseRowsManaged.replaceAll([])
+		this.docDatabaseViewsManaged.replaceAll([])
 	}
 }

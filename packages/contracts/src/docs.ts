@@ -337,7 +337,9 @@ export const SplitDocPageBody = Type.Object({
 export type SplitDocPageBody = Static<typeof SplitDocPageBody>
 
 export const DocAppendBody = Type.Object({
-	markdown: Type.String({ minLength: 1 }),
+	markdown: Type.Optional(Type.String({ minLength: 1 })),
+	/** Structured ProseMirror blocks preserve node types/attrs that Markdown cannot round-trip. */
+	nodes: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown()), { minItems: 1 })),
 	origin: Type.Optional(Type.String({ minLength: 1, maxLength: 64 }))
 })
 export type DocAppendBody = Static<typeof DocAppendBody>

@@ -12,6 +12,7 @@ import {
 	Mail,
 	Moon,
 	Plus,
+	RefreshCw,
 	Search,
 	UserCheck
 } from 'lucide-react'
@@ -50,6 +51,7 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 	const setImportDialogOpen = useUiStore((s) => s.setImportDialogOpen)
 	const toggleTheme = useUiStore((s) => s.toggleTheme)
 	const selectIssue = useUiStore((s) => s.selectIssue)
+	const pushToast = useUiStore((s) => s.pushToast)
 
 	const [query, setQuery] = useState('')
 	const [activeIndex, setActiveIndex] = useState(0)
@@ -93,6 +95,7 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 				hint: 'C',
 				onRun: () => {
 					setOpen(false)
+					setDestination('tasks')
 					setCreateIssueOpen(true)
 				}
 			},
@@ -112,6 +115,7 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 				label: t('palette.action.create-project'),
 				onRun: () => {
 					setOpen(false)
+					setDestination('tasks')
 					setCreateProjectOpen(true)
 				}
 			},
@@ -141,6 +145,20 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 				onRun: () => {
 					setOpen(false)
 					setShortcutsDialogOpen(true)
+				}
+			},
+			{
+				id: 'act-force-resync',
+				section: 'actions',
+				label: t('palette.action.force-resync'),
+				onRun: () => {
+					setOpen(false)
+					void engine
+						.flushOutbox({ force: true })
+						.then(() => engine.resyncSnapshot())
+						.then((ok) => {
+							if (ok) pushToast({ tone: 'success', title: t('sync.resync-done') })
+						})
 				}
 			}
 		]
@@ -267,8 +285,10 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 
 		return [...actions.filter(filterFn), ...navigation.filter(filterFn), ...content]
 	}, [
+		engine,
 		localDocs,
 		localIssues,
+		pushToast,
 		query,
 		selectIssue,
 		serverHits,
@@ -372,6 +392,8 @@ export function CommandPalette({ api }: CommandPaletteProps) {
 														<Moon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
 													) : item.id === 'act-shortcuts' ? (
 														<Keyboard className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+													) : item.id === 'act-force-resync' ? (
+														<RefreshCw className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
 													) : item.id === 'nav-home' ? (
 														<Home className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
 													) : item.id === 'nav-inbox' ? (

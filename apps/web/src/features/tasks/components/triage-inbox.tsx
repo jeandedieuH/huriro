@@ -1,6 +1,6 @@
 import type { IssueDto } from '@huriro/contracts'
 import { type MessageId, t } from '@huriro/i18n'
-import { useSyncEngine } from '@huriro/sync-client'
+import { useCollectionItems, useSyncEngine } from '@huriro/sync-client'
 import { Check, Clock, GitMerge, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -36,6 +36,7 @@ import { useUiStore } from '@/stores/ui-store'
 export function TriageInbox({ projectId }: { readonly projectId: string }) {
 	const { api } = useWorkspace()
 	const engine = useSyncEngine()
+	const issues = useCollectionItems(engine.collections.issues)
 	const pushToast = useUiStore((s) => s.pushToast)
 	const selectIssue = useUiStore((s) => s.selectIssue)
 	const [queue, setQueue] = useState<readonly IssueDto[]>([])
@@ -61,10 +62,33 @@ export function TriageInbox({ projectId }: { readonly projectId: string }) {
 		}
 	}, [api, projectId])
 
+	// Refresh whenever replica triage rows change (e.g. a new task sent to
+	// triage from the dialog or updated elsewhere) so the inbox stays live.
+	const replicaTriageKey = useMemo(
+		() =>
+			issues
+				.filter(
+					(i) =>
+						i.projectId === projectId &&
+						i.deletedAt === null &&
+						(i.triageStatus === 'pending' || i.triageStatus === 'snoozed')
+				)
+				.map((i) => `${i.id}:${i.version}:${i.triageStatus}:${i.triageSnoozedUntil ?? ''}`)
+				.sort()
+				.join('|'),
+		[issues, projectId]
+	)
+
+	const prevProjectIdRef = useRef<string | null>(null)
+
 	useEffect(() => {
-		setLoading(true)
+		if (prevProjectIdRef.current !== projectId) {
+			prevProjectIdRef.current = projectId
+			setLoading(true)
+		}
+		void replicaTriageKey
 		void refresh()
-	}, [refresh])
+	}, [projectId, refresh, replicaTriageKey])
 
 	const act = useCallback(
 		async (

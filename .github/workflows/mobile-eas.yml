@@ -4,18 +4,18 @@ on:
   push:
     branches: [main]
     paths:
-      - 'apps/mobile/**'
-      - 'packages/contracts/**'
-      - 'packages/domain/**'
-      - 'packages/design-tokens/**'
-      - 'packages/editor/**'
-      - 'packages/i18n/**'
-      - 'packages/sync-client/**'
-      - 'packages/env/mobile/**'
+      - "apps/mobile/**"
+      - "packages/contracts/**"
+      - "packages/domain/**"
+      - "packages/design-tokens/**"
+      - "packages/editor/**"
+      - "packages/i18n/**"
+      - "packages/sync-client/**"
+      - "packages/env/mobile/**"
   pull_request:
     paths:
-      - 'apps/mobile/**'
-      - 'packages/**'
+      - "apps/mobile/**"
+      - "packages/**"
 
 jobs:
   mobile-quality:

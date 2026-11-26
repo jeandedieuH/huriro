@@ -148,10 +148,10 @@ export function GeneralSettingsPanel() {
 								type="button"
 								size="sm"
 								tone="outline"
-								onClick={() => void engine.flushOutbox({ force: true }).then(() => engine.syncNow())}
+								onClick={() => void engine.flushOutbox({ force: true }).then(() => engine.resyncSnapshot())}
 							>
 								<RefreshCw className="size-3.5" aria-hidden />
-								<span>{t('sync.sync-now')}</span>
+								<span>{t('sync.force-resync')}</span>
 							</Button>
 						) : null
 					}

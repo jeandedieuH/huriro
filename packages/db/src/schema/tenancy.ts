@@ -124,7 +124,7 @@ export const aclEntries = pgTable(
 			.notNull()
 			.references(() => workspaces.id, { onDelete: 'cascade' }),
 		resourceType: text('resource_type', {
-			enum: ['project', 'doc_page', 'teamspace', 'channel', 'mail_account']
+			enum: ['project', 'doc_page', 'teamspace', 'channel', 'mail_account', 'mail_inbox', 'doc_database']
 		}).notNull(),
 		resourceId: uuid('resource_id').notNull(),
 		principalType: text('principal_type', { enum: ['user', 'role', 'workspace'] }).notNull(),

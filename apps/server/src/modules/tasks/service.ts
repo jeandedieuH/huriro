@@ -1023,6 +1023,13 @@ export async function createIssue(
 		}
 	}
 
+	if (input.cycleId) {
+		const cycle = await getCycleById(tx, actor.workspaceId, input.cycleId)
+		if (!cycle || cycle.projectId !== project.id) {
+			throw new HttpError(422, 'validation_failed', 'Cycle must exist in the same project')
+		}
+	}
+
 	if (input.milestoneId) {
 		const milestone = await getProjectMilestoneRow(tx, actor.workspaceId, input.milestoneId)
 		if (!milestone || milestone.projectId !== project.id) {
@@ -1198,6 +1205,19 @@ export async function updateIssue(
 		scopeMovedFromProjectId = current.projectId
 	}
 
+	const nextCycleId =
+		input.cycleId !== undefined
+			? input.cycleId
+			: targetProject.id === current.projectId
+				? current.cycleId
+				: null
+	if (nextCycleId) {
+		const cycle = await getCycleById(tx, actor.workspaceId, nextCycleId)
+		if (!cycle || cycle.projectId !== targetProject.id) {
+			throw new HttpError(422, 'validation_failed', 'Cycle must exist in the target project')
+		}
+	}
+
 	const nextMilestoneId =
 		input.milestoneId !== undefined
 			? input.milestoneId
@@ -1245,7 +1265,7 @@ export async function updateIssue(
 		number: nextNumber,
 		projectKey: targetProject.key,
 		parentId: input.parentId === undefined ? current.parentId : input.parentId,
-		cycleId: input.cycleId === undefined ? current.cycleId : input.cycleId,
+		cycleId: nextCycleId ?? null,
 		milestoneId: nextMilestoneId ?? null,
 		title: input.title !== undefined ? input.title.trim() : current.title,
 		description: input.description === undefined ? current.description : input.description,

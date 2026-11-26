@@ -1,4 +1,3 @@
-import { HocuspocusProvider } from '@hocuspocus/provider'
 import type {
 	DocHeadingDto,
 	DocPageDetailDto,
@@ -20,6 +19,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import * as Y from 'yjs'
 import type { TaskApiBridge } from '@/lib/sync-bootstrap'
+import { useHocuspocusProvider } from '@/lib/use-hocuspocus-provider'
 import { cn } from '@/lib/utils'
 import { type DocSidePanel, useUiStore } from '@/stores/ui-store'
 import { BacklinksSection } from './backlinks-section'
@@ -29,8 +29,10 @@ import { createButtonNodeViewExtension } from './button-node-view'
 import { CalloutNodeViewExtension } from './callout-node-view'
 import { CodeBlockNodeViewExtension } from './code-block-node-view'
 import { EditorTopBar } from './editor-top-bar'
+import { createEmbedNodeViewExtension } from './embed-node-view'
 import { FloatingToolbar } from './floating-toolbar'
 import { LinkPreviewCard } from './link-preview-card'
+import { createLinkedViewNodeViewExtension } from './linked-view-node-view'
 import { MathBlockNodeViewExtension, MathInlineNodeViewExtension } from './math-node-view'
 import { MermaidBlockNodeViewExtension } from './mermaid-node-view'
 import { OutlineFloatingRail } from './outline-floating-rail'
@@ -151,32 +153,16 @@ export function EditorShell({
 	}, [detail.page.id, ydoc])
 
 	// Bind live Hocuspocus /collab WebSocket synchronization outside preview mode.
-	const provider = useMemo(() => {
-		if (isPreview || typeof window === 'undefined' || typeof WebSocket === 'undefined') {
-			return null
-		}
-		const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-		const url = `${proto}//${window.location.host}/collab`
-		return new HocuspocusProvider({
-			url,
-			name: `${detail.page.workspaceId}:${detail.page.id}`,
-			document: ydoc,
-			token: async () => {
-				const issued = await api.issueCollabTicket(detail.page.id)
-				return issued.ticket
-			},
-			onStatus: ({ status }) => {
-				setConnStatus(status)
-			}
-		})
-	}, [api, detail.page.id, detail.page.workspaceId, isPreview, ydoc])
-
-	useEffect(() => {
-		if (!provider) return
-		return () => {
-			provider.destroy()
-		}
-	}, [provider])
+	const provider = useHocuspocusProvider({
+		enabled: !isPreview,
+		documentName: `${detail.page.workspaceId}:${detail.page.id}`,
+		document: ydoc,
+		getToken: async () => {
+			const issued = await api.issueCollabTicket(detail.page.id)
+			return issued.ticket
+		},
+		onStatus: setConnStatus
+	})
 
 	useEffect(() => {
 		const handleUpdate = () => {
@@ -213,7 +199,9 @@ export function EditorShell({
 					MathInlineNodeViewExtension,
 					TocBlockNodeViewExtension,
 					createBookmarkNodeViewExtension(api),
+					createEmbedNodeViewExtension(api),
 					createButtonNodeViewExtension({ api, pageId: detail.page.id }),
+					createLinkedViewNodeViewExtension({ pageId: detail.page.id }),
 					createSyncedBlockNodeViewExtension({
 						api,
 						workspaceId: detail.page.workspaceId,
@@ -244,8 +232,11 @@ export function EditorShell({
 	)
 
 	useEffect(() => {
-		if (!editor) return
+		if (!editor || editor.isDestroyed) return
 		const updateWordCount = () => {
+			// TipTap may recreate the editor when collaborative extensions change;
+			// passive effects from the previous commit can still reference the destroyed instance.
+			if (editor.isDestroyed) return
 			const text = editor.getText().trim()
 			setWordCount(text ? text.split(/\s+/).length : 0)
 		}
@@ -257,7 +248,7 @@ export function EditorShell({
 	}, [editor])
 
 	useEffect(() => {
-		if (!editor) return
+		if (!editor || editor.isDestroyed) return
 		editor.commands.setSuggestionMode(suggestingMode && effectiveEditable, {
 			authorType: 'user',
 			authorId
@@ -276,9 +267,9 @@ export function EditorShell({
 
 	useEffect(() => {
 		const spacer = bottomSpacerRef.current
-		if (!spacer || !editor || !effectiveEditable) return
+		if (!spacer || !editor || editor.isDestroyed || !effectiveEditable) return
 		const handleSpacerClick = (ev: MouseEvent) => {
-			if (ev.target === spacer) editor.commands.focus('end')
+			if (ev.target === spacer && !editor.isDestroyed) editor.commands.focus('end')
 		}
 		spacer.addEventListener('click', handleSpacerClick)
 		return () => spacer.removeEventListener('click', handleSpacerClick)
@@ -289,7 +280,7 @@ export function EditorShell({
 	}
 
 	function handleStartComment() {
-		if (!editor) {
+		if (!editor || editor.isDestroyed) {
 			onStartAnchoredComment(null, '')
 			return
 		}
@@ -307,9 +298,10 @@ export function EditorShell({
 	}
 
 	function handleSplitPage() {
-		const sel = editor
-			? editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, '\n')
-			: ''
+		const sel =
+			editor && !editor.isDestroyed
+				? editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, '\n')
+				: ''
 		const splitTitle = sel.trim().slice(0, 80) || `${detail.page.title} (Split)`
 		void onSplitPage(splitTitle)
 	}
@@ -381,7 +373,22 @@ export function EditorShell({
 				/>
 
 				<div ref={canvasRef} className={cn('relative mx-auto px-12 pt-2 pb-44 sm:px-16', articleMaxWidth)}>
-					<BlockGutterMenu editor={editor} canWrite={effectiveEditable} containerRef={canvasRef} />
+					<BlockGutterMenu
+						editor={editor}
+						canWrite={effectiveEditable}
+						containerRef={canvasRef}
+						ydoc={ydoc}
+						onStartAnchoredComment={onStartAnchoredComment}
+						pages={pages}
+						currentPageId={detail.page.id}
+						onMoveBlockToPage={async (targetPageId, nodes) => {
+							await api.appendDocPage(targetPageId, { nodes: [...nodes], origin: 'block-menu:move' })
+						}}
+						onAskAi={async (blockId, instruction) => {
+							const result = await api.assistDocBlockWithAi({ pageId: detail.page.id, blockId, instruction })
+							return result.text
+						}}
+					/>
 					<TableToolbar editor={editor} canWrite={effectiveEditable} containerRef={canvasRef} />
 
 					<div

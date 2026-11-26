@@ -25,7 +25,8 @@ export const AGENT_SCOPES = [
 	'mail.write',
 	'mail.draft',
 	'search.read',
-	'members.read'
+	'members.read',
+	'availability.write'
 ] as const
 
 export type AgentScope = (typeof AGENT_SCOPES)[number]
@@ -52,7 +53,9 @@ export const SCOPE_ACTIONS: Record<AgentScope, readonly Action[]> = {
 	'mail.write': ['mail.read', 'mail.assign'],
 	'mail.draft': [],
 	'search.read': [],
-	'members.read': ['member.read']
+	'members.read': ['member.read'],
+	// Self-scoped: the handler always targets the agent owner's own profile.
+	'availability.write': []
 }
 
 /**

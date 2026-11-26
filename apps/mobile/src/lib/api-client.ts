@@ -2,12 +2,35 @@ import type {
 	BillingSummaryResponse,
 	ChatChannelDto,
 	ChatMessageDto,
+	ChatPinnedMessageDto,
+	ChatSavedItemBody,
+	ChatSavedItemDto,
+	CompleteDraftReviewBody,
+	CreateMailNoteBody,
 	DocPageDetailDto,
+	MailConversationDto,
+	MailDraftDto,
+	MailIdentityDto,
+	MailInboxDto,
+	MailMacroDto,
+	MailNoteDto,
+	MailRouteResultDto,
+	MailTagDto,
+	MailTemplateDto,
+	MailTimelineDto,
 	MobilePushPlatform,
 	MobilePushTokenDto,
 	NotificationPreferencesDto,
+	RenderedMailTemplateDto,
+	RenderMailTemplateBody,
+	RequestDraftReviewBody,
+	SendMailDraftBody,
 	SendMessageBody,
-	UpdateNotificationPreferencesBody
+	UpdateConversationBody,
+	UpdateNotificationPreferencesBody,
+	UpdateUserStatusBody,
+	UpsertMailDraftBody,
+	UserWorkspaceProfileDto
 } from '@huriro/contracts'
 import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
 
@@ -108,10 +131,10 @@ export class HuriroMobileApiClient {
 	}
 
 	async listMessages(channelId: string): Promise<ChatMessageDto[]> {
-		const res = await this.request<{ messages: ChatMessageDto[] }>(
+		const res = await this.request<{ data: ChatMessageDto[]; nextBeforeSeq?: number | null }>(
 			`/api/v1/chat/channels/${encodeURIComponent(channelId)}/messages?limit=50`
 		)
-		return res.messages
+		return res.data ?? []
 	}
 
 	async sendMessage(channelId: string, body: SendMessageBody): Promise<ChatMessageDto> {
@@ -119,6 +142,219 @@ export class HuriroMobileApiClient {
 			method: 'POST',
 			body: JSON.stringify(body)
 		})
+	}
+
+	async listPinnedMessages(channelId: string): Promise<ChatPinnedMessageDto[]> {
+		const res = await this.request<{ data: ChatPinnedMessageDto[] }>(
+			`/api/v1/chat/channels/${encodeURIComponent(channelId)}/pins`
+		)
+		return res.data ?? []
+	}
+
+	async pinMessage(messageId: string): Promise<unknown> {
+		return this.request(`/api/v1/chat/messages/${encodeURIComponent(messageId)}/pin`, {
+			method: 'POST'
+		})
+	}
+
+	async unpinMessage(messageId: string): Promise<unknown> {
+		return this.request(`/api/v1/chat/messages/${encodeURIComponent(messageId)}/pin`, {
+			method: 'DELETE'
+		})
+	}
+
+	async listSavedMessages(): Promise<ChatSavedItemDto[]> {
+		const res = await this.request<{ data: ChatSavedItemDto[] }>('/api/v1/chat/saved')
+		return res.data ?? []
+	}
+
+	async saveMessage(body: ChatSavedItemBody): Promise<ChatSavedItemDto> {
+		return this.request<ChatSavedItemDto>('/api/v1/chat/saved', {
+			method: 'POST',
+			body: JSON.stringify(body)
+		})
+	}
+
+	async unsaveMessage(savedItemId: string): Promise<unknown> {
+		return this.request(`/api/v1/chat/saved/${encodeURIComponent(savedItemId)}`, {
+			method: 'DELETE'
+		})
+	}
+
+	async getMyStatus(): Promise<UserWorkspaceProfileDto> {
+		return this.request<UserWorkspaceProfileDto>('/api/v1/chat/me/status')
+	}
+
+	async updateMyStatus(body: UpdateUserStatusBody): Promise<UserWorkspaceProfileDto> {
+		return this.request<UserWorkspaceProfileDto>('/api/v1/chat/me/status', {
+			method: 'PUT',
+			body: JSON.stringify(body)
+		})
+	}
+
+	async listMailInboxes(): Promise<MailInboxDto[]> {
+		const res = await this.request<{ data: MailInboxDto[] }>('/api/v1/mail/inboxes')
+		return res.data ?? []
+	}
+
+	async listMailIdentities(accountId?: string): Promise<MailIdentityDto[]> {
+		const qs = accountId ? `?accountId=${encodeURIComponent(accountId)}` : ''
+		const res = await this.request<{ data: MailIdentityDto[] }>(`/api/v1/mail/identities${qs}`)
+		return res.data ?? []
+	}
+
+	async listMailConversations(query?: {
+		readonly inboxId?: string
+		readonly status?: string
+		readonly assignee?: string
+		readonly q?: string
+	}): Promise<{ readonly data: MailConversationDto[]; readonly nextCursor: string | null }> {
+		const params = new URLSearchParams()
+		if (query?.inboxId) params.set('inboxId', query.inboxId)
+		if (query?.status) params.set('status', query.status)
+		if (query?.assignee) params.set('assignee', query.assignee)
+		if (query?.q) params.set('q', query.q)
+		const qs = params.toString()
+		return this.request<{ readonly data: MailConversationDto[]; readonly nextCursor: string | null }>(
+			`/api/v1/mail/conversations${qs ? `?${qs}` : ''}`
+		)
+	}
+
+	async getMailTimeline(conversationId: string): Promise<MailTimelineDto> {
+		return this.request<MailTimelineDto>(
+			`/api/v1/mail/conversations/${encodeURIComponent(conversationId)}/timeline`
+		)
+	}
+
+	async updateMailConversation(
+		conversationId: string,
+		body: UpdateConversationBody
+	): Promise<MailConversationDto> {
+		return this.request<MailConversationDto>(
+			`/api/v1/mail/conversations/${encodeURIComponent(conversationId)}`,
+			{
+				method: 'PATCH',
+				body: JSON.stringify(body)
+			}
+		)
+	}
+
+	async createMailNote(conversationId: string, body: CreateMailNoteBody): Promise<MailNoteDto> {
+		return this.request<MailNoteDto>(
+			`/api/v1/mail/conversations/${encodeURIComponent(conversationId)}/notes`,
+			{
+				method: 'POST',
+				body: JSON.stringify(body)
+			}
+		)
+	}
+
+	async listMailTags(inboxId?: string): Promise<MailTagDto[]> {
+		const qs = inboxId ? `?inboxId=${encodeURIComponent(inboxId)}` : ''
+		return this.request<MailTagDto[]>(`/api/v1/mail/tags${qs}`)
+	}
+
+	async listConversationTags(conversationId: string): Promise<MailTagDto[]> {
+		return this.request<MailTagDto[]>(`/api/v1/mail/conversations/${encodeURIComponent(conversationId)}/tags`)
+	}
+
+	async setConversationTags(
+		conversationId: string,
+		tagIds: readonly string[]
+	): Promise<{ readonly tagIds: readonly string[] }> {
+		return this.request<{ readonly tagIds: readonly string[] }>(
+			`/api/v1/mail/conversations/${encodeURIComponent(conversationId)}/tags`,
+			{
+				method: 'PUT',
+				body: JSON.stringify({ tagIds })
+			}
+		)
+	}
+
+	async listMailTemplates(filter?: {
+		readonly inboxId?: string
+		readonly personal?: boolean
+	}): Promise<MailTemplateDto[]> {
+		const params = new URLSearchParams()
+		if (filter?.inboxId) params.set('inboxId', filter.inboxId)
+		if (filter?.personal !== undefined) params.set('personal', String(filter.personal))
+		const qs = params.toString()
+		return this.request<MailTemplateDto[]>(`/api/v1/mail/templates${qs ? `?${qs}` : ''}`)
+	}
+
+	async renderMailTemplate(
+		templateId: string,
+		body: RenderMailTemplateBody
+	): Promise<RenderedMailTemplateDto> {
+		return this.request<RenderedMailTemplateDto>(
+			`/api/v1/mail/templates/${encodeURIComponent(templateId)}/render`,
+			{
+				method: 'POST',
+				body: JSON.stringify(body)
+			}
+		)
+	}
+
+	async listMailMacros(inboxId?: string): Promise<MailMacroDto[]> {
+		const qs = inboxId ? `?inboxId=${encodeURIComponent(inboxId)}` : ''
+		return this.request<MailMacroDto[]>(`/api/v1/mail/macros${qs}`)
+	}
+
+	async applyMailMacro(
+		macroId: string,
+		conversationIds: readonly string[]
+	): Promise<{ readonly appliedCount: number }> {
+		return this.request<{ readonly appliedCount: number }>(
+			`/api/v1/mail/macros/${encodeURIComponent(macroId)}/apply`,
+			{
+				method: 'POST',
+				body: JSON.stringify({ conversationIds })
+			}
+		)
+	}
+
+	async upsertMailDraft(conversationId: string, body: UpsertMailDraftBody): Promise<MailDraftDto> {
+		return this.request<MailDraftDto>(
+			`/api/v1/mail/conversations/${encodeURIComponent(conversationId)}/drafts`,
+			{
+				method: 'POST',
+				body: JSON.stringify(body)
+			}
+		)
+	}
+
+	async sendMailDraft(draftId: string, body?: SendMailDraftBody): Promise<MailDraftDto> {
+		return this.request<MailDraftDto>(`/api/v1/mail/drafts/${encodeURIComponent(draftId)}/send`, {
+			method: 'POST',
+			body: JSON.stringify(body ?? {})
+		})
+	}
+
+	async undoMailDraft(draftId: string): Promise<MailDraftDto> {
+		return this.request<MailDraftDto>(`/api/v1/mail/drafts/${encodeURIComponent(draftId)}/undo`, {
+			method: 'POST'
+		})
+	}
+
+	async requestMailDraftReview(draftId: string, body: RequestDraftReviewBody): Promise<MailDraftDto> {
+		return this.request<MailDraftDto>(`/api/v1/mail/drafts/${encodeURIComponent(draftId)}/review`, {
+			method: 'POST',
+			body: JSON.stringify(body)
+		})
+	}
+
+	async completeMailDraftReview(draftId: string, body: CompleteDraftReviewBody): Promise<MailDraftDto> {
+		return this.request<MailDraftDto>(`/api/v1/mail/drafts/${encodeURIComponent(draftId)}/review/complete`, {
+			method: 'POST',
+			body: JSON.stringify(body)
+		})
+	}
+
+	async routeConversationRoundRobin(conversationId: string): Promise<MailRouteResultDto> {
+		return this.request<MailRouteResultDto>(
+			`/api/v1/mail/conversations/${encodeURIComponent(conversationId)}/route`,
+			{ method: 'POST' }
+		)
 	}
 
 	async getDocBySlug(slug: string): Promise<DocPageDetailDto> {

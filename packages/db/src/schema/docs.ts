@@ -8,6 +8,7 @@ import {
 	foreignKey,
 	integer,
 	jsonb,
+	numeric,
 	pgTable,
 	primaryKey,
 	text,
@@ -100,6 +101,7 @@ export const docPages = pgTable(
 			.default('sans'),
 		fullWidth: boolean('full_width').notNull().default(false),
 		smallText: boolean('small_text').notNull().default(false),
+		isDatabaseRow: boolean('is_database_row').notNull().default(false),
 		isLocked: boolean('is_locked').notNull().default(false),
 		lockedBy: uuid('locked_by').references(() => users.id, { onDelete: 'set null' }),
 		lockedAt: timestamp('locked_at', { withTimezone: true }),
@@ -439,6 +441,190 @@ export const docFavorites = pgTable(
 			columns: [t.workspaceId, t.pageId],
 			foreignColumns: [docPages.workspaceId, docPages.id],
 			name: 'fk_doc_favorites_page'
+		}).onDelete('cascade')
+	]
+)
+
+// M10 structured databases (§4.1, ADR-0026): relational storage, never CRDT blobs.
+export const docDatabases = pgTable(
+	'doc_databases',
+	{
+		id: uuid('id').primaryKey().default(sql`uuidv7()`),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		teamspaceId: uuid('teamspace_id'),
+		parentPageId: uuid('parent_page_id'),
+		title: text('title').notNull(),
+		icon: text('icon'),
+		isInline: boolean('is_inline').notNull().default(false),
+		createdBy: uuid('created_by')
+			.notNull()
+			.references(() => users.id),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		version: integer('version').notNull().default(1)
+	},
+	(t) => [
+		unique('uq_doc_databases_ws_id').on(t.workspaceId, t.id),
+		foreignKey({
+			columns: [t.workspaceId, t.teamspaceId],
+			foreignColumns: [teamspaces.workspaceId, teamspaces.id],
+			name: 'fk_doc_databases_teamspace'
+		}).onDelete('set null'),
+		foreignKey({
+			columns: [t.workspaceId, t.parentPageId],
+			foreignColumns: [docPages.workspaceId, docPages.id],
+			name: 'fk_doc_databases_parent_page'
+		}).onDelete('cascade')
+	]
+)
+
+export const docDatabaseProperties = pgTable(
+	'doc_database_properties',
+	{
+		id: uuid('id').primaryKey().default(sql`uuidv7()`),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		databaseId: uuid('database_id').notNull(),
+		name: text('name').notNull(),
+		propType: text('prop_type', {
+			enum: [
+				'title',
+				'text',
+				'number',
+				'select',
+				'multi_select',
+				'status',
+				'date',
+				'person',
+				'checkbox',
+				'url',
+				'email',
+				'phone',
+				'file',
+				'relation',
+				'rollup',
+				'formula',
+				'created_time',
+				'created_by',
+				'updated_time',
+				'updated_by'
+			]
+		}).notNull(),
+		config: jsonb('config').notNull().default({}),
+		position: text('position').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		version: integer('version').notNull().default(1)
+	},
+	(t) => [
+		unique('uq_doc_database_properties_ws_id').on(t.workspaceId, t.id),
+		foreignKey({
+			columns: [t.workspaceId, t.databaseId],
+			foreignColumns: [docDatabases.workspaceId, docDatabases.id],
+			name: 'fk_doc_database_properties_database'
+		}).onDelete('cascade')
+	]
+)
+
+export const docDatabaseRows = pgTable(
+	'doc_database_rows',
+	{
+		id: uuid('id').primaryKey().default(sql`uuidv7()`),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		databaseId: uuid('database_id').notNull(),
+		pageId: uuid('page_id'),
+		title: text('title').notNull().default(''),
+		position: text('position').notNull(),
+		createdBy: uuid('created_by')
+			.notNull()
+			.references(() => users.id),
+		updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+		archivedAt: timestamp('archived_at', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		version: integer('version').notNull().default(1)
+	},
+	(t) => [
+		unique('uq_doc_database_rows_ws_id').on(t.workspaceId, t.id),
+		foreignKey({
+			columns: [t.workspaceId, t.databaseId],
+			foreignColumns: [docDatabases.workspaceId, docDatabases.id],
+			name: 'fk_doc_database_rows_database'
+		}).onDelete('cascade'),
+		foreignKey({
+			columns: [t.workspaceId, t.pageId],
+			foreignColumns: [docPages.workspaceId, docPages.id],
+			name: 'fk_doc_database_rows_page'
+		}).onDelete('set null')
+	]
+)
+
+export const docDatabaseCellValues = pgTable(
+	'doc_database_cell_values',
+	{
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		databaseId: uuid('database_id').notNull(),
+		rowId: uuid('row_id').notNull(),
+		propertyId: uuid('property_id').notNull(),
+		valText: text('val_text'),
+		valNumber: numeric('val_number'),
+		valBool: boolean('val_bool'),
+		valDateStart: timestamp('val_date_start', { withTimezone: true }),
+		valDateEnd: timestamp('val_date_end', { withTimezone: true }),
+		valJson: jsonb('val_json'),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		primaryKey({ columns: [t.workspaceId, t.rowId, t.propertyId] }),
+		foreignKey({
+			columns: [t.workspaceId, t.databaseId],
+			foreignColumns: [docDatabases.workspaceId, docDatabases.id],
+			name: 'fk_doc_database_cells_database'
+		}).onDelete('cascade'),
+		foreignKey({
+			columns: [t.workspaceId, t.rowId],
+			foreignColumns: [docDatabaseRows.workspaceId, docDatabaseRows.id],
+			name: 'fk_doc_database_cells_row'
+		}).onDelete('cascade'),
+		foreignKey({
+			columns: [t.workspaceId, t.propertyId],
+			foreignColumns: [docDatabaseProperties.workspaceId, docDatabaseProperties.id],
+			name: 'fk_doc_database_cells_property'
+		}).onDelete('cascade')
+	]
+)
+
+export const docDatabaseViews = pgTable(
+	'doc_database_views',
+	{
+		id: uuid('id').primaryKey().default(sql`uuidv7()`),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspaces.id, { onDelete: 'cascade' }),
+		databaseId: uuid('database_id').notNull(),
+		name: text('name').notNull(),
+		viewType: text('view_type', {
+			enum: ['table', 'board', 'gallery', 'calendar', 'timeline', 'list']
+		}).notNull(),
+		config: jsonb('config').notNull().default({}),
+		position: text('position').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		version: integer('version').notNull().default(1)
+	},
+	(t) => [
+		unique('uq_doc_database_views_ws_id').on(t.workspaceId, t.id),
+		foreignKey({
+			columns: [t.workspaceId, t.databaseId],
+			foreignColumns: [docDatabases.workspaceId, docDatabases.id],
+			name: 'fk_doc_database_views_database'
 		}).onDelete('cascade')
 	]
 )

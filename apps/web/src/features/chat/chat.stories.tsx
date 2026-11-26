@@ -7,16 +7,22 @@ import { type BootstrappedWorkspace, createPreviewWorkspace } from '@/lib/sync-b
 import { WorkspaceProvider } from '@/lib/workspace'
 import { ChatSidebarNav } from './components/chat-sidebar-nav'
 import { ChatWorkspace } from './components/chat-workspace'
-import { useChatStore } from './store/chat-store'
+import { type ChatNavView, useChatStore } from './store/chat-store'
 
 activateI18n('en')
 
 function PreviewChatStory({
 	openThreadOnMount = false,
-	empty = false
+	openPinsOnMount = false,
+	emptyPins = false,
+	empty = false,
+	initialView
 }: {
 	readonly openThreadOnMount?: boolean
+	readonly openPinsOnMount?: boolean
+	readonly emptyPins?: boolean
 	readonly empty?: boolean
+	readonly initialView?: ChatNavView
 }) {
 	const [boot, setBoot] = useState<BootstrappedWorkspace | null>(null)
 
@@ -32,14 +38,30 @@ function PreviewChatStory({
 			active = b
 			if (!empty) {
 				await useChatStore.getState().loadChannels(b.api)
-				if (openThreadOnMount) {
-					const firstChan = useChatStore.getState().channels[0]
-					if (firstChan) {
-						const msgs = useChatStore.getState().messagesByChannel[firstChan.id] ?? []
-						if (msgs[0]) {
-							await useChatStore.getState().openThread(b.api, msgs[0].id)
+				await useChatStore.getState().loadChatV2Metadata(b.api)
+				if (initialView) {
+					useChatStore.getState().setActiveView(initialView)
+				}
+				const firstChan = useChatStore.getState().channels[0]
+				if (openThreadOnMount && firstChan) {
+					const msgs = useChatStore.getState().messagesByChannel[firstChan.id] ?? []
+					if (msgs[0]) {
+						await useChatStore.getState().openThread(b.api, msgs[0].id)
+					}
+				}
+				if (openPinsOnMount) {
+					if (emptyPins) {
+						useChatStore.setState({ pinsByChannel: {} })
+					} else if (firstChan) {
+						const currentPins = useChatStore.getState().pinsByChannel[firstChan.id] ?? []
+						if (currentPins.length === 0) {
+							const firstMsg = useChatStore.getState().messagesByChannel[firstChan.id]?.[0]
+							if (firstMsg) {
+								await useChatStore.getState().pinMessage(b.api, firstChan.id, firstMsg.id)
+							}
 						}
 					}
+					useChatStore.getState().setPinsPanelOpen(true)
 				}
 			}
 			setBoot(b)
@@ -48,7 +70,7 @@ function PreviewChatStory({
 			cancelled = true
 			active?.engine.dispose()
 		}
-	}, [empty, openThreadOnMount])
+	}, [empty, emptyPins, initialView, openPinsOnMount, openThreadOnMount])
 
 	if (!boot) return null
 	return (
@@ -96,5 +118,49 @@ export const EmptySelection: Story = {
 	args: {
 		openThreadOnMount: false,
 		empty: true
+	}
+}
+
+export const PinsPanelOpen: Story = {
+	args: {
+		openThreadOnMount: false,
+		openPinsOnMount: true,
+		emptyPins: false,
+		empty: false
+	}
+}
+
+export const PinsPanelEmpty: Story = {
+	args: {
+		openThreadOnMount: false,
+		openPinsOnMount: true,
+		emptyPins: true,
+		empty: false
+	}
+}
+
+export const PollInChannel: Story = {
+	args: {
+		openThreadOnMount: false,
+		empty: false,
+		initialView: 'channel'
+	}
+}
+
+export const SavedLaterView: Story = {
+	args: {
+		initialView: 'later'
+	}
+}
+
+export const DraftsAndScheduledView: Story = {
+	args: {
+		initialView: 'drafts'
+	}
+}
+
+export const UserGroupsView: Story = {
+	args: {
+		initialView: 'groups'
 	}
 }

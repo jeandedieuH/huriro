@@ -18,6 +18,14 @@ export function WorkspaceProvider({
 	return <WorkspaceContext.Provider value={boot}>{children}</WorkspaceContext.Provider>
 }
 
+/**
+ * Non-throwing variant for leaf components (sidebars, stories) that can degrade
+ * gracefully — e.g. hide API-backed actions — when rendered outside a booted workspace.
+ */
+export function useOptionalWorkspace(): BootstrappedWorkspace | null {
+	return useContext(WorkspaceContext)
+}
+
 export function useWorkspace(): BootstrappedWorkspace {
 	const boot = useContext(WorkspaceContext)
 	if (!boot) throw new Error('useWorkspace must be used inside WorkspaceProvider')

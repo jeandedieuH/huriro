@@ -5,15 +5,19 @@ Deploy and operate a single-node or multi-replica Huriro workspace instance unde
 ## 1. Quick Start (Docker Compose)
 
 1. Provision TLS/domain configuration and `*_FILE` secret files:
+
    ```bash
    bun apps/server/src/index.ts init --domain workspace.example.com
    ```
+
    This generates distinct least-privilege PostgreSQL roles (`huriro_app` with `NOBYPASSRLS`, `huriro_auth`, and migration owner), random signing keys, `.env`, `Caddyfile`, and a one-time bootstrap setup token.
 2. Start the hardened Compose stack:
+
    ```bash
    docker compose -f infra/compose/compose.yml up -d --build
    ```
 3. Verify container topology & health:
+
    ```bash
    bun run doctor
    curl -fsS https://workspace.example.com/healthz
@@ -38,6 +42,7 @@ Huriro composes transactional and notification emails (verification, password re
 ## 3. Process Roles (`serve --role`)
 
 One server image ships all runtime roles (ADR-0018):
+
 - `--role=all`: Combined API, background worker, and WebSocket/Hocuspocus realtime server (recommended for single-node Docker Compose).
 - `--role=api`: HTTP REST/Sync/MCP API nodes behind reverse proxy.
 - `--role=worker`: Outbox relay, email digest, push notification fan-out, and scheduled jobs.
