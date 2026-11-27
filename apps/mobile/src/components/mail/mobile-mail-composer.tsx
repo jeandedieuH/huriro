@@ -4,6 +4,7 @@ import { Alert, Button, Chip, Surface } from 'heroui-native'
 import { Send, ShieldCheck, StickyNote, Undo2 } from 'lucide-react-native'
 import { useState } from 'react'
 import { ScrollView, TextInput, View } from 'react-native'
+import { useHuriroColors } from '../../lib/theme'
 
 /**
  * Native Mail v2 composer with Reply/Internal-Note mode, snippet insertion,
@@ -34,6 +35,7 @@ export function MobileMailComposer({
 	const [syncedDraftId, setSyncedDraftId] = useState<string | null>(activeDraft?.id ?? null)
 	const [bodyText, setBodyText] = useState(activeDraft?.bodyText ?? '')
 	const [busy, setBusy] = useState(false)
+	const colors = useHuriroColors()
 
 	// Re-seed draft text only when switching to a different draft id.
 	const incomingDraftId = activeDraft?.id ?? null
@@ -88,7 +90,7 @@ export function MobileMailComposer({
 								variant="secondary"
 								onPress={() => void runBusy(() => onUndoSend(activeDraft.id))}
 							>
-								<Undo2 size={13} color="#18181b" />
+								<Undo2 size={13} color={colors.accentSoftForeground} />
 								<Button.Label>{t('mail.composer.undo')}</Button.Label>
 							</Button>
 						</View>
@@ -109,7 +111,7 @@ export function MobileMailComposer({
 								isDisabled={busy}
 								onPress={() => void runBusy(() => onApproveReview(activeDraft.id))}
 							>
-								<ShieldCheck size={13} color="#ffffff" />
+								<ShieldCheck size={13} color={colors.accentForeground} />
 								<Button.Label>{t('mail.review.approve')}</Button.Label>
 							</Button>
 						</View>
@@ -174,6 +176,8 @@ export function MobileMailComposer({
 					placeholder={
 						mode === 'note' ? t('mail.composer.note-placeholder') : t('mail.composer.reply-placeholder')
 					}
+					placeholderTextColor={colors.muted}
+					selectionColor={colors.accent}
 					multiline
 					accessibilityLabel={mode === 'note' ? t('mail.composer.note') : t('mail.composer.reply')}
 				/>
@@ -185,7 +189,11 @@ export function MobileMailComposer({
 					onPress={() => void handleSubmit()}
 					accessibilityLabel={mode === 'note' ? t('mail.composer.save-note') : t('mail.composer.send')}
 				>
-					{mode === 'note' ? <StickyNote size={16} color="#ffffff" /> : <Send size={16} color="#ffffff" />}
+					{mode === 'note' ? (
+						<StickyNote size={16} color={colors.accentForeground} />
+					) : (
+						<Send size={16} color={colors.accentForeground} />
+					)}
 				</Button>
 			</View>
 		</Surface>

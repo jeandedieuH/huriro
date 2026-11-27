@@ -1,5 +1,6 @@
 'use dom'
 
+import { lightTheme } from '@huriro/design-tokens/rn-theme'
 import {
 	createHuriroExtensions,
 	markdownToProseMirrorJson,
@@ -9,11 +10,19 @@ import {
 import { EditorContent, useEditor } from '@tiptap/react'
 import { useEffect } from 'react'
 
+export interface DocDomEditorThemeColors {
+	readonly background: string
+	readonly foreground: string
+	readonly primary: string
+	readonly primaryForeground: string
+}
+
 export interface DocDomEditorProps {
 	readonly dom?: { readonly matchContents?: boolean } | undefined
 	readonly initialMarkdown: string
 	readonly docId: string
 	readonly readOnly?: boolean | undefined
+	readonly themeColors?: DocDomEditorThemeColors | undefined
 	readonly onSaveMarkdown?: (markdown: string) => void | Promise<void>
 }
 
@@ -26,8 +35,15 @@ export default function DocDomEditor({
 	initialMarkdown,
 	docId,
 	readOnly = false,
+	themeColors,
 	onSaveMarkdown
 }: DocDomEditorProps) {
+	const resolved = themeColors ?? {
+		background: lightTheme.colors['card'] ?? '#ffffff',
+		foreground: lightTheme.colors['foreground'] ?? '#1d1f24',
+		primary: lightTheme.colors['primary'] ?? '#d91f56',
+		primaryForeground: lightTheme.colors['primary-foreground'] ?? '#fcfcfc'
+	}
 	const editor = useEditor({
 		extensions: createHuriroExtensions({
 			collaborative: false
@@ -50,7 +66,14 @@ export default function DocDomEditor({
 	}
 
 	return (
-		<div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', padding: 14, color: '#18181b' }}>
+		<div
+			style={{
+				fontFamily: 'system-ui, -apple-system, sans-serif',
+				padding: 14,
+				backgroundColor: resolved.background,
+				color: resolved.foreground
+			}}
+		>
 			{!readOnly && onSaveMarkdown ? (
 				<div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
 					<button
@@ -60,8 +83,8 @@ export default function DocDomEditor({
 							padding: '8px 14px',
 							borderRadius: 10,
 							border: 'none',
-							background: '#e11d48',
-							color: '#ffffff',
+							background: resolved.primary,
+							color: resolved.primaryForeground,
 							fontSize: 13,
 							fontWeight: 600
 						}}

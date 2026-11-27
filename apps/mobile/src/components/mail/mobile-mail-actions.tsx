@@ -3,6 +3,7 @@ import { t } from '@huriro/i18n'
 import { Button, Card, Chip } from 'heroui-native'
 import { CheckCircle2, RotateCcw, Shuffle, Tag, UserCheck, Zap } from 'lucide-react-native'
 import { ScrollView, Text, View } from 'react-native'
+import { useHuriroColors } from '../../lib/theme'
 
 /**
  * Mobile mail triage strip: conversation open/closed status, assignment/auto-routing,
@@ -33,6 +34,7 @@ export function MobileMailActions({
 	readonly onToggleTag: (tagId: string) => void
 	readonly onRunMacro: (macroId: string) => void
 }) {
+	const colors = useHuriroColors()
 	const isClosed = conversation.status === 'closed'
 	const assignedToMe = conversation.assigneeId === currentUserId
 
@@ -45,17 +47,21 @@ export function MobileMailActions({
 					isDisabled={Boolean(busy)}
 					onPress={onToggleStatus}
 				>
-					{isClosed ? <RotateCcw size={13} color="#18181b" /> : <CheckCircle2 size={13} color="#ffffff" />}
+					{isClosed ? (
+						<RotateCcw size={13} color={colors.accentSoftForeground} />
+					) : (
+						<CheckCircle2 size={13} color={colors.accentForeground} />
+					)}
 					<Button.Label>{isClosed ? t('mail.action.reopen') : t('mail.action.close')}</Button.Label>
 				</Button>
 				<Button size="sm" variant="secondary" isDisabled={Boolean(busy)} onPress={onToggleAssign}>
-					<UserCheck size={13} color="#18181b" />
+					<UserCheck size={13} color={colors.accentSoftForeground} />
 					<Button.Label>
 						{assignedToMe ? t('mail.action.unassign') : t('mail.action.assign-to-me')}
 					</Button.Label>
 				</Button>
 				<Button size="sm" variant="secondary" isDisabled={Boolean(busy)} onPress={onAutoRoute}>
-					<Shuffle size={13} color="#18181b" />
+					<Shuffle size={13} color={colors.accentSoftForeground} />
 					<Button.Label>{t('mail.route.action')}</Button.Label>
 				</Button>
 			</View>
@@ -63,7 +69,7 @@ export function MobileMailActions({
 			{tags.length > 0 ? (
 				<View className="gap-1.5">
 					<View className="flex-row items-center gap-1.5">
-						<Tag size={12} color="#71717a" />
+						<Tag size={12} color={colors.muted} />
 						<Text className="text-[11px] font-semibold uppercase text-muted">{t('mail.tags.title')}</Text>
 					</View>
 					<ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="gap-1.5">
@@ -88,7 +94,7 @@ export function MobileMailActions({
 			{macros.length > 0 ? (
 				<View className="gap-1.5">
 					<View className="flex-row items-center gap-1.5">
-						<Zap size={12} color="#71717a" />
+						<Zap size={12} color={colors.muted} />
 						<Text className="text-[11px] font-semibold uppercase text-muted">{t('mail.macros.title')}</Text>
 					</View>
 					<ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="gap-1.5">

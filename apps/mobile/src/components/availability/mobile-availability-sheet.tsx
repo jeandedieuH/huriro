@@ -2,7 +2,7 @@ import type { ManualAvailabilityState, UserAvailabilityDto } from '@huriro/contr
 import { type MessageId, t } from '@huriro/i18n'
 import { Check, X } from 'lucide-react-native'
 import { Modal, Pressable, ScrollView, Text, View } from 'react-native'
-import { availabilityColor } from '../../stores/availability-store'
+import { resolveAvailabilityColor, useHuriroColors } from '../../lib/theme'
 
 const STATES: readonly ManualAvailabilityState[] = ['auto', 'available', 'busy', 'dnd', 'away', 'ooo']
 const LABEL: Record<ManualAvailabilityState, MessageId> = {
@@ -25,6 +25,7 @@ export function MobileAvailabilitySheet({
 	readonly availability: UserAvailabilityDto | null
 	readonly onUpdate: (patch: { manualState?: ManualAvailabilityState; dndUntil?: string | null }) => void
 }) {
+	const colors = useHuriroColors()
 	if (!availability) return null
 	const dndActive = availability.dndUntil !== null && Date.parse(availability.dndUntil) > Date.now()
 	return (
@@ -34,7 +35,7 @@ export function MobileAvailabilitySheet({
 				<View className="mb-3 flex-row items-center justify-between">
 					<Text className="text-base font-semibold text-foreground">{t('availability.title')}</Text>
 					<Pressable onPress={onClose} accessibilityLabel={t('common.close')} className="p-1">
-						<X size={18} color="#71717a" />
+						<X size={18} color={colors.muted} />
 					</Pressable>
 				</View>
 				<Text className="mb-3 text-xs text-muted-foreground">
@@ -59,14 +60,15 @@ export function MobileAvailabilitySheet({
 											width: 8,
 											height: 8,
 											borderRadius: 4,
-											backgroundColor: availabilityColor(
-												state === 'auto' ? availability.effectiveState : state
+											backgroundColor: resolveAvailabilityColor(
+												state === 'auto' ? availability.effectiveState : state,
+												colors
 											)
 										}}
 									/>
 									<Text className="text-sm text-foreground">{t(LABEL[state])}</Text>
 								</View>
-								{selected ? <Check size={16} color="#2563eb" /> : null}
+								{selected ? <Check size={16} color={colors.accent} /> : null}
 							</Pressable>
 						)
 					})}

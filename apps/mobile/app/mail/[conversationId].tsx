@@ -19,6 +19,7 @@ import { FlashList } from '../../src/components/common/flash-list'
 import { MobileMailActions } from '../../src/components/mail/mobile-mail-actions'
 import { MobileMailComposer } from '../../src/components/mail/mobile-mail-composer'
 import { useMobileRuntime } from '../../src/lib/runtime-context'
+import { useHuriroColors } from '../../src/lib/theme'
 
 interface TimelineRow {
 	readonly id: string
@@ -33,6 +34,7 @@ export default function MailConversationScreen() {
 	const conversationId = typeof params['conversationId'] === 'string' ? params['conversationId'] : ''
 	const { runtime } = useMobileRuntime()
 	const engine = useSyncEngine()
+	const colors = useHuriroColors()
 
 	const [timeline, setTimeline] = useState<MailTimelineDto | null>(null)
 	const [identities, setIdentities] = useState<MailIdentityDto[]>([])
@@ -415,9 +417,9 @@ export default function MailConversationScreen() {
 							<View className="flex-row items-center justify-between gap-2 mb-1">
 								<View className="flex-row items-center gap-1.5">
 									{item.kind === 'note' ? (
-										<StickyNote size={13} color="#d97706" />
+										<StickyNote size={13} color={colors.warning} />
 									) : (
-										<Mail size={13} color="#059669" />
+										<Mail size={13} color={colors.success} />
 									)}
 									<Text className="text-xs font-semibold text-foreground">{item.title}</Text>
 								</View>
@@ -433,7 +435,7 @@ export default function MailConversationScreen() {
 					)}
 					ListEmptyComponent={
 						<EmptyStateCard
-							icon={<Mail size={22} color="#71717a" />}
+							icon={<Mail size={22} color={colors.muted} />}
 							title={t('mobile.inbox.tab.mail')}
 							description={t('mail.conv.select-hint')}
 						/>

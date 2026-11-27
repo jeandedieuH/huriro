@@ -13,7 +13,8 @@
 			"!.expo",
 			"!android",
 			"!ios",
-			"!dist"
+			"!dist",
+			"!src/uniwind-types.d.ts"
 		]
 	},
 	"css": {

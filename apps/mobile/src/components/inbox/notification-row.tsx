@@ -2,20 +2,24 @@ import type { NotificationDto } from '@huriro/contracts'
 import { Avatar, Card, Chip } from 'heroui-native'
 import { Bell, CheckSquare, FileText, Mail, MessageSquare } from 'lucide-react-native'
 import { Pressable, Text, View } from 'react-native'
+import { type HuriroMobileColors, useHuriroColors } from '../../lib/theme'
 
-function renderEntityIcon(entityType: string) {
+function renderEntityIcon(
+	entityType: string,
+	colors: Pick<HuriroMobileColors, 'accent' | 'info' | 'success' | 'muted'>
+) {
 	switch (entityType) {
 		case 'issue':
-			return <CheckSquare size={15} color="#dc2626" />
+			return <CheckSquare size={15} color={colors.accent} />
 		case 'chat_message':
 		case 'chat_channel':
-			return <MessageSquare size={15} color="#2563eb" />
+			return <MessageSquare size={15} color={colors.info} />
 		case 'doc_page':
-			return <FileText size={15} color="#7c3aed" />
+			return <FileText size={15} color={colors.accent} />
 		case 'mail_conversation':
-			return <Mail size={15} color="#059669" />
+			return <Mail size={15} color={colors.success} />
 		default:
-			return <Bell size={15} color="#71717a" />
+			return <Bell size={15} color={colors.muted} />
 	}
 }
 
@@ -26,6 +30,7 @@ export function NotificationRow({
 	readonly notification: NotificationDto
 	readonly onPress: (notification: NotificationDto) => void
 }) {
+	const colors = useHuriroColors()
 	const unread = notification.readAt === null
 	const timeLabel = notification.createdAt.slice(11, 16)
 
@@ -34,7 +39,7 @@ export function NotificationRow({
 			<Card className="mb-3 p-4 rounded-2xl border border-border/60">
 				<View className="flex-row items-start gap-3">
 					<Avatar size="sm" variant="soft" color={unread ? 'accent' : 'default'} alt={notification.kind}>
-						<Avatar.Fallback>{renderEntityIcon(notification.entityType)}</Avatar.Fallback>
+						<Avatar.Fallback>{renderEntityIcon(notification.entityType, colors)}</Avatar.Fallback>
 					</Avatar>
 
 					<View className="flex-1 min-w-0">

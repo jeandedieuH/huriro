@@ -21,6 +21,7 @@ import { Container } from '../../src/components/app/container'
 import { HuriroMobileApiClient } from '../../src/lib/api-client'
 import { defaultServerUrl } from '../../src/lib/env'
 import { useMobileRuntime } from '../../src/lib/runtime-context'
+import { useHuriroColors } from '../../src/lib/theme'
 
 const SignInSchema = z.object({
 	serverUrl: z.url('Enter a valid Huriro server URL'),
@@ -31,6 +32,7 @@ const SignInSchema = z.object({
 export default function SignInScreen() {
 	const router = useRouter()
 	const { signInWithSession, enterPreview } = useMobileRuntime()
+	const colors = useHuriroColors()
 
 	const [serverUrl, setServerUrl] = useState(() => defaultServerUrl())
 	const [email, setEmail] = useState('')
@@ -137,7 +139,7 @@ export default function SignInScreen() {
 			<View className="gap-2">
 				<View className="flex-row items-center gap-2.5">
 					<View className="h-11 w-11 rounded-2xl bg-accent items-center justify-center">
-						<Layers size={22} color="#ffffff" />
+						<Layers size={22} color={colors.accentForeground} />
 					</View>
 					<View>
 						<Text className="text-2xl font-bold tracking-tight text-foreground">
@@ -145,7 +147,7 @@ export default function SignInScreen() {
 						</Text>
 						<View className="flex-row items-center gap-1.5 mt-0.5">
 							<Chip size="sm" variant="soft" color="success">
-								<ShieldCheck size={11} color="#16a34a" />
+								<ShieldCheck size={11} color={colors.success} />
 								<Chip.Label>Offline SQLite</Chip.Label>
 							</Chip>
 						</View>
@@ -203,7 +205,7 @@ export default function SignInScreen() {
 				<Separator />
 
 				<Button variant="secondary" size="md" isDisabled={busy} onPress={() => void handlePreview()}>
-					<Compass size={16} color="#18181b" />
+					<Compass size={16} color={colors.accentSoftForeground} />
 					<Button.Label>{t('mobile.auth.preview-demo')}</Button.Label>
 				</Button>
 			</Card>

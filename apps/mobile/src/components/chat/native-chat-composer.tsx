@@ -3,6 +3,7 @@ import { Button, Chip, Surface } from 'heroui-native'
 import { Send } from 'lucide-react-native'
 import { useState } from 'react'
 import { TextInput, View } from 'react-native'
+import { useHuriroColors } from '../../lib/theme'
 
 /**
  * 100% native React Native chat composer (§18.2: chat feeds + composers never run in a WebView).
@@ -21,6 +22,7 @@ export function NativeChatComposer({
 	const [draft, setDraft] = useState('')
 	const [sending, setSending] = useState(false)
 	const [broadcastToChannel, setBroadcastToChannel] = useState(false)
+	const colors = useHuriroColors()
 	const canSend = draft.trim().length > 0 && !sending
 
 	async function handleSubmit() {
@@ -59,6 +61,8 @@ export function NativeChatComposer({
 						if (next.trim()) onTyping?.()
 					}}
 					placeholder={t('mobile.chat.reply-placeholder', { name: channelName })}
+					placeholderTextColor={colors.muted}
+					selectionColor={colors.accent}
 					multiline
 					accessibilityLabel="Chat message input"
 				/>
@@ -70,7 +74,7 @@ export function NativeChatComposer({
 					onPress={() => void handleSubmit()}
 					accessibilityLabel="Send message"
 				>
-					<Send size={16} color="#ffffff" />
+					<Send size={16} color={colors.accentForeground} />
 				</Button>
 			</View>
 		</Surface>

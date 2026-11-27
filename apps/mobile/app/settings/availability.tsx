@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react'
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import { MobileAvailabilityChip } from '../../src/components/availability/mobile-availability-dot'
 import { useMobileRuntime } from '../../src/lib/runtime-context'
+import { useHuriroColors } from '../../src/lib/theme'
 import { useMobileAvailabilityStore } from '../../src/stores/availability-store'
 
 const STATES: readonly ManualAvailabilityState[] = ['auto', 'available', 'busy', 'dnd', 'away', 'ooo']
@@ -63,6 +64,7 @@ const LABEL: Record<ManualAvailabilityState, MessageId> = {
 
 export default function AvailabilitySettingsScreen() {
 	const { runtime } = useMobileRuntime()
+	const colors = useHuriroColors()
 	const myAvailability = useMobileAvailabilityStore((s) => s.myAvailability)
 	const setMyAvailability = useMobileAvailabilityStore((s) => s.setMyAvailability)
 	const [statusText, setStatusText] = useState('')
@@ -216,7 +218,7 @@ export default function AvailabilitySettingsScreen() {
 
 	return (
 		<View className="flex-1 bg-background">
-			<Stack.Screen options={{ title: t('availability.title') }} />
+			<Stack.Screen options={{ headerShown: true, title: t('availability.title') }} />
 			<ScrollView className="flex-1" contentContainerStyle={{ gap: 16, padding: 16, paddingBottom: 40 }}>
 				<Card className="gap-3 rounded-2xl border border-border/60 p-4">
 					<View className="flex-row items-center justify-between">
@@ -289,6 +291,8 @@ export default function AvailabilitySettingsScreen() {
 											value={interval.start}
 											onChangeText={(value) => updateInterval(day, interval.id, 'start', value)}
 											placeholder="09:00"
+											placeholderTextColor={colors.muted}
+											selectionColor={colors.accent}
 											className="w-20 rounded-md border border-border bg-field px-2 py-1 text-xs text-foreground"
 											accessibilityLabel={`${day} start ${index + 1}`}
 										/>
@@ -297,6 +301,8 @@ export default function AvailabilitySettingsScreen() {
 											value={interval.end}
 											onChangeText={(value) => updateInterval(day, interval.id, 'end', value)}
 											placeholder="17:00"
+											placeholderTextColor={colors.muted}
+											selectionColor={colors.accent}
 											className="w-20 rounded-md border border-border bg-field px-2 py-1 text-xs text-foreground"
 											accessibilityLabel={`${day} end ${index + 1}`}
 										/>
@@ -305,7 +311,7 @@ export default function AvailabilitySettingsScreen() {
 											accessibilityLabel={t('availability.working-hours.remove-interval')}
 											className="px-1"
 										>
-											<Trash2 size={13} color="#dc2626" />
+											<Trash2 size={13} color={colors.danger} />
 										</Pressable>
 									</View>
 								))
@@ -338,13 +344,13 @@ export default function AvailabilitySettingsScreen() {
 									accessibilityLabel={t('availability.windows.delete')}
 									className="p-1"
 								>
-									<Trash2 size={15} color="#dc2626" />
+									<Trash2 size={15} color={colors.danger} />
 								</Pressable>
 							</View>
 						))
 					)}
 					<Button size="sm" variant="secondary" isDisabled={busy} onPress={() => void createWindow()}>
-						<CalendarPlus size={14} color="#2563eb" />
+						<CalendarPlus size={14} color={colors.accentSoftForeground} />
 						<Button.Label>{t('availability.windows.add')}</Button.Label>
 					</Button>
 				</Card>

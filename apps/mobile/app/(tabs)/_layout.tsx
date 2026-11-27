@@ -3,9 +3,11 @@ import { useCollectionItems, useSyncEngine } from '@huriro/sync-client'
 import { Redirect, Tabs } from 'expo-router'
 import { CheckSquare, FileText, Inbox, MessageSquare, Settings } from 'lucide-react-native'
 import { useMobileRuntime } from '../../src/lib/runtime-context'
+import { useHuriroColors } from '../../src/lib/theme'
 
 function TabLayoutInner() {
 	const engine = useSyncEngine()
+	const colors = useHuriroColors()
 	const notifications = useCollectionItems(engine.collections.notifications)
 	const unreadCount = notifications.filter((n) => n.archivedAt === null && n.readAt === null).length
 
@@ -13,7 +15,17 @@ function TabLayoutInner() {
 		<Tabs
 			screenOptions={{
 				headerShadowVisible: false,
-				tabBarShowLabel: true
+				headerStyle: { backgroundColor: colors.surface },
+				headerTintColor: colors.accent,
+				headerTitleStyle: { color: colors.foreground },
+				sceneStyle: { backgroundColor: colors.background },
+				tabBarShowLabel: true,
+				tabBarActiveTintColor: colors.accent,
+				tabBarInactiveTintColor: colors.muted,
+				tabBarStyle: {
+					backgroundColor: colors.surface,
+					borderTopColor: colors.border
+				}
 			}}
 		>
 			<Tabs.Screen
@@ -21,6 +33,7 @@ function TabLayoutInner() {
 				options={{
 					title: t('mobile.tabs.inbox'),
 					...(unreadCount > 0 ? { tabBarBadge: unreadCount } : {}),
+					tabBarBadgeStyle: { backgroundColor: colors.accent, color: colors.accentForeground },
 					tabBarIcon: ({ color, size }) => <Inbox size={size} color={color} />
 				}}
 			/>

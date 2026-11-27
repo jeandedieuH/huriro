@@ -20,11 +20,13 @@ import { EmptyStateCard } from '../../src/components/common/empty-state-card'
 import { FlashList } from '../../src/components/common/flash-list'
 import { SyncStatusBanner } from '../../src/components/common/sync-status-banner'
 import { useMobileRuntime } from '../../src/lib/runtime-context'
+import { useHuriroColors } from '../../src/lib/theme'
 
 export default function ChatTabScreen() {
 	const router = useRouter()
 	const { runtime } = useMobileRuntime()
 	const engine = useSyncEngine()
+	const colors = useHuriroColors()
 	const [channels, setChannels] = useState<ChatChannelDto[]>([
 		{
 			id: '0190a0b1-0000-7000-8000-000000000501',
@@ -221,7 +223,7 @@ export default function ChatTabScreen() {
 								color={showSaved ? 'accent' : 'default'}
 								onPress={() => setShowSaved((prev) => !prev)}
 							>
-								<Bookmark size={12} color={showSaved ? '#ffffff' : '#71717a'} />
+								<Bookmark size={12} color={showSaved ? colors.accentForeground : colors.muted} />
 								<Chip.Label>{t('chat.saved.filter')}</Chip.Label>
 							</Chip>
 							{channels.map((ch) => {
@@ -237,7 +239,7 @@ export default function ChatTabScreen() {
 											setActiveChannelId(ch.id)
 										}}
 									>
-										<Hash size={12} color={active ? '#ffffff' : '#71717a'} />
+										<Hash size={12} color={active ? colors.accentForeground : colors.muted} />
 										<Chip.Label>{ch.name}</Chip.Label>
 									</Chip>
 								)
@@ -251,7 +253,7 @@ export default function ChatTabScreen() {
 								onPress={() => router.push(`/chat/${activeChannel.id}` as never)}
 								accessibilityLabel={`Open #${activeChannel.name}`}
 							>
-								<ExternalLink size={14} color="#71717a" />
+								<ExternalLink size={14} color={colors.muted} />
 							</Button>
 						) : null}
 					</View>
@@ -291,14 +293,14 @@ export default function ChatTabScreen() {
 									onPress={() => void handleUnsave(item.id)}
 									accessibilityLabel="Remove saved item"
 								>
-									<Trash2 size={14} color="#71717a" />
+									<Trash2 size={14} color={colors.muted} />
 								</Button>
 							</View>
 						</Card>
 					)}
 					ListEmptyComponent={
 						<EmptyStateCard
-							icon={<Bookmark size={22} color="#71717a" />}
+							icon={<Bookmark size={22} color={colors.muted} />}
 							title={t('chat.saved.filter')}
 							description={t('chat.saved.empty')}
 						/>
@@ -335,7 +337,7 @@ export default function ChatTabScreen() {
 												color="default"
 												onPress={() => void handleSaveMessage(item)}
 											>
-												<Bookmark size={11} color="#71717a" />
+												<Bookmark size={11} color={colors.muted} />
 												<Chip.Label>{t('chat.saved.save')}</Chip.Label>
 											</Chip>
 										</View>
@@ -346,7 +348,7 @@ export default function ChatTabScreen() {
 					)}
 					ListEmptyComponent={
 						<EmptyStateCard
-							icon={<MessageSquare size={22} color="#71717a" />}
+							icon={<MessageSquare size={22} color={colors.muted} />}
 							title={`#${activeChannel?.name ?? 'general'}`}
 							description="Native channel feed — compose below with instant typing presence."
 						/>

@@ -7,12 +7,14 @@ import { View } from 'react-native'
 import { Container } from '../../src/components/app/container'
 import DocDomEditor from '../../src/components/docs/doc-dom-editor'
 import { useMobileRuntime } from '../../src/lib/runtime-context'
+import { useHuriroColors } from '../../src/lib/theme'
 
 export default function DocDetailScreen() {
 	const params = useLocalSearchParams<{ slug?: string }>()
 	const slug = typeof params['slug'] === 'string' ? params['slug'] : ''
 	const { runtime } = useMobileRuntime()
 	const engine = useSyncEngine()
+	const colors = useHuriroColors()
 	const pages = useCollectionItems(engine.collections.docPages)
 	const summary = pages.find((p) => p.slug === slug || p.id === slug)
 	const [markdown, setMarkdown] = useState('# Engineering Handbook\n\nSynced offline-first via SQLite.')
@@ -50,6 +52,12 @@ export default function DocDetailScreen() {
 						dom={{ matchContents: true }}
 						docId={summary?.id ?? slug}
 						initialMarkdown={markdown}
+						themeColors={{
+							background: colors.surface,
+							foreground: colors.foreground,
+							primary: colors.accent,
+							primaryForeground: colors.accentForeground
+						}}
 						onSaveMarkdown={async (nextMd) => {
 							setMarkdown(nextMd)
 							if (summary) {

@@ -6,11 +6,13 @@ import { CheckSquare } from 'lucide-react-native'
 import { Text, View } from 'react-native'
 import { Container } from '../../src/components/app/container'
 import { EmptyStateCard } from '../../src/components/common/empty-state-card'
+import { useHuriroColors } from '../../src/lib/theme'
 
 export default function IssueDetailScreen() {
 	const params = useLocalSearchParams<{ id?: string }>()
 	const id = typeof params['id'] === 'string' ? params['id'] : ''
 	const engine = useSyncEngine()
+	const colors = useHuriroColors()
 	const issues = useCollectionItems(engine.collections.issues)
 	const statuses = useCollectionItems(engine.collections.projectStatuses)
 	const issue = issues.find((i) => i.id === id || i.identifier === id)
@@ -64,7 +66,7 @@ export default function IssueDetailScreen() {
 					</>
 				) : (
 					<EmptyStateCard
-						icon={<CheckSquare size={22} color="#71717a" />}
+						icon={<CheckSquare size={22} color={colors.muted} />}
 						title={t('mobile.tasks.unavailable-title')}
 						description={t('mobile.tasks.unavailable-description', { id })}
 					/>

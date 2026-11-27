@@ -1,4 +1,5 @@
 import type { EffectiveAvailabilityState, UserAvailabilityDto } from '@huriro/contracts'
+import { lightTheme } from '@huriro/design-tokens/rn-theme'
 import { create } from 'zustand'
 
 interface MobileAvailabilityState {
@@ -24,20 +25,41 @@ export const useMobileAvailabilityStore = create<MobileAvailabilityState>((set) 
 	setPresence: (users) => set({ livePresence: Object.fromEntries(users.map((user) => [user.userId, user])) })
 }))
 
-export function availabilityColor(state: EffectiveAvailabilityState): string {
+export interface AvailabilityColorPalette {
+	readonly success: string
+	readonly warning: string
+	readonly danger: string
+	readonly info: string
+	readonly muted: string
+}
+
+/** Map an effective user availability state onto the active Huriro semantic color palette. */
+export function resolveAvailabilityColor(
+	state: EffectiveAvailabilityState,
+	colors: AvailabilityColorPalette
+): string {
 	switch (state) {
 		case 'available':
-			return '#16a34a'
+			return colors.success
 		case 'busy':
-			return '#d97706'
+		case 'away':
+			return colors.warning
 		case 'dnd':
-			return '#dc2626'
+			return colors.danger
 		case 'off_hours':
 		case 'ooo':
-			return '#2563eb'
-		case 'away':
-			return '#ca8a04'
+			return colors.info
 		default:
-			return '#71717a'
+			return colors.muted
 	}
+}
+
+export function availabilityColor(state: EffectiveAvailabilityState): string {
+	return resolveAvailabilityColor(state, {
+		success: lightTheme.colors['success'] ?? '#25984d',
+		warning: lightTheme.colors['warning'] ?? '#dfa11a',
+		danger: lightTheme.colors['destructive'] ?? '#d73431',
+		info: lightTheme.colors['info'] ?? '#008fd6',
+		muted: lightTheme.colors['muted-foreground'] ?? '#52555b'
+	})
 }

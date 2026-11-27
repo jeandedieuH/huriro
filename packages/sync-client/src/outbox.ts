@@ -687,7 +687,13 @@ export class HuriroMutationOutbox {
 
 export function generateUuidV7(nowMs: number = Date.now()): string {
 	const bytes = new Uint8Array(16)
-	crypto.getRandomValues(bytes)
+	const webCrypto: Partial<Crypto> | undefined = globalThis.crypto
+	if (!webCrypto || typeof webCrypto.getRandomValues !== 'function') {
+		throw new Error(
+			'generateUuidV7 requires globalThis.crypto.getRandomValues; install a WebCrypto polyfill in runtimes without global crypto.'
+		)
+	}
+	webCrypto.getRandomValues(bytes)
 	const ts = BigInt(nowMs) & 0xffffffffffffn
 	for (let i = 0; i < 6; i++) {
 		bytes[i] = Number((ts >> BigInt(8 * (5 - i))) & 0xffn)

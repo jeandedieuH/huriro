@@ -3,6 +3,7 @@ import { t } from '@huriro/i18n'
 import { Button, Card } from 'heroui-native'
 import { Pin, PinOff, X } from 'lucide-react-native'
 import { Modal, Pressable, ScrollView, Text, View } from 'react-native'
+import { useHuriroColors } from '../../lib/theme'
 
 /**
  * Native modal sheet presenting pinned channel messages with jump-to-message and unpin actions.
@@ -20,13 +21,14 @@ export function MobilePinsSheet({
 	readonly onSelectMessage: (messageId: string) => void
 	readonly onUnpin: (messageId: string) => void
 }) {
+	const colors = useHuriroColors()
 	return (
 		<Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
 			<View className="flex-1 justify-end bg-black/40">
 				<View className="max-h-[75%] rounded-t-3xl bg-background border-t border-border p-4 gap-3">
 					<View className="flex-row items-center justify-between pb-1">
 						<View className="flex-row items-center gap-2">
-							<Pin size={16} color="#2563eb" />
+							<Pin size={16} color={colors.accent} />
 							<Text className="text-base font-semibold text-foreground">{t('chat.pins.title')}</Text>
 						</View>
 						<Button
@@ -36,7 +38,7 @@ export function MobilePinsSheet({
 							onPress={onClose}
 							accessibilityLabel={t('chat.pins.close')}
 						>
-							<X size={16} color="#71717a" />
+							<X size={16} color={colors.muted} />
 						</Button>
 					</View>
 
@@ -67,7 +69,7 @@ export function MobilePinsSheet({
 											onPress={() => onUnpin(pin.messageId)}
 											accessibilityLabel="Unpin message"
 										>
-											<PinOff size={14} color="#71717a" />
+											<PinOff size={14} color={colors.muted} />
 										</Button>
 									</View>
 								</Card>

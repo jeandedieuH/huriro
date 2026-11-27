@@ -14,6 +14,7 @@
 			"default": "./dist/rn/theme.ts"
 		},
 		"./tailwind": "./dist/tailwind/theme.css",
+		"./uniwind": "./dist/uniwind/theme.css",
 		"./css": "./dist/css/tokens.css"
 	},
 	"files": [

@@ -15,6 +15,7 @@ import {
 	KeyboardToolbar
 } from 'react-native-keyboard-controller'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useHuriroColors } from '../../lib/theme'
 import { ContainerFooter } from './container-footer'
 
 type ContainerEdge = 'top' | 'bottom'
@@ -86,6 +87,7 @@ export function Container({
 	testID
 }: ContainerProps) {
 	const insets = useSafeAreaInsets()
+	const colors = useHuriroColors()
 	const [refreshing, setRefreshing] = useState(false)
 	// Height of the sticky footer, fed back into the scroll view so the last
 	// field is never trapped behind it when the keyboard opens.
@@ -161,7 +163,12 @@ export function Container({
 				contentContainerStyle={contentContainerStyle}
 				refreshControl={
 					onRefresh ? (
-						<RefreshControl refreshing={refreshing} onRefresh={() => void handleRefresh()} />
+						<RefreshControl
+							refreshing={refreshing}
+							onRefresh={() => void handleRefresh()}
+							tintColor={colors.accent}
+							colors={[colors.accent]}
+						/>
 					) : undefined
 				}
 			>

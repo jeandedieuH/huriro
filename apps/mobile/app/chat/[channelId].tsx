@@ -11,12 +11,14 @@ import { MobilePinsSheet } from '../../src/components/chat/mobile-pins-sheet'
 import { NativeChatComposer } from '../../src/components/chat/native-chat-composer'
 import { FlashList } from '../../src/components/common/flash-list'
 import { useMobileRuntime } from '../../src/lib/runtime-context'
+import { useHuriroColors } from '../../src/lib/theme'
 
 export default function ChannelDetailScreen() {
 	const params = useLocalSearchParams<{ channelId?: string }>()
 	const channelId = typeof params['channelId'] === 'string' ? params['channelId'] : 'general'
 	const { runtime } = useMobileRuntime()
 	const engine = useSyncEngine()
+	const colors = useHuriroColors()
 	const [messages, setMessages] = useState<ChatMessageDto[]>([])
 	const [pins, setPins] = useState<ChatPinnedMessageDto[]>([])
 	const [pinsOpen, setPinsOpen] = useState(false)
@@ -136,7 +138,7 @@ export default function ChannelDetailScreen() {
 							onPress={() => setPinsOpen(true)}
 							accessibilityLabel={t('chat.pins.title')}
 						>
-							<Pin size={14} color="#2563eb" />
+							<Pin size={14} color={colors.accent} />
 							<Button.Label>{String(pins.length)}</Button.Label>
 						</Button>
 					)
@@ -157,7 +159,7 @@ export default function ChannelDetailScreen() {
 									onPress={() => setReplyToThreadId(null)}
 									accessibilityLabel="Cancel thread reply"
 								>
-									<X size={13} color="#71717a" />
+									<X size={13} color={colors.muted} />
 								</Button>
 							</View>
 						) : null}
@@ -191,15 +193,19 @@ export default function ChannelDetailScreen() {
 										color={pinned ? 'accent' : 'default'}
 										onPress={() => void handleTogglePin(item)}
 									>
-										{pinned ? <PinOff size={11} color="#ffffff" /> : <Pin size={11} color="#71717a" />}
+										{pinned ? (
+											<PinOff size={11} color={colors.accentForeground} />
+										) : (
+											<Pin size={11} color={colors.muted} />
+										)}
 										<Chip.Label>{pinned ? 'Unpin' : 'Pin'}</Chip.Label>
 									</Chip>
 									<Chip size="sm" variant="soft" color="default" onPress={() => void handleSave(item.id)}>
-										<Bookmark size={11} color="#71717a" />
+										<Bookmark size={11} color={colors.muted} />
 										<Chip.Label>{t('chat.saved.save')}</Chip.Label>
 									</Chip>
 									<Chip size="sm" variant="soft" color="default" onPress={() => setReplyToThreadId(item.id)}>
-										<CornerUpRight size={11} color="#71717a" />
+										<CornerUpRight size={11} color={colors.muted} />
 										<Chip.Label>Reply</Chip.Label>
 									</Chip>
 								</View>

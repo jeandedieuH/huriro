@@ -8,10 +8,12 @@ import { Container } from '../../src/components/app/container'
 import { EmptyStateCard } from '../../src/components/common/empty-state-card'
 import { FlashList } from '../../src/components/common/flash-list'
 import { SyncStatusBanner } from '../../src/components/common/sync-status-banner'
+import { useHuriroColors } from '../../src/lib/theme'
 
 export default function DocsTabScreen() {
 	const router = useRouter()
 	const engine = useSyncEngine()
+	const colors = useHuriroColors()
 	const pages = useCollectionItems(engine.collections.docPages).filter((d) => d.archivedAt === null)
 	const [query, setQuery] = useState('')
 
@@ -56,14 +58,14 @@ export default function DocsTabScreen() {
 						<Card className="mb-3 p-4 rounded-2xl border border-border/60">
 							<View className="flex-row items-center justify-between gap-2">
 								<View className="flex-row items-center gap-2 flex-1">
-									<FileText size={16} color="#7c3aed" />
+									<FileText size={16} color={colors.accent} />
 									<Card.Title className="text-sm font-semibold flex-1" numberOfLines={1}>
 										{item.title}
 									</Card.Title>
 								</View>
 								<View className="flex-row items-center gap-1.5">
-									{item.isFavorite ? <Star size={14} color="#eab308" /> : null}
-									<ChevronRight size={15} color="#a1a1aa" />
+									{item.isFavorite ? <Star size={14} color={colors.warning} /> : null}
+									<ChevronRight size={15} color={colors.muted} />
 								</View>
 							</View>
 
@@ -78,7 +80,7 @@ export default function DocsTabScreen() {
 				)}
 				ListEmptyComponent={
 					<EmptyStateCard
-						icon={<FileText size={22} color="#71717a" />}
+						icon={<FileText size={22} color={colors.muted} />}
 						title="No documents matched"
 						description="Documents synced into SQLite appear here for offline reading and light edits."
 					/>

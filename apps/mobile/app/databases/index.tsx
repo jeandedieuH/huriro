@@ -9,10 +9,12 @@ import { Container } from '../../src/components/app/container'
 import { EmptyStateCard } from '../../src/components/common/empty-state-card'
 import { FlashList } from '../../src/components/common/flash-list'
 import { SyncStatusBanner } from '../../src/components/common/sync-status-banner'
+import { useHuriroColors } from '../../src/lib/theme'
 
 export default function DatabasesIndexScreen() {
 	const router = useRouter()
 	const engine = useSyncEngine()
+	const colors = useHuriroColors()
 	const databases = useCollectionItems(engine.collections.docDatabases)
 	const rows = useCollectionItems(engine.collections.docDatabaseRows)
 	const rowCounts = useMemo(() => {
@@ -32,7 +34,7 @@ export default function DatabasesIndexScreen() {
 				<>
 					<SyncStatusBanner />
 					<View className="px-4 pt-3 pb-1">
-						<Text className="text-xl font-bold">{t('mobile.databases.title')}</Text>
+						<Text className="text-xl font-bold text-foreground">{t('mobile.databases.title')}</Text>
 						<Text className="text-xs text-muted">{t('mobile.databases.subtitle')}</Text>
 					</View>
 				</>
@@ -47,12 +49,12 @@ export default function DatabasesIndexScreen() {
 						<Card className="mb-3 rounded-2xl border border-border/60 p-4">
 							<View className="flex-row items-center justify-between gap-2">
 								<View className="flex-1 flex-row items-center gap-2">
-									<Database size={16} color="#7c3aed" />
+									<Database size={16} color={colors.accent} />
 									<Card.Title className="flex-1 text-sm font-semibold" numberOfLines={1}>
 										{item.icon} {item.title}
 									</Card.Title>
 								</View>
-								<ChevronRight size={15} color="#a1a1aa" />
+								<ChevronRight size={15} color={colors.muted} />
 							</View>
 							<View className="mt-2 flex-row items-center justify-between">
 								<Text className="text-xs text-muted">
@@ -69,7 +71,7 @@ export default function DatabasesIndexScreen() {
 				)}
 				ListEmptyComponent={
 					<EmptyStateCard
-						icon={<Database size={22} color="#71717a" />}
+						icon={<Database size={22} color={colors.muted} />}
 						title={t('mobile.databases.empty-title')}
 						description={t('mobile.databases.empty-description')}
 					/>

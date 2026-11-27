@@ -2718,4 +2718,22 @@ describe('Self-healing sync & WsSignalClient resilience', () => {
 		expect(probedEngine.getStatus().storageDegraded).toBe(true)
 		probedEngine.dispose()
 	})
+
+	test('generateUuidV7 throws a descriptive error when globalThis.crypto.getRandomValues is missing', () => {
+		const origCryptoDesc = Object.getOwnPropertyDescriptor(globalThis, 'crypto')
+		try {
+			Object.defineProperty(globalThis, 'crypto', {
+				value: undefined,
+				configurable: true,
+				writable: true
+			})
+			expect(() => generateUuidV7()).toThrow(/globalThis\.crypto\.getRandomValues/)
+		} finally {
+			if (origCryptoDesc) {
+				Object.defineProperty(globalThis, 'crypto', origCryptoDesc)
+			} else {
+				delete (globalThis as Record<string, unknown>)['crypto']
+			}
+		}
+	})
 })

@@ -10,10 +10,12 @@ import { EmptyStateCard } from '../../src/components/common/empty-state-card'
 import { FlashList } from '../../src/components/common/flash-list'
 import { SyncStatusBanner } from '../../src/components/common/sync-status-banner'
 import { IssueCard } from '../../src/components/tasks/task-card'
+import { useHuriroColors } from '../../src/lib/theme'
 
 export default function IssuesTabScreen() {
 	const router = useRouter()
 	const engine = useSyncEngine()
+	const colors = useHuriroColors()
 	const issues = useCollectionItems(engine.collections.issues).filter((i) => i.deletedAt === null)
 	const projects = useCollectionItems(engine.collections.projects)
 	const statuses = useCollectionItems(engine.collections.projectStatuses)
@@ -85,7 +87,7 @@ export default function IssuesTabScreen() {
 									isDisabled={!draftTitle.trim() || creating}
 									onPress={() => void handleAddIssue()}
 								>
-									<Plus size={15} color="#ffffff" />
+									<Plus size={15} color={colors.accentForeground} />
 									<Button.Label>{t('mobile.tasks.add')}</Button.Label>
 								</Button>
 							</View>
@@ -126,7 +128,7 @@ export default function IssuesTabScreen() {
 				)}
 				ListEmptyComponent={
 					<EmptyStateCard
-						icon={<CheckSquare size={22} color="#71717a" />}
+						icon={<CheckSquare size={22} color={colors.muted} />}
 						title={t('mobile.tasks.empty-title')}
 						description={t('mobile.tasks.empty-description')}
 					/>

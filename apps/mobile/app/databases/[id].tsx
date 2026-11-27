@@ -10,6 +10,7 @@ import { Container } from '../../src/components/app/container'
 import { EmptyStateCard } from '../../src/components/common/empty-state-card'
 import { FlashList } from '../../src/components/common/flash-list'
 import { SyncStatusBanner } from '../../src/components/common/sync-status-banner'
+import { useHuriroColors } from '../../src/lib/theme'
 
 function byPosition<T extends { position: string; id: string }>(items: readonly T[]): T[] {
 	return [...items].sort((a, b) => a.position.localeCompare(b.position) || a.id.localeCompare(b.id))
@@ -43,6 +44,7 @@ export default function DatabaseDetailScreen() {
 	const params = useLocalSearchParams<{ id?: string }>()
 	const databaseId = typeof params['id'] === 'string' ? params['id'] : ''
 	const engine = useSyncEngine()
+	const colors = useHuriroColors()
 	// Tier-2 hydration keeps the embedded relational replica offline-first.
 	const scope = useSyncScope(databaseId ? `db:${databaseId}` : null, { pinned: true })
 	const databases = useCollectionItems(engine.collections.docDatabases)
@@ -88,7 +90,7 @@ export default function DatabaseDetailScreen() {
 						<View className="gap-3 px-4 pt-3 pb-2">
 							<View className="flex-row items-center justify-between gap-2">
 								<View className="flex-1">
-									<Text className="text-xl font-bold">
+									<Text className="text-xl font-bold text-foreground">
 										{database?.icon} {database?.title ?? t('mobile.databases.database')}
 									</Text>
 									<Text className="text-xs text-muted">
@@ -98,7 +100,7 @@ export default function DatabaseDetailScreen() {
 									</Text>
 								</View>
 								<Button size="sm" variant="primary" onPress={addRow}>
-									<Plus size={14} color="white" />
+									<Plus size={14} color={colors.accentForeground} />
 									<Button.Label>{t('mobile.databases.row')}</Button.Label>
 								</Button>
 							</View>
@@ -134,7 +136,7 @@ export default function DatabaseDetailScreen() {
 					)}
 					ListEmptyComponent={
 						<EmptyStateCard
-							icon={<Plus size={22} color="#71717a" />}
+							icon={<Plus size={22} color={colors.muted} />}
 							title={scope.ready ? t('mobile.databases.no-rows') : t('mobile.databases.loading-database')}
 							description="Rows created here are queued offline and synchronize through the shared outb
 ox."
@@ -157,6 +159,7 @@ function DatabaseRowCard({
 }) {
 	// The row key includes its version, so this draft remounts after sync merges.
 	const [draft, setDraft] = useState(row.title)
+	const colors = useHuriroColors()
 	return (
 		<Card className="mb-3 rounded-2xl border border-border/60 p-4">
 			<TextInput
@@ -164,6 +167,8 @@ function DatabaseRowCard({
 				onChangeText={setDraft}
 				onEndEditing={() => onRename(draft)}
 				placeholder={t('mobile.databases.untitled')}
+				placeholderTextColor={colors.muted}
+				selectionColor={colors.accent}
 				className="mb-2 border-border/50 border-b pb-1 font-semibold text-base text-foreground"
 			/>
 			{properties.map((property) => {
@@ -172,7 +177,7 @@ function DatabaseRowCard({
 				return (
 					<View key={property.id} className="mt-1 flex-row justify-between gap-3">
 						<Text className="flex-1 text-muted text-xs">{property.name}</Text>
-						<Text className="flex-2 text-right text-xs" numberOfLines={2}>
+						<Text className="flex-2 text-right text-xs text-foreground" numberOfLines={2}>
 							{value}
 						</Text>
 					</View>

@@ -4,6 +4,7 @@ import { Button, Chip, Surface } from 'heroui-native'
 import { BellOff, Check, Smile, X } from 'lucide-react-native'
 import { useEffect, useState } from 'react'
 import { TextInput, View } from 'react-native'
+import { useHuriroColors } from '../../lib/theme'
 import { MobileAvailabilityChip } from '../availability/mobile-availability-dot'
 
 /**
@@ -21,6 +22,7 @@ export function MobileStatusBar({
 }) {
 	const [draft, setDraft] = useState(profile?.statusText ?? '')
 	const [busy, setBusy] = useState(false)
+	const colors = useHuriroColors()
 
 	useEffect(() => {
 		setDraft(profile?.statusText ?? '')
@@ -41,13 +43,15 @@ export function MobileStatusBar({
 	return (
 		<Surface variant="default" className="border-b border-border/50 px-4 py-2 gap-2">
 			<View className="flex-row items-center gap-2">
-				<Smile size={15} color="#71717a" />
+				<Smile size={15} color={colors.muted} />
 				{availability ? <MobileAvailabilityChip state={availability.effectiveState} /> : null}
 				<TextInput
 					className="flex-1 rounded-lg border border-border bg-field px-2.5 py-1.5 text-xs text-foreground"
 					value={draft}
 					onChangeText={setDraft}
 					placeholder={t('chat.status.placeholder')}
+					placeholderTextColor={colors.muted}
+					selectionColor={colors.accent}
 					accessibilityLabel={t('chat.status.title')}
 					onSubmitEditing={() =>
 						void commit({ statusText: draft.trim(), statusEmoji: draft.trim() ? '💬' : null })
@@ -61,7 +65,7 @@ export function MobileStatusBar({
 					onPress={() => void commit({ statusText: draft.trim(), statusEmoji: draft.trim() ? '💬' : null })}
 					accessibilityLabel={t('chat.status.title')}
 				>
-					<Check size={14} color="#2563eb" />
+					<Check size={14} color={colors.accent} />
 				</Button>
 				{profile?.statusText || dndActive ? (
 					<Button
@@ -75,7 +79,7 @@ export function MobileStatusBar({
 						}}
 						accessibilityLabel={t('chat.status.clear')}
 					>
-						<X size={14} color="#71717a" />
+						<X size={14} color={colors.muted} />
 					</Button>
 				) : null}
 				<Chip
@@ -88,7 +92,7 @@ export function MobileStatusBar({
 						})
 					}
 				>
-					<BellOff size={12} color={dndActive ? '#ffffff' : '#71717a'} />
+					<BellOff size={12} color={dndActive ? colors.warningForeground : colors.muted} />
 					<Chip.Label>{dndActive ? t('chat.status.dnd-on') : t('chat.status.dnd-off')}</Chip.Label>
 				</Chip>
 			</View>

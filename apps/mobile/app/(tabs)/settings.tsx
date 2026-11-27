@@ -17,6 +17,7 @@ import { Platform, View } from 'react-native'
 import { Container } from '../../src/components/app/container'
 import { registerExpoPushDevice } from '../../src/lib/push'
 import { useMobileRuntime } from '../../src/lib/runtime-context'
+import { useHuriroColors } from '../../src/lib/theme'
 import { useMobileUiStore } from '../../src/stores/mobile-ui-store'
 
 export default function SettingsTabScreen() {
@@ -24,6 +25,7 @@ export default function SettingsTabScreen() {
 	const { runtime, signOut } = useMobileRuntime()
 	const engine = useSyncEngine()
 	const syncStatus = useSyncStatus()
+	const colors = useHuriroColors()
 	const session = useMobileUiStore((s) => s.session)
 	const registeredPush = useMobileUiStore((s) => s.registeredPush)
 	const setRegisteredPush = useMobileUiStore((s) => s.setRegisteredPush)
@@ -91,7 +93,7 @@ export default function SettingsTabScreen() {
 						</Card.Description>
 					</View>
 					<Chip size="sm" variant="soft" color="success">
-						<ShieldCheck size={11} color="#16a34a" />
+						<ShieldCheck size={11} color={colors.success} />
 						<Chip.Label>{runtime?.isPreview ? 'Preview' : 'Connected'}</Chip.Label>
 					</Chip>
 				</View>
@@ -101,7 +103,7 @@ export default function SettingsTabScreen() {
 			<Card className="p-4 rounded-2xl border border-border/60 gap-3">
 				<View className="flex-row items-center justify-between gap-3">
 					<View className="flex-row items-center gap-2.5 flex-1">
-						<CalendarClock size={18} color="#71717a" />
+						<CalendarClock size={18} color={colors.muted} />
 						<View className="flex-1">
 							<Card.Title className="text-sm font-semibold">{t('availability.title')}</Card.Title>
 							<Card.Description className="text-xs">{t('availability.settings-desc')}</Card.Description>
@@ -121,7 +123,7 @@ export default function SettingsTabScreen() {
 			<Card className="p-4 rounded-2xl border border-border/60 gap-3">
 				<View className="flex-row items-center justify-between gap-3">
 					<View className="flex-row items-center gap-2.5 flex-1">
-						<Bell size={18} color="#71717a" />
+						<Bell size={18} color={colors.muted} />
 						<View className="flex-1">
 							<Card.Title className="text-sm font-semibold">{t('mobile.push.register')}</Card.Title>
 							<Card.Description className="text-xs">
@@ -142,7 +144,7 @@ export default function SettingsTabScreen() {
 			<Card className="p-4 rounded-2xl border border-border/60 gap-3">
 				<View className="flex-row items-center justify-between">
 					<View className="flex-row items-center gap-2">
-						<CreditCard size={18} color="#71717a" />
+						<CreditCard size={18} color={colors.muted} />
 						<Card.Title className="text-sm font-semibold">{t('settings.billing.title')}</Card.Title>
 					</View>
 					<Chip size="sm" variant="soft" color="accent">
@@ -173,7 +175,7 @@ export default function SettingsTabScreen() {
 			{/* Sync Diagnostics */}
 			<Card className="p-4 rounded-2xl border border-border/60 gap-2">
 				<View className="flex-row items-center gap-2">
-					<Database size={16} color="#71717a" />
+					<Database size={16} color={colors.muted} />
 					<Card.Title className="text-sm font-semibold">Offline Replica Diagnostics</Card.Title>
 				</View>
 				<Separator />
@@ -197,7 +199,7 @@ export default function SettingsTabScreen() {
 							color="accent"
 							onPress={() => void engine.flushOutbox({ force: true }).then(() => engine.resyncSnapshot())}
 						>
-							<RefreshCw size={11} />
+							<RefreshCw size={11} color={colors.accentSoftForeground} />
 							<Chip.Label>{t('sync.force-resync')}</Chip.Label>
 						</Chip>
 					) : null}
@@ -205,7 +207,7 @@ export default function SettingsTabScreen() {
 			</Card>
 
 			<Button variant="danger" size="lg" onPress={() => void handleSignOut()}>
-				<LogOut size={16} color="#ffffff" />
+				<LogOut size={16} color={colors.dangerForeground} />
 				<Button.Label>Sign out & wipe local replica</Button.Label>
 			</Button>
 		</Container>

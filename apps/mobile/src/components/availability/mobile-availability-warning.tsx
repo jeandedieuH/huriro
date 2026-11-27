@@ -2,6 +2,7 @@ import type { UserAvailabilityDto } from '@huriro/contracts'
 import { type MessageId, t } from '@huriro/i18n'
 import { UserRoundCheck } from 'lucide-react-native'
 import { Pressable, Text, View } from 'react-native'
+import { useHuriroColors } from '../../lib/theme'
 
 const STATE_LABEL: Record<UserAvailabilityDto['effectiveState'], MessageId> = {
 	available: 'availability.state.available',
@@ -22,6 +23,7 @@ export function MobileAvailabilityWarning({
 	readonly displayName?: string | undefined
 	readonly onAssignDelegate?: (() => void) | undefined
 }) {
+	const colors = useHuriroColors()
 	if (!availability) return null
 	if (
 		availability.effectiveState !== 'ooo' &&
@@ -44,7 +46,7 @@ export function MobileAvailabilityWarning({
 					className="flex-row items-center gap-1 rounded-md border border-warning/40 px-2 py-1"
 					accessibilityLabel={t('availability.warning.assign-backup')}
 				>
-					<UserRoundCheck size={12} color="#d97706" />
+					<UserRoundCheck size={12} color={colors.warning} />
 					<Text className="text-[10px] font-medium text-warning">
 						{t('availability.warning.assign-backup')}
 					</Text>

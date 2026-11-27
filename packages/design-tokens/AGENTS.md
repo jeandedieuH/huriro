@@ -5,7 +5,8 @@ compiled by `src/compile.ts` to:
 
 - `dist/css/tokens.css` — shadcn contract vars on `:root` + `.dark` (never `data-theme`)
 - `dist/tailwind/theme.css` — Tailwind v4 `@theme` + `@custom-variant dark`
-- `dist/rn/theme.ts` — Uniwind/React Native theme object
+- `dist/uniwind/theme.css` — Uniwind / HeroUI Native `@variant light` + `@variant dark` overrides (`@huriro/design-tokens/uniwind`)
+- `dist/rn/theme.ts` — Uniwind/React Native theme object (hex colors)
 - `dist/docs/tokens.html` — token reference page
 
 ## Rules

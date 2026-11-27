@@ -1,3 +1,4 @@
+import './crypto-polyfill'
 import type { SyncSnapshotResponse } from '@huriro/contracts'
 import {
 	HttpSyncTransport,

@@ -3,7 +3,8 @@
  * Token compiler (§17.4): DTCG JSON in tokens/ →
  *   dist/css/tokens.css      shadcn contract vars (:root + .dark) + extensions
  *   dist/tailwind/theme.css  @theme block for Tailwind v4 + @custom-variant dark
- *   dist/rn/theme.ts         Uniwind/React Native theme object
+ *   dist/uniwind/theme.css   Uniwind / HeroUI Native @variant light + dark overrides
+ *   dist/rn/theme.ts         Uniwind/React Native theme object (hex colors)
  *   dist/docs/tokens.html    living token reference
  *
  * The DTCG files are the single source of truth; dist/ is checked in and
@@ -66,6 +67,52 @@ const themed = (theme: 'light' | 'dark') =>
 		.filter(([k]) => k.startsWith(`${theme}.`))
 		.map(([k, v]) => [k.slice(theme.length + 1), resolve(v.$value)] as const)
 
+/** Required resolved semantic token lookup for theme emission. */
+function tok(map: ReadonlyMap<string, string>, key: string): string {
+	const value = map.get(key)
+	if (!value) throw new Error(`missing resolved token: ${key}`)
+	return value
+}
+
+/**
+ * Convert CSS Color 4 `oklch(L C H)` strings to React Native-safe `#rrggbb` hex.
+ * Non-oklch inputs pass through unchanged.
+ */
+function oklchToHex(value: string): string {
+	const match = value.trim().match(/^oklch\(\s*([0-9.]+%?)\s+([0-9.]+)\s+([0-9.]+)\s*\)$/)
+	if (!match) return value
+	const [, rawL, rawC, rawH] = match
+	if (!rawL || !rawC || !rawH) return value
+	const lVal = rawL.endsWith('%') ? Number.parseFloat(rawL) / 100 : Number.parseFloat(rawL)
+	const cVal = Number.parseFloat(rawC)
+	const hRad = (Number.parseFloat(rawH) * Math.PI) / 180
+
+	const a = cVal * Math.cos(hRad)
+	const b = cVal * Math.sin(hRad)
+
+	const l_ = lVal + 0.3963377774 * a + 0.2158037573 * b
+	const m_ = lVal - 0.1055613458 * a - 0.0638541728 * b
+	const s_ = lVal - 0.0894841775 * a - 1.291485548 * b
+
+	const l = l_ * l_ * l_
+	const m = m_ * m_ * m_
+	const s = s_ * s_ * s_
+
+	const rLin = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+	const gLin = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+	const bLin = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
+
+	const toByte = (u: number): string => {
+		const clamped = Math.min(1, Math.max(0, u))
+		const gamma = clamped <= 0.0031308 ? 12.92 * clamped : 1.055 * clamped ** (1 / 2.4) - 0.055
+		return Math.round(gamma * 255)
+			.toString(16)
+			.padStart(2, '0')
+	}
+
+	return `#${toByte(rLin)}${toByte(gLin)}${toByte(bLin)}`
+}
+
 // ---------- css/tokens.css ----------
 const lightVars = themed('light')
 const darkVars = themed('dark')
@@ -125,8 +172,147 @@ const tw = [
 	''
 ].join('\n')
 
+// ---------- uniwind/theme.css ----------
+const lightMap = new Map(lightVars)
+const darkMap = new Map(darkVars)
+
+function uniwindVariantEntries(
+	theme: 'light' | 'dark',
+	map: ReadonlyMap<string, string>
+): readonly (readonly [string, string])[] {
+	const isLight = theme === 'light'
+	return [
+		// HeroUI Native semantic overrides
+		['background', tok(map, isLight ? 'surface-2' : 'background')],
+		['foreground', tok(map, 'foreground')],
+		['surface', tok(map, 'card')],
+		['surface-foreground', tok(map, 'card-foreground')],
+		['surface-secondary', tok(map, isLight ? 'secondary' : 'surface-2')],
+		['surface-secondary-foreground', tok(map, 'foreground')],
+		['surface-tertiary', tok(map, isLight ? 'border' : 'secondary')],
+		['surface-tertiary-foreground', tok(map, 'foreground')],
+		['overlay', tok(map, 'popover')],
+		['overlay-foreground', tok(map, 'popover-foreground')],
+		['muted', tok(map, 'muted-foreground')],
+		['default', tok(map, 'secondary')],
+		['default-foreground', tok(map, 'secondary-foreground')],
+		['accent', tok(map, 'primary')],
+		['accent-foreground', tok(map, 'primary-foreground')],
+		['field-background', tok(map, 'surface-2')],
+		['field-foreground', tok(map, 'foreground')],
+		['field-placeholder', tok(map, 'ink-tertiary')],
+		['field-border', tok(map, 'input')],
+		['success', tok(map, 'success')],
+		['success-foreground', tok(map, isLight ? 'primary-foreground' : 'background')],
+		['warning', tok(map, 'warning')],
+		['warning-foreground', tok(map, isLight ? 'foreground' : 'background')],
+		['danger', tok(map, 'destructive')],
+		['danger-foreground', tok(map, 'destructive-foreground')],
+		['segment', tok(map, isLight ? 'card' : 'accent')],
+		['segment-foreground', tok(map, 'foreground')],
+		['border', tok(map, 'border')],
+		['separator', tok(map, isLight ? 'border' : 'input')],
+		['focus', tok(map, 'ring')],
+		['link', tok(map, isLight ? 'primary' : 'ring')],
+		// Huriro compatibility tokens (shared across light & dark)
+		['primary', tok(map, 'primary')],
+		['primary-foreground', tok(map, 'primary-foreground')],
+		['secondary', tok(map, 'secondary')],
+		['secondary-foreground', tok(map, 'secondary-foreground')],
+		['muted-foreground', tok(map, 'muted-foreground')],
+		['destructive', tok(map, 'destructive')],
+		['destructive-foreground', tok(map, 'destructive-foreground')],
+		['card', tok(map, 'card')],
+		['card-foreground', tok(map, 'card-foreground')],
+		['popover', tok(map, 'popover')],
+		['popover-foreground', tok(map, 'popover-foreground')],
+		['input', tok(map, 'input')],
+		['ring', tok(map, 'ring')],
+		['surface-2', tok(map, 'surface-2')],
+		['ink-tertiary', tok(map, 'ink-tertiary')],
+		['info', tok(map, 'info')],
+		['info-foreground', tok(map, isLight ? 'primary-foreground' : 'background')],
+		['sidebar', tok(map, 'sidebar')],
+		['sidebar-foreground', tok(map, 'sidebar-foreground')],
+		['sidebar-muted-foreground', tok(map, 'sidebar-muted-foreground')],
+		['sidebar-icon-well', tok(map, 'sidebar-icon-well')],
+		['sidebar-primary', tok(map, 'sidebar-primary')],
+		['sidebar-primary-foreground', tok(map, 'sidebar-primary-foreground')],
+		['sidebar-accent', tok(map, 'sidebar-accent')],
+		['sidebar-accent-foreground', tok(map, 'sidebar-accent-foreground')],
+		['sidebar-border', tok(map, 'sidebar-border')],
+		['sidebar-ring', tok(map, 'sidebar-ring')],
+		['chart-1', tok(map, 'chart-1')],
+		['chart-2', tok(map, 'chart-2')],
+		['chart-3', tok(map, 'chart-3')],
+		['chart-4', tok(map, 'chart-4')],
+		['chart-5', tok(map, 'chart-5')]
+	]
+}
+
+const uniwindCompatKeys = [
+	'primary',
+	'primary-foreground',
+	'secondary',
+	'secondary-foreground',
+	'muted-foreground',
+	'destructive',
+	'destructive-foreground',
+	'card',
+	'card-foreground',
+	'popover',
+	'popover-foreground',
+	'input',
+	'ring',
+	'surface-2',
+	'ink-tertiary',
+	'info',
+	'info-foreground',
+	'sidebar',
+	'sidebar-foreground',
+	'sidebar-muted-foreground',
+	'sidebar-icon-well',
+	'sidebar-primary',
+	'sidebar-primary-foreground',
+	'sidebar-accent',
+	'sidebar-accent-foreground',
+	'sidebar-border',
+	'sidebar-ring',
+	'chart-1',
+	'chart-2',
+	'chart-3',
+	'chart-4',
+	'chart-5'
+] as const
+
+const uniwindCss = [
+	'/* GENERATED — Uniwind / HeroUI Native theme overrides from packages/design-tokens/tokens/*.json.',
+	' * Import after `uniwind` and `heroui-native/styles`. Uniwind owns light/dark custom variants. */',
+	'',
+	'@theme {',
+	'\t--field-border-width: 1px;',
+	'}',
+	'',
+	'@layer theme {',
+	'\t:root {',
+	'\t\t@variant light {',
+	...uniwindVariantEntries('light', lightMap).map(([k, v]) => `\t\t\t--${k}: ${v};`),
+	'\t\t}',
+	'',
+	'\t\t@variant dark {',
+	...uniwindVariantEntries('dark', darkMap).map(([k, v]) => `\t\t\t--${k}: ${v};`),
+	'\t\t}',
+	'\t}',
+	'}',
+	'',
+	'@theme inline static {',
+	...uniwindCompatKeys.map((k) => `\t--color-${k}: var(--${k});`),
+	'}',
+	''
+].join('\n')
+
 // ---------- rn/theme.ts ----------
-const rnColorEntries = [...color].map(([k, v]) => [k.replaceAll('.', '_'), v.$value])
+const rnColorEntries = [...color].map(([k, v]) => [k.replaceAll('.', '_'), v.$value] as const)
 const rn = [
 	'// GENERATED — Uniwind/RN theme from the same DTCG source as the web tokens.',
 	'export interface HuriroTheme {',
@@ -141,8 +327,8 @@ const rn = [
 	'',
 	'export const lightTheme: HuriroTheme = {',
 	'\tcolors: {',
-	...lightVars.map(([k, v]) => `\t\t'${k}': '${v}',`),
-	...rnColorEntries.map(([k, v]) => `\t\t'${k}': '${v}',`),
+	...lightVars.map(([k, v]) => `\t\t'${k}': '${oklchToHex(v)}',`),
+	...rnColorEntries.map(([k, v]) => `\t\t'${k}': '${oklchToHex(v)}',`),
 	'\t},',
 	`\tradius: { sm: ${px(req('radius.sm'))}, md: ${px(req('radius.md'))}, lg: ${px(req('radius.lg'))}, xl: ${px(req('radius.xl'))} },`,
 	`\tfontSize: { xs: ${px(req('font.size.xs'))}, sm: ${px(req('font.size.sm'))}, base: ${px(req('font.size.base'))}, md: ${px(req('font.size.md'))}, lg: ${px(req('font.size.lg'))}, xl: ${px(req('font.size.xl'))}, '2xl': ${px(req('font.size.2xl'))} },`,
@@ -153,7 +339,7 @@ const rn = [
 	'\t...lightTheme,',
 	'\tcolors: {',
 	'\t\t...lightTheme.colors,',
-	...darkVars.map(([k, v]) => `\t\t'${k}': '${v}',`),
+	...darkVars.map(([k, v]) => `\t\t'${k}': '${oklchToHex(v)}',`),
 	'\t}',
 	'}',
 	''
@@ -172,6 +358,7 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><title>Huriro tok
 const outputs: Record<string, string> = {
 	'css/tokens.css': css,
 	'tailwind/theme.css': tw,
+	'uniwind/theme.css': uniwindCss,
 	'rn/theme.ts': rn,
 	'docs/tokens.html': html
 }

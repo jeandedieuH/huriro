@@ -13,11 +13,13 @@ import { SyncStatusBanner } from '../../src/components/common/sync-status-banner
 import { NotificationRow } from '../../src/components/inbox/notification-row'
 import { resolvePushHintTarget } from '../../src/lib/push'
 import { useMobileRuntime } from '../../src/lib/runtime-context'
+import { useHuriroColors } from '../../src/lib/theme'
 
 export default function InboxTabScreen() {
 	const router = useRouter()
 	const engine = useSyncEngine()
 	const { runtime } = useMobileRuntime()
+	const colors = useHuriroColors()
 	const [tab, setTab] = useState<'activity' | 'mail'>('activity')
 	const [filter, setFilter] = useState<'all' | 'unread'>('all')
 	const [conversations, setConversations] = useState<MailConversationDto[]>([])
@@ -105,7 +107,7 @@ export default function InboxTabScreen() {
 							color={tab === 'mail' ? 'accent' : 'default'}
 							onPress={() => setTab('mail')}
 						>
-							<Mail size={12} color={tab === 'mail' ? '#ffffff' : '#71717a'} />
+							<Mail size={12} color={tab === 'mail' ? colors.accentForeground : colors.muted} />
 							<Chip.Label>{t('mobile.inbox.tab.mail')}</Chip.Label>
 						</Chip>
 					</View>
@@ -141,7 +143,7 @@ export default function InboxTabScreen() {
 					renderItem={({ item }) => <NotificationRow notification={item} onPress={handleOpenNotification} />}
 					ListEmptyComponent={
 						<EmptyStateCard
-							icon={<BellOff size={22} color="#71717a" />}
+							icon={<BellOff size={22} color={colors.muted} />}
 							title={t('inbox.empty')}
 							description={t('mobile.inbox.activity-description')}
 						/>
@@ -177,7 +179,7 @@ export default function InboxTabScreen() {
 					)}
 					ListEmptyComponent={
 						<EmptyStateCard
-							icon={<Mail size={22} color="#71717a" />}
+							icon={<Mail size={22} color={colors.muted} />}
 							title={t('mobile.inbox.tab.mail')}
 							description={t('mobile.mail.no-conversations')}
 						/>

@@ -2,6 +2,7 @@ import type { IssueDto } from '@huriro/contracts'
 import { Card, Chip, type ChipColor } from 'heroui-native'
 import { ChevronRight } from 'lucide-react-native'
 import { Pressable, Text, View } from 'react-native'
+import { useHuriroColors } from '../../lib/theme'
 
 const PRIORITY_META: Record<number, { readonly label: string; readonly color: ChipColor }> = {
 	0: { label: 'None', color: 'default' },
@@ -20,6 +21,7 @@ export function IssueCard({
 	readonly statusName?: string | undefined
 	readonly onPress: (issue: IssueDto) => void
 }) {
+	const colors = useHuriroColors()
 	const meta = PRIORITY_META[issue.priority] ?? { label: 'Medium', color: 'accent' as const }
 
 	return (
@@ -38,7 +40,7 @@ export function IssueCard({
 						<Chip size="sm" variant="soft" color={meta.color}>
 							<Chip.Label>{meta.label}</Chip.Label>
 						</Chip>
-						<ChevronRight size={15} color="#a1a1aa" />
+						<ChevronRight size={15} color={colors.muted} />
 					</View>
 				</View>
 

@@ -1,20 +1,30 @@
 import '../global.css'
+import '../src/lib/crypto-polyfill'
 import * as Linking from 'expo-linking'
 import * as Notifications from 'expo-notifications'
 import { Stack, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
+import * as SystemUI from 'expo-system-ui'
 import { HeroUINativeProvider } from 'heroui-native'
 import { useEffect } from 'react'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { useUniwind } from 'uniwind'
 import { parseHuriroDeepLink } from '../src/lib/deep-links'
 import { type PushNotificationHintPayload, resolvePushHintTarget } from '../src/lib/push'
 import { MobileRuntimeProvider, useMobileRuntime } from '../src/lib/runtime-context'
+import { useHuriroColors } from '../src/lib/theme'
 
 function RootNavigator() {
 	const router = useRouter()
 	const { runtime } = useMobileRuntime()
+	const { theme } = useUniwind()
+	const colors = useHuriroColors()
+
+	useEffect(() => {
+		void SystemUI.setBackgroundColorAsync(colors.background).catch(() => {})
+	}, [colors.background])
 
 	useEffect(() => {
 		const urlSub = Linking.addEventListener('url', ({ url }) => {
@@ -38,8 +48,17 @@ function RootNavigator() {
 
 	return (
 		<>
-			<StatusBar style="auto" />
-			<Stack screenOptions={{ headerShown: false }} />
+			<StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
+			<Stack
+				screenOptions={{
+					headerShown: false,
+					contentStyle: { backgroundColor: colors.background },
+					headerStyle: { backgroundColor: colors.surface },
+					headerTintColor: colors.accent,
+					headerTitleStyle: { color: colors.foreground },
+					headerShadowVisible: false
+				}}
+			/>
 		</>
 	)
 }
