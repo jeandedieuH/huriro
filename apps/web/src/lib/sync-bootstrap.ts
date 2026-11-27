@@ -92,6 +92,8 @@ import type {
 	TeamspaceMemberDto,
 	TriageSuggestionsDto,
 	UpdateAvailabilityWindowBody,
+	UpdateMyAvailabilityBody,
+	UserAvailabilityDto,
 	UserGroupDto,
 	UserWorkspaceProfileDto,
 	WebhookDeliveryDto,
@@ -592,6 +594,19 @@ function createLiveApiBridge(workspaceId: string): TaskApiBridge {
 		},
 		async updateMyChatStatus(body) {
 			return apiFetch<UserWorkspaceProfileDto>('/api/v1/chat/me/status', {
+				method: 'PUT',
+				body: JSON.stringify(body)
+			})
+		},
+		async listWorkspaceAvailability() {
+			const res = await apiFetch<{ data: UserAvailabilityDto[] }>('/api/v1/availability')
+			return res.data
+		},
+		async getMyAvailability() {
+			return apiFetch<UserAvailabilityDto>('/api/v1/availability/me')
+		},
+		async updateMyAvailability(body: UpdateMyAvailabilityBody) {
+			return apiFetch<UserAvailabilityDto>('/api/v1/availability/me', {
 				method: 'PUT',
 				body: JSON.stringify(body)
 			})

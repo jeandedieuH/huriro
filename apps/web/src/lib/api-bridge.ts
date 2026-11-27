@@ -170,6 +170,7 @@ import type {
 	UpdateGithubInstallationBody,
 	UpdateMailAccountBody,
 	UpdateMessageBody,
+	UpdateMyAvailabilityBody,
 	UpdateNotificationPreferencesBody,
 	UpdateSyncedBlockBody,
 	UpdateTeamspaceBody,
@@ -177,6 +178,7 @@ import type {
 	UpdateWebhookBody,
 	UpsertDocPublicShareBody,
 	UpsertMailDraftBody,
+	UserAvailabilityDto,
 	UserGroupDto,
 	UserWorkspaceProfileDto,
 	VotePollBody,
@@ -363,6 +365,9 @@ export interface TaskApiBridge {
 	deleteChannelBookmark(id: string): Promise<void>
 	getMyChatStatus(): Promise<UserWorkspaceProfileDto>
 	updateMyChatStatus(body: UpdateUserStatusBody): Promise<UserWorkspaceProfileDto>
+	listWorkspaceAvailability(): Promise<UserAvailabilityDto[]>
+	getMyAvailability(): Promise<UserAvailabilityDto>
+	updateMyAvailability(body: UpdateMyAvailabilityBody): Promise<UserAvailabilityDto>
 	listAvailabilityWindows(): Promise<AvailabilityWindowDto[]>
 	createAvailabilityWindow(body: CreateAvailabilityWindowBody): Promise<AvailabilityWindowDto>
 	updateAvailabilityWindow(id: string, body: UpdateAvailabilityWindowBody): Promise<AvailabilityWindowDto>

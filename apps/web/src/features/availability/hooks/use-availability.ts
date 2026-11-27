@@ -1,18 +1,45 @@
-import type { UserAvailabilityDto } from '@huriro/contracts'
+import type { UpdateMyAvailabilityBody, UserAvailabilityDto } from '@huriro/contracts'
 import { resolveEffectiveAvailability } from '@huriro/domain'
 import {
+	type HuriroSyncEngine,
 	PresenceActivityController,
 	useOptionalSyncEngine,
 	useSyncEngine,
 	useSyncStatus
 } from '@huriro/sync-client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { BootstrappedWorkspace } from '@/lib/sync-bootstrap'
 import { useOptionalWorkspace } from '@/lib/workspace'
-import { useAvailabilityStore } from '../store/availability-store'
+import { retainAvailabilityTicker, useAvailabilityStore } from '../store/availability-store'
 
 interface ObservableView<T> {
 	readonly toArray: T[]
 	subscribeChanges(callback: () => void, opts: { includeInitialState: boolean }): { unsubscribe(): void }
+}
+
+const inflightHydrations = new Map<string, Promise<void>>()
+
+async function hydrateAvailabilityFromApi(
+	key: string,
+	workspace: BootstrappedWorkspace,
+	engine: HuriroSyncEngine
+): Promise<void> {
+	const existing = inflightHydrations.get(key)
+	if (existing) return existing
+	const promise = (async () => {
+		const [mine, all] = await Promise.all([
+			workspace.api.getMyAvailability(),
+			workspace.api.listWorkspaceAvailability().catch(() => [])
+		])
+		const merged = new Map<string, UserAvailabilityDto>()
+		for (const row of all) merged.set(row.userId, row)
+		merged.set(mine.userId, mine)
+		await engine.syncUserAvailabilityRows([...merged.values()])
+	})().finally(() => {
+		inflightHydrations.delete(key)
+	})
+	inflightHydrations.set(key, promise)
+	return promise
 }
 
 /** `useCollectionItems` with a null-safe collection for provider-less stories/tests. */
@@ -79,11 +106,33 @@ export function useWorkspaceAvailability() {
 	const rows = useOptionalCollectionItems<UserAvailabilityDto>(engine?.collections.userAvailability ?? null)
 	const livePresenceByUser = useAvailabilityStore((s) => s.livePresenceByUser)
 	const nowTick = useAvailabilityStore((s) => s.nowTick)
+	const [hydrating, setHydrating] = useState(false)
+	const [hydrationError, setHydrationError] = useState<string | null>(null)
 
+	useEffect(() => retainAvailabilityTicker(), [])
+
+	const hasMine = currentUserId.length > 0 && rows.some((row) => row.userId === currentUserId)
+
+	// Hydrate directly from REST if the local replica lacks the user's availability row
+	// (e.g. legacy cached snapshot or first load after an older schema).
 	useEffect(() => {
-		const id = setInterval(() => useAvailabilityStore.getState().tick(), 60_000)
-		return () => clearInterval(id)
-	}, [])
+		if (!workspace || !engine || !currentUserId || hasMine) return
+		let cancelled = false
+		setHydrating(true)
+		setHydrationError(null)
+		void hydrateAvailabilityFromApi(`${engine.workspaceId}:${currentUserId}`, workspace, engine)
+			.catch((err) => {
+				if (!cancelled) {
+					setHydrationError(err instanceof Error ? err.message : 'Could not load availability')
+				}
+			})
+			.finally(() => {
+				if (!cancelled) setHydrating(false)
+			})
+		return () => {
+			cancelled = true
+		}
+	}, [currentUserId, engine, hasMine, workspace])
 
 	const byUser = useMemo(() => {
 		const atIso = new Date(nowTick).toISOString()
@@ -95,12 +144,34 @@ export function useWorkspaceAvailability() {
 		return map
 	}, [rows, livePresenceByUser, nowTick])
 
+	const refreshMyAvailability = useCallback(async () => {
+		if (!workspace || !engine || !currentUserId) return null
+		setHydrating(true)
+		setHydrationError(null)
+		try {
+			await hydrateAvailabilityFromApi(`${engine.workspaceId}:${currentUserId}`, workspace, engine)
+			return engine.collections.userAvailability.get(currentUserId) ?? null
+		} catch (err) {
+			setHydrationError(err instanceof Error ? err.message : 'Could not load availability')
+			return null
+		} finally {
+			setHydrating(false)
+		}
+	}, [currentUserId, engine, workspace])
+
 	const updateMyAvailability = useCallback(
-		async (patch: Parameters<NonNullable<typeof engine>['updateMyAvailability']>[0]) => {
+		async (patch: UpdateMyAvailabilityBody) => {
 			if (!engine) return null
+			const online =
+				engine.getStatus().online && (typeof navigator === 'undefined' || navigator.onLine !== false)
+			if (workspace && online) {
+				const saved = await workspace.api.updateMyAvailability(patch)
+				await engine.syncUserAvailabilityRow(saved)
+				return saved
+			}
 			return engine.updateMyAvailability(patch)
 		},
-		[engine]
+		[engine, workspace]
 	)
 
 	return {
@@ -108,6 +179,9 @@ export function useWorkspaceAvailability() {
 		rows,
 		byUser,
 		myAvailability: byUser.get(currentUserId) ?? null,
+		hydrating,
+		hydrationError,
+		refreshMyAvailability,
 		updateMyAvailability
 	}
 }

@@ -68,6 +68,7 @@ import type {
 	TeamspaceDto,
 	TeamspaceMemberDto,
 	UpdateAvailabilityWindowBody,
+	UpdateMyAvailabilityBody,
 	UserAvailabilityDto,
 	UserGroupDto,
 	UserWorkspaceProfileDto,
@@ -77,7 +78,15 @@ import type {
 	WorkspaceEmojiDto,
 	WorkspaceExportDto
 } from '@huriro/contracts'
-import { computeDmKey, extractRichLinks, parseSearchQuery } from '@huriro/domain'
+import {
+	computeDmKey,
+	extractRichLinks,
+	isValidIanaTimezone,
+	normalizeWorkingHours,
+	parseSearchQuery,
+	resolveEffectiveAvailability,
+	validateWorkingHours
+} from '@huriro/domain'
 import {
 	applyAllSuggestionsDecisionToYDoc,
 	applySuggestionDecisionToYDoc,
@@ -111,6 +120,66 @@ import {
 	type TaskApiBridge,
 	type WorkspaceMemberSummary
 } from './api-bridge'
+
+function toMutableWorkingHours(raw: unknown, timezone: string): UserAvailabilityDto['workingHours'] {
+	const normalized = normalizeWorkingHours(raw, timezone)
+	return {
+		enabled: normalized.enabled,
+		timezone: normalized.timezone,
+		days: {
+			mon: [...normalized.days.mon],
+			tue: [...normalized.days.tue],
+			wed: [...normalized.days.wed],
+			thu: [...normalized.days.thu],
+			fri: [...normalized.days.fri],
+			sat: [...normalized.days.sat],
+			sun: [...normalized.days.sun]
+		}
+	}
+}
+
+function syncPreviewOwnerAvailability(
+	engine: HuriroSyncEngine,
+	windows: readonly AvailabilityWindowDto[],
+	now: string,
+	chatStatus?: Pick<UserWorkspaceProfileDto, 'statusEmoji' | 'statusText' | 'statusExpiresAt' | 'dndUntil'>
+): void {
+	const existing = engine.collections.userAvailability.get(PREVIEW_USER_ID)
+	if (!existing) return
+	const nextProfile = {
+		...existing,
+		...(chatStatus
+			? {
+					statusEmoji: chatStatus.statusEmoji,
+					statusText: chatStatus.statusText,
+					statusExpiresAt: chatStatus.statusExpiresAt,
+					dndUntil: chatStatus.dndUntil
+				}
+			: {}),
+		version: existing.version + 1,
+		updatedAt: now
+	}
+	const resolved = resolveEffectiveAvailability({
+		profile: nextProfile,
+		windows,
+		livePresence: 'online',
+		nowUtcIso: now
+	})
+	engine.collections.userAvailabilityManaged.upsertMany(
+		[
+			{
+				...nextProfile,
+				effectiveState: resolved.state,
+				isRoutable: resolved.isRoutable,
+				isAcceptingNotifications: resolved.isAcceptingNotifications,
+				nextAvailableAt: resolved.nextAvailableAt,
+				delegateUserId: resolved.delegateUserId,
+				windows: windows.filter((w) => Date.parse(w.endsAt) > Date.parse(now))
+			}
+		],
+		{ force: true }
+	)
+}
 
 export function createPreviewSeedSnapshot() {
 	const now = '2026-11-22T12:00:00Z'
@@ -3135,6 +3204,7 @@ export function createPreviewApiBridge(
 			return previewMyChatStatus
 		},
 		async updateMyChatStatus(body) {
+			const now = new Date().toISOString()
 			previewMyChatStatus = {
 				...previewMyChatStatus,
 				statusEmoji: body.statusEmoji !== undefined ? body.statusEmoji : previewMyChatStatus.statusEmoji,
@@ -3142,19 +3212,185 @@ export function createPreviewApiBridge(
 				statusExpiresAt:
 					body.statusExpiresAt !== undefined ? body.statusExpiresAt : previewMyChatStatus.statusExpiresAt,
 				dndUntil: body.dndUntil !== undefined ? body.dndUntil : previewMyChatStatus.dndUntil,
-				updatedAt: new Date().toISOString()
+				updatedAt: now
 			}
+			syncPreviewOwnerAvailability(engine, previewAvailabilityWindows, now, previewMyChatStatus)
+			void engine.persistReplica()
 			return previewMyChatStatus
+		},
+		async listWorkspaceAvailability() {
+			return engine.collections.userAvailability.toArray
+		},
+		async getMyAvailability() {
+			const existing = engine.collections.userAvailability.get(PREVIEW_USER_ID)
+			if (existing) return existing
+			const nowIso = new Date().toISOString()
+			return {
+				id: PREVIEW_USER_ID,
+				userId: PREVIEW_USER_ID,
+				displayName: 'Hagen (Owner)',
+				handle: null,
+				avatarUrl: null,
+				manualState: 'auto',
+				manualStateExpiresAt: null,
+				effectiveState: 'available',
+				statusEmoji: previewMyChatStatus.statusEmoji,
+				statusText: previewMyChatStatus.statusText,
+				statusExpiresAt: previewMyChatStatus.statusExpiresAt,
+				dndUntil: previewMyChatStatus.dndUntil,
+				workingHours: toMutableWorkingHours(previewMyChatStatus.workingHours, 'UTC'),
+				timezone: 'UTC',
+				suppressNotificationsOffHours: false,
+				allowUrgentOverride: true,
+				withinWorkingHours: true,
+				isRoutable: true,
+				isAcceptingNotifications: true,
+				nextAvailableAt: null,
+				localTimeLabel: '12:15',
+				delegateUserId: null,
+				lastSeenAt: nowIso,
+				version: 1,
+				windows: previewAvailabilityWindows,
+				updatedAt: nowIso
+			}
+		},
+		async updateMyAvailability(body: UpdateMyAvailabilityBody) {
+			const existing =
+				engine.collections.userAvailability.get(PREVIEW_USER_ID) ??
+				({
+					id: PREVIEW_USER_ID,
+					userId: PREVIEW_USER_ID,
+					displayName: 'Hagen (Owner)',
+					handle: null,
+					avatarUrl: null,
+					manualState: 'auto',
+					manualStateExpiresAt: null,
+					effectiveState: 'available',
+					statusEmoji: null,
+					statusText: '',
+					statusExpiresAt: null,
+					dndUntil: null,
+					workingHours: toMutableWorkingHours({}, 'UTC'),
+					timezone: 'UTC',
+					suppressNotificationsOffHours: false,
+					allowUrgentOverride: true,
+					withinWorkingHours: true,
+					isRoutable: true,
+					isAcceptingNotifications: true,
+					nextAvailableAt: null,
+					localTimeLabel: '12:15',
+					delegateUserId: null,
+					lastSeenAt: new Date().toISOString(),
+					version: 0,
+					windows: previewAvailabilityWindows,
+					updatedAt: new Date().toISOString()
+				} satisfies UserAvailabilityDto)
+			if (body.expectedVersion !== undefined && existing.version !== body.expectedVersion) {
+				throw new Error('Availability changed since it was loaded; refresh and retry')
+			}
+			const nextTz = body.timezone ?? body.workingHours?.timezone ?? existing.timezone
+			if (!isValidIanaTimezone(nextTz)) {
+				throw new Error('timezone must be a valid IANA timezone')
+			}
+			let nextWorkingHours = existing.workingHours
+			if (body.workingHours !== undefined) {
+				const validation = validateWorkingHours({ ...body.workingHours, timezone: nextTz }, nextTz)
+				if (!validation.ok) {
+					throw new Error(`Invalid working hours: ${validation.errors.join('; ')}`)
+				}
+				nextWorkingHours = {
+					enabled: validation.normalized.enabled,
+					timezone: validation.normalized.timezone,
+					days: {
+						mon: [...validation.normalized.days.mon],
+						tue: [...validation.normalized.days.tue],
+						wed: [...validation.normalized.days.wed],
+						thu: [...validation.normalized.days.thu],
+						fri: [...validation.normalized.days.fri],
+						sat: [...validation.normalized.days.sat],
+						sun: [...validation.normalized.days.sun]
+					}
+				}
+			}
+			const atIso = new Date().toISOString()
+			const nextManual = body.manualState ?? existing.manualState
+			const nextProfile = {
+				...existing,
+				manualState: nextManual,
+				manualStateExpiresAt:
+					body.manualStateExpiresAt !== undefined
+						? body.manualStateExpiresAt
+						: nextManual === 'auto' && body.manualState !== undefined
+							? null
+							: existing.manualStateExpiresAt,
+				statusEmoji: body.statusEmoji !== undefined ? body.statusEmoji : existing.statusEmoji,
+				statusText: body.statusText !== undefined ? body.statusText : existing.statusText,
+				statusExpiresAt: body.statusExpiresAt !== undefined ? body.statusExpiresAt : existing.statusExpiresAt,
+				dndUntil: body.dndUntil !== undefined ? body.dndUntil : existing.dndUntil,
+				workingHours: nextWorkingHours,
+				timezone: nextTz,
+				suppressNotificationsOffHours:
+					body.suppressNotificationsOffHours ?? existing.suppressNotificationsOffHours,
+				allowUrgentOverride: body.allowUrgentOverride ?? existing.allowUrgentOverride,
+				version: existing.version + 1,
+				updatedAt: atIso
+			}
+			const resolved = resolveEffectiveAvailability({
+				profile: nextProfile,
+				windows: previewAvailabilityWindows,
+				livePresence: 'online',
+				nowUtcIso: atIso
+			})
+			const saved: UserAvailabilityDto = {
+				...nextProfile,
+				effectiveState: resolved.state,
+				statusEmoji: resolved.statusEmoji,
+				statusText: resolved.statusText,
+				statusExpiresAt: resolved.statusExpiresAt,
+				withinWorkingHours: resolved.withinWorkingHours,
+				isRoutable: resolved.isRoutable,
+				isAcceptingNotifications: resolved.isAcceptingNotifications,
+				nextAvailableAt: resolved.nextAvailableAt,
+				localTimeLabel: resolved.localTimeLabel,
+				delegateUserId: resolved.delegateUserId,
+				windows: previewAvailabilityWindows.filter((w) => Date.parse(w.endsAt) > Date.parse(atIso))
+			}
+			previewMyChatStatus = {
+				...previewMyChatStatus,
+				statusEmoji: saved.statusEmoji,
+				statusText: saved.statusText,
+				statusExpiresAt: saved.statusExpiresAt,
+				dndUntil: saved.dndUntil,
+				workingHours: saved.workingHours,
+				updatedAt: atIso
+			}
+			engine.collections.userAvailabilityManaged.upsertMany([saved], { force: true })
+			await engine.persistReplica()
+			return saved
 		},
 		async listAvailabilityWindows() {
 			return previewAvailabilityWindows
 		},
 		async createAvailabilityWindow(body: CreateAvailabilityWindowBody) {
+			const startMs = Date.parse(body.startsAt)
+			const endMs = Date.parse(body.endsAt)
+			if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+				throw new Error('endsAt must be after startsAt')
+			}
+			const kind = body.kind ?? 'ooo'
+			if (
+				kind === 'ooo' &&
+				previewAvailabilityWindows.some(
+					(w) => w.kind === 'ooo' && Date.parse(w.startsAt) < endMs && Date.parse(w.endsAt) > startMs
+				)
+			) {
+				throw new Error('An out-of-office window already overlaps these dates')
+			}
 			const now = new Date().toISOString()
 			const row: AvailabilityWindowDto = {
 				id: crypto.randomUUID(),
 				userId: PREVIEW_USER_ID,
-				kind: body.kind ?? 'ooo',
+				kind,
 				title: body.title ?? '',
 				message: body.message ?? '',
 				startsAt: body.startsAt,
@@ -3167,11 +3403,34 @@ export function createPreviewApiBridge(
 				updatedAt: now
 			}
 			previewAvailabilityWindows = [...previewAvailabilityWindows, row]
+			syncPreviewOwnerAvailability(engine, previewAvailabilityWindows, now)
+			await engine.persistReplica()
 			return row
 		},
 		async updateAvailabilityWindow(id: string, body: UpdateAvailabilityWindowBody) {
 			const current = previewAvailabilityWindows.find((window) => window.id === id)
 			if (!current) throw new Error('Availability window not found')
+			const startsAt = body.startsAt ?? current.startsAt
+			const endsAt = body.endsAt ?? current.endsAt
+			const startMs = Date.parse(startsAt)
+			const endMs = Date.parse(endsAt)
+			if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+				throw new Error('endsAt must be after startsAt')
+			}
+			const kind = body.kind ?? current.kind
+			if (
+				kind === 'ooo' &&
+				previewAvailabilityWindows.some(
+					(w) =>
+						w.id !== id &&
+						w.kind === 'ooo' &&
+						Date.parse(w.startsAt) < endMs &&
+						Date.parse(w.endsAt) > startMs
+				)
+			) {
+				throw new Error('An out-of-office window already overlaps these dates')
+			}
+			const now = new Date().toISOString()
 			const next: AvailabilityWindowDto = {
 				...current,
 				...(body.kind !== undefined ? { kind: body.kind } : {}),
@@ -3185,15 +3444,20 @@ export function createPreviewApiBridge(
 					? { suppressNotifications: body.suppressNotifications }
 					: {}),
 				version: current.version + 1,
-				updatedAt: new Date().toISOString()
+				updatedAt: now
 			}
 			previewAvailabilityWindows = previewAvailabilityWindows.map((window) =>
 				window.id === id ? next : window
 			)
+			syncPreviewOwnerAvailability(engine, previewAvailabilityWindows, now)
+			await engine.persistReplica()
 			return next
 		},
 		async deleteAvailabilityWindow(id: string) {
 			previewAvailabilityWindows = previewAvailabilityWindows.filter((window) => window.id !== id)
+			const now = new Date().toISOString()
+			syncPreviewOwnerAvailability(engine, previewAvailabilityWindows, now)
+			await engine.persistReplica()
 			return { deleted: true as const }
 		},
 		async listUserGroups() {

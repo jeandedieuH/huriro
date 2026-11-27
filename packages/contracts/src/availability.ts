@@ -24,6 +24,24 @@ export const WorkingHoursScheduleSchema = Type.Object({
 })
 export type WorkingHoursSchedule = Static<typeof WorkingHoursScheduleSchema>
 
+export const WorkingHoursDaysInputSchema = Type.Object({
+	mon: Type.Optional(Type.Array(WorkingHoursIntervalSchema, { maxItems: 4 })),
+	tue: Type.Optional(Type.Array(WorkingHoursIntervalSchema, { maxItems: 4 })),
+	wed: Type.Optional(Type.Array(WorkingHoursIntervalSchema, { maxItems: 4 })),
+	thu: Type.Optional(Type.Array(WorkingHoursIntervalSchema, { maxItems: 4 })),
+	fri: Type.Optional(Type.Array(WorkingHoursIntervalSchema, { maxItems: 4 })),
+	sat: Type.Optional(Type.Array(WorkingHoursIntervalSchema, { maxItems: 4 })),
+	sun: Type.Optional(Type.Array(WorkingHoursIntervalSchema, { maxItems: 4 }))
+})
+export type WorkingHoursDaysInput = Static<typeof WorkingHoursDaysInputSchema>
+
+export const WorkingHoursScheduleInputSchema = Type.Object({
+	enabled: Type.Boolean(),
+	timezone: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+	days: Type.Optional(WorkingHoursDaysInputSchema)
+})
+export type WorkingHoursScheduleInput = Static<typeof WorkingHoursScheduleInputSchema>
+
 export const ManualAvailabilityStateSchema = Type.Union([
 	Type.Literal('auto'),
 	Type.Literal('available'),
@@ -118,7 +136,7 @@ export const UserAvailabilityDto = Type.Object({
 	localTimeLabel: Type.Union([Type.String(), Type.Null()]),
 	delegateUserId: Type.Union([Type.String({ format: 'uuid' }), Type.Null()]),
 	lastSeenAt: Type.Union([Type.String(), Type.Null()]),
-	version: Type.Integer({ minimum: 1 }),
+	version: Type.Integer({ minimum: 0 }),
 	windows: Type.Array(AvailabilityWindowDto),
 	updatedAt: Type.Optional(Type.Union([Type.String(), Type.Null()]))
 })
@@ -131,11 +149,11 @@ export const UpdateMyAvailabilityBody = Type.Object({
 	statusText: Type.Optional(Type.String({ maxLength: 200 })),
 	statusExpiresAt: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 	dndUntil: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-	workingHours: Type.Optional(WorkingHoursScheduleSchema),
+	workingHours: Type.Optional(WorkingHoursScheduleInputSchema),
 	timezone: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
 	suppressNotificationsOffHours: Type.Optional(Type.Boolean()),
 	allowUrgentOverride: Type.Optional(Type.Boolean()),
-	expectedVersion: Type.Optional(Type.Integer({ minimum: 1 }))
+	expectedVersion: Type.Optional(Type.Integer({ minimum: 0 }))
 })
 export type UpdateMyAvailabilityBody = Static<typeof UpdateMyAvailabilityBody>
 
@@ -178,7 +196,7 @@ export const AvailabilitySetMyStatusToolInput = Type.Object(
 		statusText: Type.Optional(Type.String({ maxLength: 200 })),
 		statusExpiresAt: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 		dndUntil: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-		expectedVersion: Type.Optional(Type.Integer({ minimum: 1 }))
+		expectedVersion: Type.Optional(Type.Integer({ minimum: 0 }))
 	},
 	{ additionalProperties: false }
 )

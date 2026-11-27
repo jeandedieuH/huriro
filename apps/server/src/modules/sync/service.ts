@@ -752,12 +752,13 @@ async function runSingleMutation(
 		if (m.entityId !== actor.userId) {
 			throw new HttpError(403, 'insufficient_role', 'Availability is self-scoped')
 		}
+		const expectedVersion =
+			m.baseVersion ?? (typeof patch['version'] === 'number' ? patch['version'] : undefined)
 		const input = validateMutationPayload<UpdateMyAvailabilityBody>(
 			UpdateMyAvailabilityBody,
 			{
 				...patch,
-				expectedVersion:
-					m.baseVersion ?? (typeof patch['version'] === 'number' ? patch['version'] : undefined)
+				...(expectedVersion !== undefined ? { expectedVersion } : {})
 			},
 			'user_availability.update'
 		)

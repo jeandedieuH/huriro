@@ -732,7 +732,7 @@ export const GENERATED_TOOLS: readonly GeneratedTool[] = [
 				},
 				expectedVersion: {
 					type: 'integer',
-					minimum: 1
+					minimum: 0
 				}
 			},
 			additionalProperties: false

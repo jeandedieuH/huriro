@@ -156,7 +156,7 @@ export const MutationEnvelope = Type.Object({
 	entityId: Type.String({ format: 'uuid' }),
 	op: MutationOp,
 	patch: Type.Record(Type.String(), Type.Unknown()),
-	baseVersion: Type.Optional(Type.Integer({ minimum: 1 })),
+	baseVersion: Type.Optional(Type.Integer({ minimum: 0 })),
 	queuedAt: Type.Optional(Type.String())
 })
 export type MutationEnvelope = Static<typeof MutationEnvelope>

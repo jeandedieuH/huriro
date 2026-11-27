@@ -386,7 +386,8 @@ export async function updateMyAvailability(
 	assertActiveMember(actor)
 	const current = await getProfileRow(tx, actor.workspaceId, actor.userId)
 
-	const timezone = input.timezone ?? input.workingHours?.timezone ?? current?.timezone ?? 'UTC'
+	const fallbackTz = current?.timezone ?? (await requireMemberProfile(tx, actor, actor.userId)).timezone
+	const timezone = input.timezone ?? input.workingHours?.timezone ?? fallbackTz ?? 'UTC'
 	if (!isValidIanaTimezone(timezone)) {
 		throw new HttpError(422, 'validation_failed', 'timezone must be a valid IANA timezone')
 	}
@@ -525,7 +526,8 @@ async function upsertProfileForWindowChange(
 export async function createAvailabilityWindow(
 	tx: Queryable,
 	actor: ActorContext,
-	input: CreateAvailabilityWindowBody
+	input: CreateAvailabilityWindowBody,
+	presence?: PresenceRegistry
 ): Promise<{ readonly data: AvailabilityWindowDto; readonly cursor: number }> {
 	assertActiveMember(actor)
 	const kind = input.kind ?? 'ooo'
@@ -551,7 +553,12 @@ export async function createAvailabilityWindow(
 	const atIso = nowIso()
 	const windows =
 		(await windowsForUsers(tx, actor.workspaceId, [actor.userId], atIso)).get(actor.userId) ?? []
-	const { dto } = buildUserAvailabilityDto(profile, windows, 'offline', atIso)
+	const { dto } = buildUserAvailabilityDto(
+		profile,
+		windows,
+		presenceFor(presence, actor.workspaceId, actor.userId),
+		atIso
+	)
 	await emitAvailabilityEvent(tx, actor, {
 		userId: actor.userId,
 		eventType: 'availability.window.created.v1',
@@ -566,7 +573,8 @@ export async function updateAvailabilityWindow(
 	tx: Queryable,
 	actor: ActorContext,
 	windowId: string,
-	input: UpdateAvailabilityWindowBody
+	input: UpdateAvailabilityWindowBody,
+	presence?: PresenceRegistry
 ): Promise<{ readonly data: AvailabilityWindowDto; readonly cursor: number }> {
 	assertActiveMember(actor)
 	const current = await getWindowRow(tx, actor.workspaceId, windowId)
@@ -607,7 +615,12 @@ export async function updateAvailabilityWindow(
 	const atIso = nowIso()
 	const windows =
 		(await windowsForUsers(tx, actor.workspaceId, [actor.userId], atIso)).get(actor.userId) ?? []
-	const { dto } = buildUserAvailabilityDto(profile, windows, 'offline', atIso)
+	const { dto } = buildUserAvailabilityDto(
+		profile,
+		windows,
+		presenceFor(presence, actor.workspaceId, actor.userId),
+		atIso
+	)
 	await emitAvailabilityEvent(tx, actor, {
 		userId: actor.userId,
 		eventType: 'availability.window.updated.v1',
@@ -627,7 +640,8 @@ export async function updateAvailabilityWindow(
 export async function deleteAvailabilityWindow(
 	tx: Queryable,
 	actor: ActorContext,
-	windowId: string
+	windowId: string,
+	presence?: PresenceRegistry
 ): Promise<{ readonly deleted: true; readonly id: string; readonly cursor: number }> {
 	assertActiveMember(actor)
 	const current = await getWindowRow(tx, actor.workspaceId, windowId)
@@ -640,7 +654,12 @@ export async function deleteAvailabilityWindow(
 	const atIso = nowIso()
 	const windows =
 		(await windowsForUsers(tx, actor.workspaceId, [actor.userId], atIso)).get(actor.userId) ?? []
-	const { dto } = buildUserAvailabilityDto(profile, windows, 'offline', atIso)
+	const { dto } = buildUserAvailabilityDto(
+		profile,
+		windows,
+		presenceFor(presence, actor.workspaceId, actor.userId),
+		atIso
+	)
 	await emitAvailabilityEvent(tx, actor, {
 		userId: actor.userId,
 		eventType: 'availability.window.deleted.v1',
@@ -680,8 +699,11 @@ export async function runAvailabilitySweepOnce(
 	`
 	for (const item of due) {
 		try {
-			const cursor = await withWorkspace(sql, { workspaceId: item.workspaceId }, async (tx) => {
-				const rows = await tx<{ userId: string }[]>`
+			const cursor = await withWorkspace(
+				sql,
+				{ workspaceId: item.workspaceId, userId: item.userId },
+				async (tx) => {
+					const rows = await tx<{ userId: string }[]>`
 					UPDATE user_workspace_profiles SET
 						status_emoji = CASE WHEN status_expires_at IS NOT NULL AND status_expires_at <= now() THEN NULL ELSE status_emoji END,
 						status_text = CASE WHEN status_expires_at IS NOT NULL AND status_expires_at <= now() THEN '' ELSE status_text END,
@@ -693,16 +715,16 @@ export async function runAvailabilitySweepOnce(
 					WHERE workspace_id = ${item.workspaceId} AND user_id = ${item.userId}
 					RETURNING user_id AS "userId"
 				`
-				if (rows.length === 0) return null
-				const profile = await getProfileRow(tx, item.workspaceId, item.userId)
-				if (!profile) return null
-				const atIso = nowIso()
-				const windowRows = await listWindows(tx, item.workspaceId, [item.userId], {
-					all: true,
-					sinceIso: atIso
-				})
-				const { dto } = buildUserAvailabilityDto(profile, windowRows, 'offline', atIso)
-				await tx`
+					if (rows.length === 0) return null
+					const profile = await getProfileRow(tx, item.workspaceId, item.userId)
+					if (!profile) return null
+					const atIso = nowIso()
+					const windowRows = await listWindows(tx, item.workspaceId, [item.userId], {
+						all: true,
+						sinceIso: atIso
+					})
+					const { dto } = buildUserAvailabilityDto(profile, windowRows, 'offline', atIso)
+					await tx`
 					INSERT INTO outbox (workspace_id, aggregate, aggregate_id, event_type, payload)
 					VALUES (
 						${item.workspaceId}, 'user_availability', ${item.userId},
@@ -710,17 +732,18 @@ export async function runAvailabilitySweepOnce(
 						${tx.json({ userId: item.userId, effectiveState: dto.effectiveState } as never)}
 					)
 				`
-				return appendChanges(tx, item.workspaceId, [
-					{
-						entityType: 'user_availability',
-						entityId: item.userId,
-						action: 'upsert',
-						scope: ['visibility:workspace'],
-						payload: dto as unknown as Record<string, unknown>,
-						actorId: null
-					}
-				])
-			})
+					return appendChanges(tx, item.workspaceId, [
+						{
+							entityType: 'user_availability',
+							entityId: item.userId,
+							action: 'upsert',
+							scope: ['visibility:workspace'],
+							payload: dto as unknown as Record<string, unknown>,
+							actorId: null
+						}
+					])
+				}
+			)
 			if (cursor !== null && cursor !== undefined) {
 				expired += 1
 				cursors.set(item.workspaceId, Math.max(cursors.get(item.workspaceId) ?? 0, cursor))
@@ -737,20 +760,30 @@ export async function runAvailabilitySweepOnce(
 	for (const transition of transitions) {
 		try {
 			const cursor = await withWorkspace(sql, { workspaceId: transition.workspaceId }, async (tx) => {
-				const marker =
-					transition.transition === 'started' ? 'started_event_emitted_at' : 'ended_event_emitted_at'
-				const updated = await tx<Row[]>`
-					UPDATE user_availability_windows
-					SET ${tx.unsafe(marker)} = now()
-					WHERE workspace_id = ${transition.workspaceId}
-						AND id = ${transition.id}
-						AND ${tx.unsafe(marker)} IS NULL
-					RETURNING user_id AS "userId", kind, title, starts_at::text AS "startsAt", ends_at::text AS "endsAt",
-						delegate_user_id AS "delegateUserId"
-				`
+				const updated =
+					transition.transition === 'started'
+						? await tx<Row[]>`
+								UPDATE user_availability_windows
+								SET started_event_emitted_at = now()
+								WHERE workspace_id = ${transition.workspaceId}
+									AND id = ${transition.id}
+									AND started_event_emitted_at IS NULL
+								RETURNING user_id AS "userId", kind, title, starts_at::text AS "startsAt", ends_at::text AS "endsAt",
+									delegate_user_id AS "delegateUserId"
+							`
+						: await tx<Row[]>`
+								UPDATE user_availability_windows
+								SET ended_event_emitted_at = now()
+								WHERE workspace_id = ${transition.workspaceId}
+									AND id = ${transition.id}
+									AND ended_event_emitted_at IS NULL
+								RETURNING user_id AS "userId", kind, title, starts_at::text AS "startsAt", ends_at::text AS "endsAt",
+									delegate_user_id AS "delegateUserId"
+							`
 				const row = updated[0]
 				if (!row) return null
 				const userId = String(row['userId'])
+				await tx`SELECT set_config('app.user_id', ${userId}, true)`
 				const profile = await getProfileRow(tx, transition.workspaceId, userId)
 				if (!profile) return null
 				await upsertProfileRow(tx, transition.workspaceId, userId, {})

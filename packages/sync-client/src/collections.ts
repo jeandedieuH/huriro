@@ -36,7 +36,7 @@ interface SyncDriver<T extends { readonly id: string }> {
 interface ManagedCollection<T extends { readonly id: string }> {
 	readonly collection: Collection<T, string>
 	replaceAll(items: readonly T[]): void
-	upsertMany(items: readonly T[]): void
+	upsertMany(items: readonly T[], upsertOpts?: { readonly force?: boolean }): void
 	deleteMany(keys: readonly string[]): void
 	markReady(): void
 	values(): T[]
@@ -99,13 +99,18 @@ function makeManagedCollection<T extends { readonly id: string }>(
 			d.commit()
 			d.markReady()
 		},
-		upsertMany(items) {
+		upsertMany(items, upsertOpts) {
 			if (items.length === 0) return
 			const d = ensureDriver()
 			d.begin()
 			for (const item of items) {
 				const existing = collection.get(item.id)
-				if (existing !== undefined && opts?.guardWrite && !opts.guardWrite(item, existing)) {
+				if (
+					existing !== undefined &&
+					!upsertOpts?.force &&
+					opts?.guardWrite &&
+					!opts.guardWrite(item, existing)
+				) {
 					continue
 				}
 				d.write({ type: existing !== undefined ? 'update' : 'insert', value: item })
@@ -133,7 +138,7 @@ function makeManagedCollection<T extends { readonly id: string }>(
 	}
 }
 
-export const REPLICA_SCHEMA_VERSION = 3
+export const REPLICA_SCHEMA_VERSION = 4
 
 /** Tier-2 retention window — must mirror the server's 30d core-snapshot cutoff (§8.1). */
 export const TIER2_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
@@ -655,7 +660,8 @@ export class HuriroSyncCollections {
 			docDatabases: this.docDatabasesManaged.values(),
 			docDatabaseProperties: this.docDatabasePropertiesManaged.values(),
 			docDatabaseRows: this.docDatabaseRowsManaged.values(),
-			docDatabaseViews: this.docDatabaseViewsManaged.values()
+			docDatabaseViews: this.docDatabaseViewsManaged.values(),
+			userAvailability: this.userAvailabilityManaged.values()
 		}
 	}
 
@@ -682,5 +688,6 @@ export class HuriroSyncCollections {
 		this.docDatabasePropertiesManaged.replaceAll([])
 		this.docDatabaseRowsManaged.replaceAll([])
 		this.docDatabaseViewsManaged.replaceAll([])
+		this.userAvailabilityManaged.replaceAll([])
 	}
 }

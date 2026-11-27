@@ -17,8 +17,41 @@ import { useMobileAvailabilityStore } from '../../src/stores/availability-store'
 const STATES: readonly ManualAvailabilityState[] = ['auto', 'available', 'busy', 'dnd', 'away', 'ooo']
 const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
 type Weekday = (typeof WEEKDAYS)[number]
-type Days = Record<Weekday, WorkingHoursInterval[]>
-const EMPTY_DAYS: Days = { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] }
+interface DraftInterval extends WorkingHoursInterval {
+	readonly id: string
+}
+type DraftDays = Record<Weekday, DraftInterval[]>
+const EMPTY_DAYS: DraftDays = { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] }
+
+let mobileIntervalSeq = 0
+function nextMobileIntervalId(): string {
+	mobileIntervalSeq += 1
+	return `mwh-${mobileIntervalSeq}`
+}
+
+function toMobileDraftDays(source: Partial<Record<Weekday, readonly WorkingHoursInterval[]>>): DraftDays {
+	return {
+		mon: (source.mon ?? []).map((iv) => ({ ...iv, id: nextMobileIntervalId() })),
+		tue: (source.tue ?? []).map((iv) => ({ ...iv, id: nextMobileIntervalId() })),
+		wed: (source.wed ?? []).map((iv) => ({ ...iv, id: nextMobileIntervalId() })),
+		thu: (source.thu ?? []).map((iv) => ({ ...iv, id: nextMobileIntervalId() })),
+		fri: (source.fri ?? []).map((iv) => ({ ...iv, id: nextMobileIntervalId() })),
+		sat: (source.sat ?? []).map((iv) => ({ ...iv, id: nextMobileIntervalId() })),
+		sun: (source.sun ?? []).map((iv) => ({ ...iv, id: nextMobileIntervalId() }))
+	}
+}
+
+function serializeMobileDays(draft: DraftDays): Record<Weekday, WorkingHoursInterval[]> {
+	return {
+		mon: draft.mon.map(({ start, end }) => ({ start, end })),
+		tue: draft.tue.map(({ start, end }) => ({ start, end })),
+		wed: draft.wed.map(({ start, end }) => ({ start, end })),
+		thu: draft.thu.map(({ start, end }) => ({ start, end })),
+		fri: draft.fri.map(({ start, end }) => ({ start, end })),
+		sat: draft.sat.map(({ start, end }) => ({ start, end })),
+		sun: draft.sun.map(({ start, end }) => ({ start, end }))
+	}
+}
 const LABEL: Record<ManualAvailabilityState, MessageId> = {
 	auto: 'availability.manual.auto',
 	available: 'availability.manual.available',
@@ -35,7 +68,7 @@ export default function AvailabilitySettingsScreen() {
 	const [statusText, setStatusText] = useState('')
 	const [scheduleEnabled, setScheduleEnabled] = useState(false)
 	const [timezone, setTimezone] = useState('UTC')
-	const [days, setDays] = useState<Days>(EMPTY_DAYS)
+	const [days, setDays] = useState<DraftDays>(EMPTY_DAYS)
 	const [windows, setWindows] = useState<AvailabilityWindowDto[]>([])
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
@@ -50,7 +83,7 @@ export default function AvailabilitySettingsScreen() {
 				setStatusText(mine.statusText)
 				setScheduleEnabled(mine.workingHours.enabled)
 				setTimezone(mine.timezone)
-				setDays({ ...EMPTY_DAYS, ...mine.workingHours.days })
+				setDays(toMobileDraftDays(mine.workingHours.days))
 				setWindows(list)
 			})
 			.catch((err) => {
@@ -61,73 +94,100 @@ export default function AvailabilitySettingsScreen() {
 		}
 	}, [runtime, setMyAvailability])
 
-	async function saveStatus() {
-		if (!runtime || !myAvailability) return
+	async function runMutation(fallbackMessage: string, fn: () => Promise<void>) {
+		if (busy) return
 		setBusy(true)
+		setError(null)
 		try {
-			const next = await runtime.api.updateMyAvailability({
-				statusText,
-				statusEmoji: statusText ? '💬' : null,
-				expectedVersion: myAvailability.version
-			})
-			setMyAvailability(next)
+			await fn()
 		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Could not save status')
+			setError(err instanceof Error ? err.message : fallbackMessage)
 		} finally {
 			setBusy(false)
 		}
 	}
 
+	async function saveStatus() {
+		if (!runtime || !myAvailability) return
+		const version = myAvailability.version
+		await runMutation('Could not save status', async () => {
+			const next = await runtime.api.updateMyAvailability({
+				statusText,
+				statusEmoji: statusText ? '💬' : null,
+				expectedVersion: version
+			})
+			setMyAvailability(next)
+		})
+	}
+
 	async function setManual(manualState: ManualAvailabilityState) {
 		if (!runtime || !myAvailability) return
-		const next = await runtime.api.updateMyAvailability({
-			manualState,
-			expectedVersion: myAvailability.version
+		const version = myAvailability.version
+		await runMutation('Could not update availability', async () => {
+			const next = await runtime.api.updateMyAvailability({
+				manualState,
+				expectedVersion: version
+			})
+			setMyAvailability(next)
 		})
-		setMyAvailability(next)
 	}
 
 	async function toggleSchedule(enabled: boolean) {
 		if (!runtime || !myAvailability) return
+		const previous = scheduleEnabled
+		const version = myAvailability.version
 		setScheduleEnabled(enabled)
-		const next = await runtime.api.updateMyAvailability({
-			workingHours: { enabled, timezone, days },
-			timezone,
-			expectedVersion: myAvailability.version
-		})
-		setMyAvailability(next)
+		setBusy(true)
+		setError(null)
+		try {
+			const next = await runtime.api.updateMyAvailability({
+				workingHours: { enabled, timezone, days: serializeMobileDays(days) },
+				timezone,
+				expectedVersion: version
+			})
+			setMyAvailability(next)
+		} catch (err) {
+			setScheduleEnabled(previous)
+			setError(err instanceof Error ? err.message : 'Could not update working hours')
+		} finally {
+			setBusy(false)
+		}
 	}
 
 	async function saveWorkingHours() {
 		if (!runtime || !myAvailability) return
-		const next = await runtime.api.updateMyAvailability({
-			workingHours: { enabled: scheduleEnabled, timezone, days },
-			timezone,
-			expectedVersion: myAvailability.version
-		})
-		setMyAvailability(next)
-	}
-
-	function setInterval(day: Weekday, index: number, field: keyof WorkingHoursInterval, value: string) {
-		setDays((current) => {
-			const list = [...current[day]]
-			const existing = list[index] ?? { start: '09:00', end: '17:00' }
-			list[index] = { ...existing, [field]: value }
-			return { ...current, [day]: list }
+		const version = myAvailability.version
+		await runMutation('Could not save working hours', async () => {
+			const next = await runtime.api.updateMyAvailability({
+				workingHours: { enabled: scheduleEnabled, timezone, days: serializeMobileDays(days) },
+				timezone,
+				expectedVersion: version
+			})
+			setMyAvailability(next)
 		})
 	}
 
-	function addInterval(day: Weekday) {
+	function updateInterval(day: Weekday, id: string, field: keyof WorkingHoursInterval, value: string) {
 		setDays((current) => ({
 			...current,
-			[day]: [...current[day], { start: '09:00', end: '17:00' } as WorkingHoursInterval]
+			[day]: current[day].map((item) => (item.id === id ? { ...item, [field]: value } : item))
 		}))
 	}
 
-	function removeInterval(day: Weekday, index: number) {
+	function addInterval(day: Weekday) {
+		setDays((current) => {
+			if (current[day].length >= 4) return current
+			return {
+				...current,
+				[day]: [...current[day], { id: nextMobileIntervalId(), start: '09:00', end: '17:00' }]
+			}
+		})
+	}
+
+	function removeInterval(day: Weekday, id: string) {
 		setDays((current) => ({
 			...current,
-			[day]: current[day].filter((_, i) => i !== index)
+			[day]: current[day].filter((item) => item.id !== id)
 		}))
 	}
 
@@ -135,7 +195,7 @@ export default function AvailabilitySettingsScreen() {
 		if (!runtime) return
 		const start = new Date(Date.now() + 3_600_000)
 		const end = new Date(Date.now() + 4 * 3_600_000)
-		try {
+		await runMutation('Could not create window', async () => {
 			const created = await runtime.api.createAvailabilityWindow({
 				kind: 'ooo',
 				title: 'Out of office',
@@ -143,15 +203,15 @@ export default function AvailabilitySettingsScreen() {
 				endsAt: end.toISOString()
 			})
 			setWindows((current) => [...current, created])
-		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Could not create window')
-		}
+		})
 	}
 
 	async function deleteWindow(id: string) {
 		if (!runtime) return
-		await runtime.api.deleteAvailabilityWindow(id)
-		setWindows((current) => current.filter((window) => window.id !== id))
+		await runMutation('Could not delete window', async () => {
+			await runtime.api.deleteAvailabilityWindow(id)
+			setWindows((current) => current.filter((window) => window.id !== id))
+		})
 	}
 
 	return (
@@ -191,7 +251,11 @@ export default function AvailabilitySettingsScreen() {
 						<Text className="text-sm font-semibold text-foreground">
 							{t('availability.working-hours.title')}
 						</Text>
-						<Switch isSelected={scheduleEnabled} onSelectedChange={(value) => void toggleSchedule(value)} />
+						<Switch
+							isSelected={scheduleEnabled}
+							isDisabled={busy}
+							onSelectedChange={(value) => void toggleSchedule(value)}
+						/>
 					</View>
 					<View className="flex-row items-center gap-2">
 						<Text className="text-xs text-muted-foreground">{t('availability.working-hours.timezone')}</Text>
@@ -204,48 +268,51 @@ export default function AvailabilitySettingsScreen() {
 						<View key={day} className="gap-1">
 							<View className="flex-row items-center justify-between">
 								<Text className="text-xs font-medium text-foreground">{day.toUpperCase()}</Text>
-								<Pressable
-									onPress={() => addInterval(day)}
-									accessibilityLabel={t('availability.working-hours.add-interval')}
-									className="px-2 py-0.5"
-								>
-									<Text className="text-xs text-accent">+</Text>
-								</Pressable>
+								{days[day].length < 4 ? (
+									<Pressable
+										onPress={() => addInterval(day)}
+										accessibilityLabel={t('availability.working-hours.add-interval')}
+										className="px-2 py-0.5"
+									>
+										<Text className="text-xs text-accent">+</Text>
+									</Pressable>
+								) : null}
 							</View>
-							{(days[day].length > 0 ? days[day] : [{ start: '', end: '' }]).map((interval, index) => (
-								<View
-									key={`${day}-${interval.start}-${interval.end}`}
-									className="flex-row items-center gap-1"
-								>
-									<TextInput
-										value={interval.start}
-										onChangeText={(value) => setInterval(day, index, 'start', value)}
-										placeholder="09:00"
-										className="w-20 rounded-md border border-border bg-field px-2 py-1 text-xs text-foreground"
-										accessibilityLabel={`${day} start`}
-									/>
-									<Text className="text-xs text-muted-foreground">–</Text>
-									<TextInput
-										value={interval.end}
-										onChangeText={(value) => setInterval(day, index, 'end', value)}
-										placeholder="17:00"
-										className="w-20 rounded-md border border-border bg-field px-2 py-1 text-xs text-foreground"
-										accessibilityLabel={`${day} end`}
-									/>
-									{days[day].length > 0 ? (
+							{days[day].length === 0 ? (
+								<Text className="text-xs text-muted-foreground">
+									{t('availability.working-hours.day-off')}
+								</Text>
+							) : (
+								days[day].map((interval, index) => (
+									<View key={interval.id} className="flex-row items-center gap-1">
+										<TextInput
+											value={interval.start}
+											onChangeText={(value) => updateInterval(day, interval.id, 'start', value)}
+											placeholder="09:00"
+											className="w-20 rounded-md border border-border bg-field px-2 py-1 text-xs text-foreground"
+											accessibilityLabel={`${day} start ${index + 1}`}
+										/>
+										<Text className="text-xs text-muted-foreground">–</Text>
+										<TextInput
+											value={interval.end}
+											onChangeText={(value) => updateInterval(day, interval.id, 'end', value)}
+											placeholder="17:00"
+											className="w-20 rounded-md border border-border bg-field px-2 py-1 text-xs text-foreground"
+											accessibilityLabel={`${day} end ${index + 1}`}
+										/>
 										<Pressable
-											onPress={() => removeInterval(day, index)}
+											onPress={() => removeInterval(day, interval.id)}
 											accessibilityLabel={t('availability.working-hours.remove-interval')}
 											className="px-1"
 										>
 											<Trash2 size={13} color="#dc2626" />
 										</Pressable>
-									) : null}
-								</View>
-							))}
+									</View>
+								))
+							)}
 						</View>
 					))}
-					<Button size="sm" variant="secondary" onPress={() => void saveWorkingHours()}>
+					<Button size="sm" variant="secondary" isDisabled={busy} onPress={() => void saveWorkingHours()}>
 						<Button.Label>{t('common.save')}</Button.Label>
 					</Button>
 				</Card>
@@ -276,7 +343,7 @@ export default function AvailabilitySettingsScreen() {
 							</View>
 						))
 					)}
-					<Button size="sm" variant="secondary" onPress={() => void createWindow()}>
+					<Button size="sm" variant="secondary" isDisabled={busy} onPress={() => void createWindow()}>
 						<CalendarPlus size={14} color="#2563eb" />
 						<Button.Label>{t('availability.windows.add')}</Button.Label>
 					</Button>

@@ -94,6 +94,44 @@ describe('working hours normalization', () => {
 			days: { mon: [{ start: '09:00', end: '17:00' }] }
 		})
 		expect(good.ok).toBe(true)
+
+		const emptyEnabled = validateWorkingHours({
+			enabled: true,
+			timezone: 'UTC',
+			days: { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] }
+		})
+		expect(emptyEnabled.ok).toBe(false)
+
+		const emptyDisabled = validateWorkingHours({
+			enabled: false,
+			timezone: 'UTC',
+			days: { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] }
+		})
+		expect(emptyDisabled.ok).toBe(true)
+
+		const overlap = validateWorkingHours({
+			enabled: true,
+			timezone: 'UTC',
+			days: {
+				mon: [
+					{ start: '09:00', end: '13:00' },
+					{ start: '12:00', end: '17:00' }
+				]
+			}
+		})
+		expect(overlap.ok).toBe(false)
+
+		const split = validateWorkingHours({
+			enabled: true,
+			timezone: 'UTC',
+			days: {
+				mon: [
+					{ start: '09:00', end: '12:00' },
+					{ start: '13:00', end: '17:00' }
+				]
+			}
+		})
+		expect(split.ok).toBe(true)
 	})
 
 	test('exposes a local time label', () => {

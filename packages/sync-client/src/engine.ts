@@ -45,7 +45,9 @@ import type {
 	UpdateMyAvailabilityBody,
 	UpdateProjectBody,
 	UpdateProjectMilestoneBody,
-	UserAvailabilityDto
+	UserAvailabilityDto,
+	WorkingHoursSchedule,
+	WorkingHoursScheduleInput
 } from '@huriro/contracts'
 import { generateKeyBetween } from '@huriro/domain'
 import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
@@ -100,6 +102,25 @@ function mergeDatabaseCells(
 		out[propertyId] = { ...emptyDatabaseCell(), ...(value ?? {}) }
 	}
 	return out
+}
+
+function normalizeWorkingHoursInput(
+	input: WorkingHoursScheduleInput,
+	fallbackTimezone: string
+): WorkingHoursSchedule {
+	return {
+		enabled: input.enabled,
+		timezone: input.timezone ?? fallbackTimezone,
+		days: {
+			mon: [...(input.days?.mon ?? [])],
+			tue: [...(input.days?.tue ?? [])],
+			wed: [...(input.days?.wed ?? [])],
+			thu: [...(input.days?.thu ?? [])],
+			fri: [...(input.days?.fri ?? [])],
+			sat: [...(input.days?.sat ?? [])],
+			sun: [...(input.days?.sun ?? [])]
+		}
+	}
 }
 
 export interface SyncTransport extends MutationTransport {
@@ -845,6 +866,44 @@ export class HuriroSyncEngine {
 						{ ...existing, readAt: envelope.queuedAt ?? new Date().toISOString() }
 					])
 				}
+			} else if (envelope.entity === 'user_availability' && envelope.op === 'update') {
+				const existing = this.collections.userAvailability.get(envelope.entityId)
+				if (existing) {
+					const p = envelope.patch as Partial<UpdateMyAvailabilityBody>
+					this.collections.userAvailabilityManaged.upsertMany(
+						[
+							{
+								...existing,
+								...(p.manualState !== undefined ? { manualState: p.manualState } : {}),
+								...(p.manualStateExpiresAt !== undefined
+									? { manualStateExpiresAt: p.manualStateExpiresAt }
+									: {}),
+								...(p.statusEmoji !== undefined ? { statusEmoji: p.statusEmoji } : {}),
+								...(p.statusText !== undefined ? { statusText: p.statusText } : {}),
+								...(p.statusExpiresAt !== undefined ? { statusExpiresAt: p.statusExpiresAt } : {}),
+								...(p.dndUntil !== undefined ? { dndUntil: p.dndUntil } : {}),
+								...(p.workingHours !== undefined
+									? {
+											workingHours: normalizeWorkingHoursInput(
+												p.workingHours,
+												p.timezone ?? existing.timezone
+											)
+										}
+									: {}),
+								...(p.timezone !== undefined ? { timezone: p.timezone } : {}),
+								...(p.suppressNotificationsOffHours !== undefined
+									? { suppressNotificationsOffHours: p.suppressNotificationsOffHours }
+									: {}),
+								...(p.allowUrgentOverride !== undefined
+									? { allowUrgentOverride: p.allowUrgentOverride }
+									: {}),
+								version: existing.version + 1,
+								updatedAt: envelope.queuedAt ?? new Date().toISOString()
+							}
+						],
+						{ force: true }
+					)
+				}
 			} else if (envelope.entity === 'issue') {
 				if (envelope.op === 'delete') {
 					this.collections.issuesManaged.deleteMany([envelope.entityId])
@@ -1383,6 +1442,10 @@ export class HuriroSyncEngine {
 			this.collections.docDatabaseViewsManaged.upsertMany([result.data as unknown as DocDatabaseViewDto])
 		} else if (entity === 'doc_database_row') {
 			this.collections.docDatabaseRowsManaged.upsertMany([result.data as unknown as DocDatabaseRowDto])
+		} else if (entity === 'user_availability') {
+			this.collections.userAvailabilityManaged.upsertMany([result.data as unknown as UserAvailabilityDto], {
+				force: true
+			})
 		}
 	}
 
@@ -1444,6 +1507,10 @@ export class HuriroSyncEngine {
 			if (op === 'create') this.collections.docDatabaseRowsManaged.deleteMany([entityId])
 			else if (item.base)
 				this.collections.docDatabaseRowsManaged.upsertMany([item.base as unknown as DocDatabaseRowDto])
+		} else if (entity === 'user_availability' && item.base) {
+			this.collections.userAvailabilityManaged.upsertMany([item.base as unknown as UserAvailabilityDto], {
+				force: true
+			})
 		}
 	}
 
@@ -1504,6 +1571,23 @@ export class HuriroSyncEngine {
 						updatedAt: nowIso
 					}
 				])
+			}
+		} else if (conflict.entity === 'user_availability') {
+			if (rebased === null) {
+				this.collections.userAvailabilityManaged.upsertMany(
+					[conflict.serverValues as unknown as UserAvailabilityDto],
+					{ force: true }
+				)
+			} else {
+				this.collections.userAvailabilityManaged.upsertMany(
+					[
+						{
+							...(conflict.serverValues as unknown as UserAvailabilityDto),
+							...(rebased.patch as Partial<UserAvailabilityDto>)
+						}
+					],
+					{ force: true }
+				)
 			}
 		}
 		await this.persistReplica()
@@ -2142,6 +2226,8 @@ export class HuriroSyncEngine {
 
 	async updateMyAvailability(patch: UpdateMyAvailabilityBody): Promise<UserAvailabilityDto> {
 		const current = this.collections.userAvailability.get(this.currentUserId)
+		const baseVersion = current?.version ?? patch.expectedVersion ?? 0
+		const { expectedVersion: _ignoredExpectedVersion, ...cleanPatch } = patch
 		const nowIso = new Date().toISOString()
 		const optimistic: UserAvailabilityDto = {
 			id: this.currentUserId,
@@ -2160,12 +2246,13 @@ export class HuriroSyncEngine {
 			statusExpiresAt:
 				patch.statusExpiresAt !== undefined ? patch.statusExpiresAt : (current?.statusExpiresAt ?? null),
 			dndUntil: patch.dndUntil !== undefined ? patch.dndUntil : (current?.dndUntil ?? null),
-			workingHours: patch.workingHours ??
-				current?.workingHours ?? {
-					enabled: false,
-					timezone: 'UTC',
-					days: { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] }
-				},
+			workingHours: patch.workingHours
+				? normalizeWorkingHoursInput(patch.workingHours, patch.timezone ?? current?.timezone ?? 'UTC')
+				: (current?.workingHours ?? {
+						enabled: false,
+						timezone: 'UTC',
+						days: { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] }
+					}),
 			timezone: patch.timezone ?? current?.timezone ?? 'UTC',
 			suppressNotificationsOffHours:
 				patch.suppressNotificationsOffHours ?? current?.suppressNotificationsOffHours ?? false,
@@ -2177,7 +2264,7 @@ export class HuriroSyncEngine {
 			localTimeLabel: current?.localTimeLabel ?? null,
 			delegateUserId: current?.delegateUserId ?? null,
 			lastSeenAt: current?.lastSeenAt ?? null,
-			version: (current?.version ?? 0) + 1,
+			version: baseVersion + 1,
 			windows: current?.windows ?? [],
 			updatedAt: nowIso
 		}
@@ -2188,19 +2275,32 @@ export class HuriroSyncEngine {
 				entity: 'user_availability',
 				entityId: this.currentUserId,
 				op: 'update',
-				patch: patch as Record<string, unknown>,
-				baseVersion: current?.version ?? 1,
+				patch: cleanPatch as Record<string, unknown>,
+				baseVersion,
 				queuedAt: nowIso
 			},
 			...(current ? { base: current as unknown as Record<string, unknown> } : {}),
 			title: optimistic.statusText || 'Availability'
 		})
-		this.collections.userAvailabilityManaged.upsertMany([optimistic])
+		this.collections.userAvailabilityManaged.upsertMany([optimistic], { force: true })
 		await persistOutbox
 		await this.persistReplica()
 		this.emit()
 		if (this.online && this.transport) void this.flushOutbox()
 		return optimistic
+	}
+
+	async syncUserAvailabilityRow(dto: UserAvailabilityDto): Promise<void> {
+		this.collections.userAvailabilityManaged.upsertMany([dto], { force: true })
+		await this.persistReplica()
+		this.emit()
+	}
+
+	async syncUserAvailabilityRows(dtos: readonly UserAvailabilityDto[]): Promise<void> {
+		if (dtos.length === 0) return
+		this.collections.userAvailabilityManaged.upsertMany(dtos, { force: true })
+		await this.persistReplica()
+		this.emit()
 	}
 
 	async markNotificationRead(notificationId: string): Promise<void> {

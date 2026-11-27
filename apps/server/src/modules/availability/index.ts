@@ -97,7 +97,7 @@ export function availabilityModule(
 						endpoint: 'POST /api/v1/availability/windows',
 						requestBody: body,
 						successStatus: 201,
-						execute: () => createAvailabilityWindow(tx, actor, body)
+						execute: () => createAvailabilityWindow(tx, actor, body, presence)
 					})
 				)
 				set.status = res.status
@@ -117,7 +117,7 @@ export function availabilityModule(
 						key: headers['idempotency-key'],
 						endpoint: `PATCH /api/v1/availability/windows/${params.id}`,
 						requestBody: body,
-						execute: () => updateAvailabilityWindow(tx, actor, params.id, body)
+						execute: () => updateAvailabilityWindow(tx, actor, params.id, body, presence)
 					})
 				)
 				if (!res.replayed && pubsub) {
@@ -130,7 +130,9 @@ export function availabilityModule(
 			'/availability/windows/:id',
 			{ params: AvailabilityWindowParam },
 			async ({ params, workspaceCtx, inWorkspace }) => {
-				const result = await inWorkspace((tx, actor) => deleteAvailabilityWindow(tx, actor, params.id))
+				const result = await inWorkspace((tx, actor) =>
+					deleteAvailabilityWindow(tx, actor, params.id, presence)
+				)
 				if (pubsub) await pubsub.publishCursor(workspaceCtx.workspaceId, result.cursor)
 				return { deleted: true, id: result.id }
 			}

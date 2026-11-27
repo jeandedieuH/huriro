@@ -42,63 +42,31 @@ export interface AvailabilityWindowRow {
 	readonly updatedAt: string
 }
 
-const PROFILE_COLS = `
-	p.user_id AS "userId",
-	p.status_emoji AS "statusEmoji",
-	p.status_text AS "statusText",
-	p.status_expires_at::text AS "statusExpiresAt",
-	p.dnd_until::text AS "dndUntil",
-	p.working_hours AS "workingHours",
-	p.last_seen_at::text AS "lastSeenAt",
-	p.manual_state AS "manualState",
-	p.manual_state_expires_at::text AS "manualStateExpiresAt",
-	p.timezone AS timezone,
-	p.suppress_notifications_off_hours AS "suppressNotificationsOffHours",
-	p.allow_urgent_override AS "allowUrgentOverride",
-	p.version,
-	p.updated_at::text AS "updatedAt"
-`
-
-const WINDOW_COLS = `
-	id,
-	user_id AS "userId",
-	kind,
-	title,
-	message,
-	starts_at::text AS "startsAt",
-	ends_at::text AS "endsAt",
-	delegate_user_id AS "delegateUserId",
-	auto_decline_routing AS "autoDeclineRouting",
-	suppress_notifications AS "suppressNotifications",
-	version,
-	created_at::text AS "createdAt",
-	updated_at::text AS "updatedAt"
-`
-
-const WINDOW_RETURNING = `
-	id,
-	user_id AS "userId",
-	kind,
-	title,
-	message,
-	starts_at::text AS "startsAt",
-	ends_at::text AS "endsAt",
-	delegate_user_id AS "delegateUserId",
-	auto_decline_routing AS "autoDeclineRouting",
-	suppress_notifications AS "suppressNotifications",
-	version,
-	created_at::text AS "createdAt",
-	updated_at::text AS "updatedAt"
-`
-
 export async function getProfileRow(
 	tx: Queryable,
 	workspaceId: string,
 	userId: string
 ): Promise<AvailabilityProfileRow | null> {
 	const [row] = await tx<AvailabilityProfileRow[]>`
-		SELECT ${PROFILE_COLS}
+		SELECT
+			p.user_id AS "userId",
+			u.display_name AS "displayName",
+			u.avatar_url AS "avatarUrl",
+			p.status_emoji AS "statusEmoji",
+			p.status_text AS "statusText",
+			p.status_expires_at::text AS "statusExpiresAt",
+			p.dnd_until::text AS "dndUntil",
+			p.working_hours AS "workingHours",
+			p.last_seen_at::text AS "lastSeenAt",
+			p.manual_state AS "manualState",
+			p.manual_state_expires_at::text AS "manualStateExpiresAt",
+			p.timezone AS timezone,
+			p.suppress_notifications_off_hours AS "suppressNotificationsOffHours",
+			p.allow_urgent_override AS "allowUrgentOverride",
+			p.version,
+			p.updated_at::text AS "updatedAt"
 		FROM user_workspace_profiles p
+		LEFT JOIN users u ON u.id = p.user_id
 		WHERE p.workspace_id = ${workspaceId} AND p.user_id = ${userId}
 	`
 	return row ?? null
@@ -196,7 +164,20 @@ export async function listWindows(
 	if (opts?.all) {
 		const sinceIso = opts.sinceIso ?? '1970-01-01T00:00:00.000Z'
 		return tx<AvailabilityWindowRow[]>`
-			SELECT ${WINDOW_COLS}
+			SELECT
+				id,
+				user_id AS "userId",
+				kind,
+				title,
+				message,
+				starts_at::text AS "startsAt",
+				ends_at::text AS "endsAt",
+				delegate_user_id AS "delegateUserId",
+				auto_decline_routing AS "autoDeclineRouting",
+				suppress_notifications AS "suppressNotifications",
+				version,
+				created_at::text AS "createdAt",
+				updated_at::text AS "updatedAt"
 			FROM user_availability_windows
 			WHERE workspace_id = ${workspaceId}
 				AND user_id = ANY(${ids}::uuid[])
@@ -206,7 +187,20 @@ export async function listWindows(
 	}
 	const at = opts?.activeAt ?? new Date().toISOString()
 	return tx<AvailabilityWindowRow[]>`
-		SELECT ${WINDOW_COLS}
+		SELECT
+			id,
+			user_id AS "userId",
+			kind,
+			title,
+			message,
+			starts_at::text AS "startsAt",
+			ends_at::text AS "endsAt",
+			delegate_user_id AS "delegateUserId",
+			auto_decline_routing AS "autoDeclineRouting",
+			suppress_notifications AS "suppressNotifications",
+			version,
+			created_at::text AS "createdAt",
+			updated_at::text AS "updatedAt"
 		FROM user_availability_windows
 		WHERE workspace_id = ${workspaceId}
 			AND user_id = ANY(${ids}::uuid[])
@@ -222,7 +216,20 @@ export async function getWindowRow(
 	id: string
 ): Promise<AvailabilityWindowRow | null> {
 	const [row] = await tx<AvailabilityWindowRow[]>`
-		SELECT ${WINDOW_COLS}
+		SELECT
+			id,
+			user_id AS "userId",
+			kind,
+			title,
+			message,
+			starts_at::text AS "startsAt",
+			ends_at::text AS "endsAt",
+			delegate_user_id AS "delegateUserId",
+			auto_decline_routing AS "autoDeclineRouting",
+			suppress_notifications AS "suppressNotifications",
+			version,
+			created_at::text AS "createdAt",
+			updated_at::text AS "updatedAt"
 		FROM user_availability_windows
 		WHERE workspace_id = ${workspaceId} AND id = ${id}
 	`
@@ -271,7 +278,8 @@ export async function upsertProfileRow(
 	}
 ): Promise<AvailabilityProfileRow> {
 	const current = await getProfileRow(tx, workspaceId, userId)
-	if (current && input.expectedVersion !== undefined && current.version !== input.expectedVersion) {
+	const currentVersion = current?.version ?? 0
+	if (input.expectedVersion !== undefined && currentVersion !== input.expectedVersion) {
 		const err = new Error('stale_version')
 		;(err as Error & { code?: string }).code = 'stale_version'
 		throw err
@@ -288,7 +296,8 @@ export async function upsertProfileRow(
 			${input.statusExpiresAt ?? null}, ${input.dndUntil ?? null},
 			${tx.json((input.workingHours ?? {}) as never)}, now(),
 			${input.manualState ?? 'auto'}, ${input.manualStateExpiresAt ?? null},
-			${input.timezone ?? 'UTC'}, ${input.suppressNotificationsOffHours ?? false},
+			COALESCE(${input.timezone ?? null}, (SELECT timezone FROM users WHERE id = ${userId}), 'UTC'),
+			${input.suppressNotificationsOffHours ?? false},
 			${input.allowUrgentOverride ?? true}, 1
 		)
 		ON CONFLICT (workspace_id, user_id) DO UPDATE SET
@@ -334,7 +343,20 @@ export async function insertWindowRow(
 			${input.startsAt}, ${input.endsAt}, ${input.delegateUserId},
 			${input.autoDeclineRouting}, ${input.suppressNotifications}
 		)
-		RETURNING ${tx.unsafe(WINDOW_RETURNING)}
+		RETURNING
+			id,
+			user_id AS "userId",
+			kind,
+			title,
+			message,
+			starts_at::text AS "startsAt",
+			ends_at::text AS "endsAt",
+			delegate_user_id AS "delegateUserId",
+			auto_decline_routing AS "autoDeclineRouting",
+			suppress_notifications AS "suppressNotifications",
+			version,
+			created_at::text AS "createdAt",
+			updated_at::text AS "updatedAt"
 	`
 	if (!row) throw new Error('Failed to insert availability window')
 	return row
@@ -380,7 +402,20 @@ export async function updateWindowRow(
 			suppress_notifications = CASE WHEN ${has('suppressNotifications')} THEN ${patch.suppressNotifications ?? current.suppressNotifications} ELSE suppress_notifications END,
 			version = version + 1
 		WHERE workspace_id = ${workspaceId} AND id = ${id}
-		RETURNING ${tx.unsafe(WINDOW_RETURNING)}
+		RETURNING
+			id,
+			user_id AS "userId",
+			kind,
+			title,
+			message,
+			starts_at::text AS "startsAt",
+			ends_at::text AS "endsAt",
+			delegate_user_id AS "delegateUserId",
+			auto_decline_routing AS "autoDeclineRouting",
+			suppress_notifications AS "suppressNotifications",
+			version,
+			created_at::text AS "createdAt",
+			updated_at::text AS "updatedAt"
 	`
 	if (!row) throw new Error('Failed to update availability window')
 	return row

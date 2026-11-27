@@ -6,6 +6,18 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useUserAvailability, useWorkspaceAvailability } from '../hooks/use-availability'
 
+function formatBannerTimestamp(iso: unknown): string {
+	if (typeof iso !== 'string' || !iso) return ''
+	const parsed = Date.parse(iso)
+	if (!Number.isFinite(parsed)) return iso
+	return new Date(parsed).toLocaleString(undefined, {
+		month: 'short',
+		day: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit'
+	})
+}
+
 export interface AvailabilityWarningBannerProps {
 	readonly userId: string | null | undefined
 	readonly displayName?: string | undefined
@@ -25,7 +37,9 @@ export function AvailabilityWarningBanner({
 }: AvailabilityWarningBannerProps) {
 	const availability = useUserAvailability(userId)
 	const { byUser } = useWorkspaceAvailability()
-	const [dismissed, setDismissed] = useState(false)
+	const [dismissedUserId, setDismissedUserId] = useState<string | null>(null)
+	const dismissed = Boolean(userId && dismissedUserId === userId)
+
 	if (!availability || dismissed) return null
 	const warning = buildAvailabilityWarning(
 		{
@@ -55,8 +69,8 @@ export function AvailabilityWarningBanner({
 			<span className="min-w-0 flex-1">
 				{t(warning.i18nKey, {
 					name: String(warning.params['name'] ?? ''),
-					until: String(warning.params['until'] ?? ''),
-					next: String(warning.params['next'] ?? '')
+					until: formatBannerTimestamp(warning.params['until']),
+					next: formatBannerTimestamp(warning.params['next'])
 				})}
 			</span>
 			{delegate && onAssignDelegate ? (
@@ -75,7 +89,7 @@ export function AvailabilityWarningBanner({
 				type="button"
 				aria-label={t('shell.sidebar.filter-clear')}
 				className="rounded p-0.5 opacity-70 hover:opacity-100"
-				onClick={() => setDismissed(true)}
+				onClick={() => setDismissedUserId(userId ?? null)}
 			>
 				<X className="size-3.5" aria-hidden />
 			</button>

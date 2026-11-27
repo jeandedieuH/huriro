@@ -52,11 +52,12 @@ export function UserAvailabilityCard({ availability, children, className }: User
 				) : null}
 
 				{activeWindow ? (
-					<div className="mt-3 rounded-lg border border-info/30 bg-info/5 px-2.5 py-2 text-xs">
+					<div className="mt-3 space-y-1 rounded-lg border border-info/30 bg-info/5 px-2.5 py-2 text-xs">
 						<p className="font-medium text-info">{activeWindow.title || t('availability.state.ooo')}</p>
 						<p className="text-muted-foreground">
 							{t('availability.hover.until')} {formatWindow(activeWindow.endsAt)}
 						</p>
+						{activeWindow.message ? <p className="text-foreground/90">{activeWindow.message}</p> : null}
 					</div>
 				) : null}
 
@@ -67,9 +68,11 @@ export function UserAvailabilityCard({ availability, children, className }: User
 							{t('availability.hover.working-hours')}
 						</dt>
 						<dd className="tabular-nums">
-							{availability.withinWorkingHours
-								? t('availability.state.available')
-								: t('availability.state.off_hours')}
+							{!availability.workingHours.enabled
+								? t('availability.working-hours.not-set')
+								: availability.withinWorkingHours
+									? t('availability.state.available')
+									: t('availability.state.off_hours')}
 						</dd>
 					</div>
 					{delegate ? (

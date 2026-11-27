@@ -228,15 +228,27 @@ export function validateWorkingHours(raw: unknown, fallbackTimezone = 'UTC'): Wo
 			if (value.length > MAX_INTERVALS_PER_DAY) {
 				errors.push(`${key} supports at most ${MAX_INTERVALS_PER_DAY} intervals`)
 			}
+			const parsedDayIntervals: WorkingHoursInterval[] = []
 			for (const interval of value) {
-				if (!normalizeInterval(interval)) errors.push(`${key} contains an invalid interval`)
+				const parsed = normalizeInterval(interval)
+				if (!parsed) errors.push(`${key} contains an invalid interval`)
+				else parsedDayIntervals.push(parsed)
+			}
+			parsedDayIntervals.sort((a, b) => (minutesOfHHMM(a.start) ?? 0) - (minutesOfHHMM(b.start) ?? 0))
+			for (let i = 1; i < parsedDayIntervals.length; i++) {
+				const prev = parsedDayIntervals[i - 1]
+				const next = parsedDayIntervals[i]
+				if (prev && next && (minutesOfHHMM(next.start) ?? 0) < (minutesOfHHMM(prev.end) ?? 0)) {
+					errors.push(`${key} has overlapping intervals`)
+					break
+				}
 			}
 		}
 	}
 	const enabled = record['enabled']
 	if (enabled !== undefined && typeof enabled !== 'boolean') errors.push('enabled must be a boolean')
 	const normalized = normalizeWorkingHours(raw, fallbackTimezone)
-	if (normalized.enabled && !WEEKDAYS.some((day) => normalized.days[day].length > 0)) {
+	if (enabled === true && !WEEKDAYS.some((day) => normalized.days[day].length > 0)) {
 		errors.push('working hours cannot be enabled without at least one interval')
 	}
 	return { ok: errors.length === 0, errors, normalized }

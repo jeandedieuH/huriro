@@ -156,4 +156,90 @@ describe('Shared user availability (PostgreSQL 18)', () => {
 		expect(after.json['dndUntil']).toBeNull()
 		expect(after.json['statusText']).toBe('Focus')
 	})
+
+	test('supports version 0->1->2 optimistic saves, preserves displayName, and PATCH/DELETE windows', async () => {
+		if (!db) return
+		const fixture = await seedM1Fixture(db.owner)
+		const { app } = createIntegrationServer(db)
+
+		const firstSave = await apiRequest(app, {
+			method: 'PUT',
+			path: '/api/v1/availability/me',
+			workspaceId: fixture.workspaceId,
+			userId: fixture.memberAId,
+			body: {
+				manualState: 'busy',
+				statusEmoji: '🎯',
+				statusText: 'First save',
+				expectedVersion: 0
+			}
+		})
+		expect(firstSave.status).toBe(200)
+		expect(firstSave.json['version']).toBe(1)
+		expect(firstSave.json['displayName']).toContain('Member A')
+
+		const secondSave = await apiRequest(app, {
+			method: 'PUT',
+			path: '/api/v1/availability/me',
+			workspaceId: fixture.workspaceId,
+			userId: fixture.memberAId,
+			body: {
+				manualState: 'auto',
+				statusText: 'Second save',
+				expectedVersion: 1
+			}
+		})
+		expect(secondSave.status).toBe(200)
+		expect(secondSave.json['version']).toBe(2)
+		expect(secondSave.json['displayName']).toContain('Member A')
+
+		const staleSave = await apiRequest(app, {
+			method: 'PUT',
+			path: '/api/v1/availability/me',
+			workspaceId: fixture.workspaceId,
+			userId: fixture.memberAId,
+			body: {
+				statusText: 'Stale',
+				expectedVersion: 1
+			}
+		})
+		expect(staleSave.status).toBe(409)
+
+		const created = await apiRequest(app, {
+			method: 'POST',
+			path: '/api/v1/availability/windows',
+			workspaceId: fixture.workspaceId,
+			userId: fixture.memberAId,
+			body: {
+				kind: 'focus',
+				title: 'Morning focus',
+				startsAt: '2027-02-01T09:00:00.000Z',
+				endsAt: '2027-02-01T12:00:00.000Z'
+			}
+		})
+		expect(created.status).toBe(201)
+		const windowId = String(created.json['id'])
+
+		const updated = await apiRequest(app, {
+			method: 'PATCH',
+			path: `/api/v1/availability/windows/${windowId}`,
+			workspaceId: fixture.workspaceId,
+			userId: fixture.memberAId,
+			body: {
+				title: 'Extended focus',
+				message: 'Back at noon'
+			}
+		})
+		expect(updated.status).toBe(200)
+		expect(updated.json['title']).toBe('Extended focus')
+		expect(updated.json['message']).toBe('Back at noon')
+
+		const deleted = await apiRequest(app, {
+			method: 'DELETE',
+			path: `/api/v1/availability/windows/${windowId}`,
+			workspaceId: fixture.workspaceId,
+			userId: fixture.memberAId
+		})
+		expect(deleted.status).toBe(200)
+	})
 })

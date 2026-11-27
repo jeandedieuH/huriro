@@ -29,3 +29,23 @@ export const useAvailabilityStore = create<AvailabilityStoreState>((set) => ({
 	},
 	tick: () => set({ nowTick: Date.now() })
 }))
+
+let tickerListeners = 0
+let tickerId: ReturnType<typeof setInterval> | null = null
+
+/** Ref-counted 60s ticker shared across all availability hooks/components. */
+export function retainAvailabilityTicker(): () => void {
+	tickerListeners += 1
+	if (tickerListeners === 1 && tickerId === null) {
+		tickerId = setInterval(() => {
+			useAvailabilityStore.getState().tick()
+		}, 60_000)
+	}
+	return () => {
+		tickerListeners = Math.max(0, tickerListeners - 1)
+		if (tickerListeners === 0 && tickerId !== null) {
+			clearInterval(tickerId)
+			tickerId = null
+		}
+	}
+}

@@ -9144,9 +9144,7 @@
 									"workingHours": {
 										"type": "object",
 										"required": [
-											"enabled",
-											"timezone",
-											"days"
+											"enabled"
 										],
 										"properties": {
 											"enabled": {
@@ -9159,15 +9157,6 @@
 											},
 											"days": {
 												"type": "object",
-												"required": [
-													"mon",
-													"tue",
-													"wed",
-													"thu",
-													"fri",
-													"sat",
-													"sun"
-												],
 												"properties": {
 													"mon": {
 														"type": "array",
@@ -9333,7 +9322,7 @@
 									},
 									"expectedVersion": {
 										"type": "integer",
-										"minimum": 1
+										"minimum": 0
 									}
 								}
 							}
@@ -9385,9 +9374,7 @@
 									"workingHours": {
 										"type": "object",
 										"required": [
-											"enabled",
-											"timezone",
-											"days"
+											"enabled"
 										],
 										"properties": {
 											"enabled": {
@@ -9400,15 +9387,6 @@
 											},
 											"days": {
 												"type": "object",
-												"required": [
-													"mon",
-													"tue",
-													"wed",
-													"thu",
-													"fri",
-													"sat",
-													"sun"
-												],
 												"properties": {
 													"mon": {
 														"type": "array",
@@ -9574,7 +9552,7 @@
 									},
 									"expectedVersion": {
 										"type": "integer",
-										"minimum": 1
+										"minimum": 0
 									}
 								}
 							}
@@ -9626,9 +9604,7 @@
 									"workingHours": {
 										"type": "object",
 										"required": [
-											"enabled",
-											"timezone",
-											"days"
+											"enabled"
 										],
 										"properties": {
 											"enabled": {
@@ -9641,15 +9617,6 @@
 											},
 											"days": {
 												"type": "object",
-												"required": [
-													"mon",
-													"tue",
-													"wed",
-													"thu",
-													"fri",
-													"sat",
-													"sun"
-												],
 												"properties": {
 													"mon": {
 														"type": "array",
@@ -9815,7 +9782,7 @@
 									},
 									"expectedVersion": {
 										"type": "integer",
-										"minimum": 1
+										"minimum": 0
 									}
 								}
 							}
@@ -15745,7 +15712,7 @@
 												},
 												"baseVersion": {
 													"type": "integer",
-													"minimum": 1
+													"minimum": 0
 												},
 												"queuedAt": {
 													"type": "string"
@@ -15827,7 +15794,7 @@
 												},
 												"baseVersion": {
 													"type": "integer",
-													"minimum": 1
+													"minimum": 0
 												},
 												"queuedAt": {
 													"type": "string"
@@ -15909,7 +15876,7 @@
 												},
 												"baseVersion": {
 													"type": "integer",
-													"minimum": 1
+													"minimum": 0
 												},
 												"queuedAt": {
 													"type": "string"
@@ -25446,7 +25413,7 @@
 									},
 									"expectedVersion": {
 										"type": "integer",
-										"minimum": 1
+										"minimum": 0
 									}
 								},
 								"additionalProperties": false
@@ -25492,7 +25459,7 @@
 									},
 									"expectedVersion": {
 										"type": "integer",
-										"minimum": 1
+										"minimum": 0
 									}
 								},
 								"additionalProperties": false
@@ -25538,7 +25505,7 @@
 									},
 									"expectedVersion": {
 										"type": "integer",
-										"minimum": 1
+										"minimum": 0
 									}
 								},
 								"additionalProperties": false
